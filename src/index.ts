@@ -64,6 +64,8 @@ import {
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
+import { recallMemory, retainMemory } from './hindsight.js';
+import { makeCall, startVoiceServer } from './voice-server.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -250,7 +252,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true;
   }
 
-  const prompt = formatMessages(missedMessages, TIMEZONE);
+  const rawPrompt = formatMessages(missedMessages, TIMEZONE);
+
+  // Inject recalled memories from Hindsight (if configured)
+  const memories = await recallMemory(group.folder, rawPrompt);
+  const prompt = memories
+    ? `<memory>\n${memories}\n</memory>\n\n${rawPrompt}`
+    : rawPrompt;
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
@@ -330,6 +338,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       'Agent error, rolled back message cursor for retry',
     );
     return false;
+  }
+
+  // Store the conversation in Hindsight for future recall
+  if (output === 'success') {
+    void retainMemory(group.folder, rawPrompt);
   }
 
   return true;
@@ -503,6 +516,41 @@ async function startMessageLoop(): Promise<void> {
 
           // Pull all messages since lastAgentTimestamp so non-trigger
           // context that accumulated between triggers is included.
+          // Detect call intent — bypass the agent to avoid model refusal
+          // Matches: /call +49xxx goal  OR  natural language "call +49xxx ..."
+          const allowlistCfgForCall = loadSenderAllowlist();
+          const callIntentMsg = groupMessages.find(
+            (m) =>
+              (m.is_from_me || isTriggerAllowed(chatJid, m.sender, allowlistCfgForCall)) &&
+              /\b(call|ruf(e|an)?|anruf|ring|dial)\b/i.test(m.content) &&
+              /\+[\d\s\-]{7,20}/.test(m.content),
+          );
+          if (callIntentMsg) {
+            const text = callIntentMsg.content;
+            // Normalize number: extract +digits (strip spaces/dashes)
+            const rawMatch = text.match(/(\+[\d\s\-]{7,20})/);
+            const phoneMatch = rawMatch
+              ? [rawMatch[0], rawMatch[1].replace(/[\s\-]/g, '')]
+              : null;
+            if (phoneMatch) {
+              const to = phoneMatch[1];
+              // Goal = everything after the phone number (strip trigger word and /call prefix)
+              const afterNumber = text.slice(text.indexOf(to) + to.length).trim();
+              const goal = afterNumber ||
+                text.replace(/^.*?(call|ruf[ea]?|anruf|ring|dial)\s*/i, '').replace(/\+\d{7,15}/, '').trim() ||
+                'Have a conversation on behalf of Carsten';
+              lastAgentTimestamp[chatJid] = callIntentMsg.timestamp;
+              saveState();
+              const callChannel = findChannel(channels, chatJid);
+              void callChannel?.sendMessage(chatJid, `Rufe ${to} an. Ich schicke dir eine Zusammenfassung wenn der Anruf beendet ist.`);
+              makeCall(to, goal, chatJid).catch((err) => {
+                logger.error({ err, to }, 'makeCall failed');
+                void callChannel?.sendMessage(chatJid, `Anruf fehlgeschlagen: ${err.message}`);
+              });
+              continue;
+            }
+          }
+
           const allPending = getMessagesSince(
             chatJid,
             getOrRecoverCursor(chatJid),
@@ -729,6 +777,7 @@ async function main(): Promise<void> {
     getAvailableGroups,
     writeGroupsSnapshot: (gf, im, ag, rj) =>
       writeGroupsSnapshot(gf, im, ag, rj),
+    makeCall: (to, goal, chatJid) => makeCall(to, goal, chatJid),
     onTasksChanged: () => {
       const tasks = getAllTasks();
       const taskRows = tasks.map((t) => ({
@@ -744,6 +793,13 @@ async function main(): Promise<void> {
       for (const group of Object.values(registeredGroups)) {
         writeTasksSnapshot(group.folder, group.isMain === true, taskRows);
       }
+    },
+  });
+  startVoiceServer({
+    sendMessage: (jid, text) => {
+      const channel = findChannel(channels, jid);
+      if (!channel) throw new Error(`No channel for JID: ${jid}`);
+      return channel.sendMessage(jid, text);
     },
   });
   queue.setProcessMessagesFn(processGroupMessages);

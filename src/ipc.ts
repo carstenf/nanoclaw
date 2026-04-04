@@ -12,6 +12,7 @@ import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
+  makeCall: (to: string, goal: string, chatJid: string) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
@@ -173,6 +174,9 @@ export async function processTaskIpc(
     trigger?: string;
     requiresTrigger?: boolean;
     containerConfig?: RegisteredGroup['containerConfig'];
+    // For make_call
+    to?: string;
+    goal?: string;
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -459,6 +463,15 @@ export async function processTaskIpc(
           { data },
           'Invalid register_group request - missing required fields',
         );
+      }
+      break;
+
+    case 'make_call':
+      if (data.to && data.goal && data.chatJid) {
+        logger.info({ to: data.to, goal: data.goal, sourceGroup }, 'Initiating call via IPC');
+        await deps.makeCall(data.to, data.goal, data.chatJid);
+      } else {
+        logger.warn({ data }, 'make_call missing required fields');
       }
       break;
 

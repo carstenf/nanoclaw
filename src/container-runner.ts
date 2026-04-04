@@ -4,7 +4,6 @@
  */
 import { ChildProcess, spawn } from 'child_process';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 
 import {
@@ -134,6 +133,19 @@ function buildVolumeMounts(
     '.claude',
   );
   fs.mkdirSync(groupSessionsDir, { recursive: true });
+
+  // Sync host credentials into the group's .claude/ so the container can
+  // authenticate using the host's Claude.ai subscription (OAuth token).
+  const hostCredentials = path.join(
+    process.env.HOME || '/root',
+    '.claude',
+    '.credentials.json',
+  );
+  const groupCredentials = path.join(groupSessionsDir, '.credentials.json');
+  if (fs.existsSync(hostCredentials)) {
+    fs.copyFileSync(hostCredentials, groupCredentials);
+  }
+
   const settingsFile = path.join(groupSessionsDir, 'settings.json');
   if (!fs.existsSync(settingsFile)) {
     fs.writeFileSync(
@@ -175,14 +187,24 @@ function buildVolumeMounts(
     readonly: false,
   });
 
-  // Gmail credentials directory (for Gmail MCP inside the container)
-  const homeDir = os.homedir();
+  // Gmail MCP credentials
+  const homeDir = process.env.HOME || '/root';
   const gmailDir = path.join(homeDir, '.gmail-mcp');
   if (fs.existsSync(gmailDir)) {
     mounts.push({
       hostPath: gmailDir,
       containerPath: '/home/node/.gmail-mcp',
-      readonly: false, // MCP may need to refresh OAuth tokens
+      readonly: true,
+    });
+  }
+
+  // Google Calendar MCP credentials
+  const gcalendarDir = path.join(homeDir, '.gcalendar-mcp');
+  if (fs.existsSync(gcalendarDir)) {
+    mounts.push({
+      hostPath: gcalendarDir,
+      containerPath: '/home/node/.gcalendar-mcp',
+      readonly: true,
     });
   }
 
@@ -262,6 +284,13 @@ async function buildContainerArgs(
   });
   if (onecliApplied) {
     logger.info({ containerName }, 'OneCLI gateway config applied');
+    // Remove any ANTHROPIC_API_KEY placeholder OneCLI injects — credentials
+    // come from the mounted .credentials.json (Claude.ai subscription OAuth).
+    for (let i = args.length - 2; i >= 0; i--) {
+      if (args[i] === '-e' && args[i + 1].startsWith('ANTHROPIC_API_KEY=')) {
+        args.splice(i, 2);
+      }
+    }
   } else {
     logger.warn(
       { containerName },

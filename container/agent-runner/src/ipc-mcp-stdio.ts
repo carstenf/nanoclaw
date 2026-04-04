@@ -503,6 +503,32 @@ Use available_groups.json to find the JID for a group. The folder name must be c
   },
 );
 
+server.tool(
+  'make_call',
+  `Dispatches an external voice AI agent to conduct a phone call on Carsten's behalf.
+You are NOT making the call yourself — you are triggering a separate telephony service that handles the entire conversation autonomously.
+Use this tool whenever Carsten wants to reach someone by phone, request a callback, make a reservation, or any other phone-based task.
+If no phone number is in the current message, look for it in the conversation history before asking.
+Strips spaces/dashes from numbers automatically — +49 170 123 is fine.`,
+  {
+    to: z.string().describe('Phone number in E.164 format or with spaces/dashes, e.g. +49 170 8036426'),
+    goal: z.string().describe('Clear description of what to achieve, e.g. "Book a dentist appointment for Tuesday 3pm for Carsten Freek"'),
+  },
+  async (args) => {
+    const to = args.to.replace(/[\s\-]/g, '');
+    const data = {
+      type: 'make_call',
+      to,
+      goal: args.goal,
+      chatJid,
+    };
+    writeIpcFile(TASKS_DIR, data);
+    return {
+      content: [{ type: 'text' as const, text: `Calling ${to}. You will receive a summary when the call ends.` }],
+    };
+  },
+);
+
 // Start the stdio transport
 const transport = new StdioServerTransport();
 await server.connect(transport);
