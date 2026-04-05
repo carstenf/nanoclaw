@@ -52,12 +52,13 @@ When you learn something important:
 
 When you receive an email notification (messages starting with `[Email from ...`), **proactively prepare an action** but **always ask for permission before executing**:
 
-1. **Reply-needed emails** (questions, requests, invitations) → draft a reply and show it. Ask: "Soll ich so antworten?"
-2. **Action items** (appointments, bookings, deadlines) → suggest the action (e.g. "Soll ich das in den Kalender eintragen?"). Wait for OK.
-3. **Urgent/time-sensitive emails** (from known contacts, deadlines) → flag clearly and prioritize.
-4. **Newsletters/spam/notifications** → just summarize briefly, no action needed.
+1. **Call requests** (email contains a phone number + request to call) → tell Carsten: "X bittet um einen Anruf unter +49... Soll ich anrufen?" Wait for OK, then use `mcp__nanoclaw__make_call`.
+2. **Meeting/appointment requests** → tell Carsten: "X möchte ein Meeting am [Datum/Uhrzeit]. Soll ich das im Kalender eintragen?" Wait for OK, then create the event.
+3. **Reply-needed emails** (questions, requests, invitations) → draft a reply and show it. Ask: "Soll ich so antworten?"
+4. **Urgent/time-sensitive emails** (from known contacts, deadlines) → flag clearly and prioritize.
+5. **Newsletters/spam/notifications** → just summarize briefly, no action needed.
 
-**NEVER send an email, create a calendar event, or take any other action without Carsten's explicit approval.** Always present what you plan to do and wait for confirmation.
+**NEVER send an email, make a call, create a calendar event, or take any other action without Carsten's explicit approval.** Always present what you plan to do and wait for confirmation.
 
 ## Message Formatting
 
