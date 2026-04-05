@@ -516,53 +516,7 @@ async function startMessageLoop(): Promise<void> {
 
           // Pull all messages since lastAgentTimestamp so non-trigger
           // context that accumulated between triggers is included.
-          // Detect call intent — bypass the agent to avoid model refusal
-          // Matches: /call +49xxx goal  OR  natural language "call +49xxx ..."
-          const allowlistCfgForCall = loadSenderAllowlist();
-          const callIntentMsg = groupMessages.find(
-            (m) =>
-              (m.is_from_me ||
-                isTriggerAllowed(chatJid, m.sender, allowlistCfgForCall)) &&
-              /\b(call|ruf(e|an)?|anruf|ring|dial)\b/i.test(m.content) &&
-              /\+[\d\s\-]{7,20}/.test(m.content),
-          );
-          if (callIntentMsg) {
-            const text = callIntentMsg.content;
-            // Normalize number: extract +digits (strip spaces/dashes)
-            const rawMatch = text.match(/(\+[\d\s\-]{7,20})/);
-            const phoneMatch = rawMatch
-              ? [rawMatch[0], rawMatch[1].replace(/[\s\-]/g, '')]
-              : null;
-            if (phoneMatch) {
-              const to = phoneMatch[1];
-              // Goal = everything after the phone number (strip trigger word and /call prefix)
-              const afterNumber = text
-                .slice(text.indexOf(to) + to.length)
-                .trim();
-              const goal =
-                afterNumber ||
-                text
-                  .replace(/^.*?(call|ruf[ea]?|anruf|ring|dial)\s*/i, '')
-                  .replace(/\+\d{7,15}/, '')
-                  .trim() ||
-                'Have a conversation on behalf of Carsten';
-              lastAgentTimestamp[chatJid] = callIntentMsg.timestamp;
-              saveState();
-              const callChannel = findChannel(channels, chatJid);
-              void callChannel?.sendMessage(
-                chatJid,
-                `Rufe ${to} an. Ich schicke dir eine Zusammenfassung wenn der Anruf beendet ist.`,
-              );
-              makeCall(to, goal, chatJid).catch((err) => {
-                logger.error({ err, to }, 'makeCall failed');
-                void callChannel?.sendMessage(
-                  chatJid,
-                  `Anruf fehlgeschlagen: ${err.message}`,
-                );
-              });
-              continue;
-            }
-          }
+          // Call dispatch is handled by the container agent via make_call IPC tool
 
           const allPending = getMessagesSince(
             chatJid,
