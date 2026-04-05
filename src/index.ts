@@ -751,7 +751,13 @@ async function main(): Promise<void> {
     getAvailableGroups,
     writeGroupsSnapshot: (gf, im, ag, rj) =>
       writeGroupsSnapshot(gf, im, ag, rj),
-    makeCall: (to, goal, chatJid) => makeCall(to, goal, chatJid),
+    deleteMessage: async (jid, messageId) => {
+      const channel = findChannel(channels, jid);
+      if (!channel) throw new Error(`No channel for JID: ${jid}`);
+      if (!channel.deleteMessage) throw new Error(`Channel does not support delete`);
+      return channel.deleteMessage(jid, messageId);
+    },
+    makeCall: (to, goal, chatJid, voiceMode) => makeCall(to, goal, chatJid, voiceMode),
     onTasksChanged: () => {
       const tasks = getAllTasks();
       const taskRows = tasks.map((t) => ({

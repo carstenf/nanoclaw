@@ -281,8 +281,11 @@ export class GmailChannel implements Channel {
     this.opts.onChatMetadata(chatJid, timestamp, subject, 'gmail', false);
 
     // Find the main group to deliver the email notification
+    // Prefer the group with folder 'main', fall back to any isMain group
     const groups = this.opts.registeredGroups();
-    const mainEntry = Object.entries(groups).find(([, g]) => g.isMain === true);
+    const mainEntry =
+      Object.entries(groups).find(([, g]) => g.folder === 'main') ||
+      Object.entries(groups).find(([, g]) => g.isMain === true);
 
     if (!mainEntry) {
       logger.debug(

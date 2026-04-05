@@ -16,6 +16,7 @@ import {
   ONECLI_URL,
   TIMEZONE,
 } from './config.js';
+import { readEnvFile } from './env.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
 import {
@@ -276,6 +277,12 @@ async function buildContainerArgs(
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
+  // Pass Discord bot token so agent can interact with Discord API directly
+  const discordToken = readEnvFile(['DISCORD_BOT_TOKEN']).DISCORD_BOT_TOKEN;
+  if (discordToken) {
+    args.push('-e', `DISCORD_BOT_TOKEN=${discordToken}`);
+  }
+
   // OneCLI gateway handles credential injection — containers never see real secrets.
   // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
   const onecliApplied = await onecli.applyContainerConfig(args, {
@@ -284,10 +291,24 @@ async function buildContainerArgs(
   });
   if (onecliApplied) {
     logger.info({ containerName }, 'OneCLI gateway config applied');
-    // Remove any ANTHROPIC_API_KEY placeholder OneCLI injects — credentials
-    // come from the mounted .credentials.json (Claude.ai subscription OAuth).
+    // Remove credentials and proxy vars OneCLI injects — the container
+    // authenticates via mounted .credentials.json (Claude.ai Max OAuth),
+    // not through the OneCLI gateway. The proxy would route requests
+    // through an API key, causing unwanted billing.
+    const stripPrefixes = [
+      'ANTHROPIC_API_KEY=',
+      'HTTP_PROXY=',
+      'HTTPS_PROXY=',
+      'http_proxy=',
+      'https_proxy=',
+      'NODE_USE_ENV_PROXY=',
+      'GIT_HTTP_PROXY_AUTHMETHOD=',
+    ];
     for (let i = args.length - 2; i >= 0; i--) {
-      if (args[i] === '-e' && args[i + 1].startsWith('ANTHROPIC_API_KEY=')) {
+      if (
+        args[i] === '-e' &&
+        stripPrefixes.some((p) => args[i + 1].startsWith(p))
+      ) {
         args.splice(i, 2);
       }
     }

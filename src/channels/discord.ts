@@ -230,6 +230,27 @@ export class DiscordChannel implements Channel {
     }
   }
 
+  async deleteMessage(jid: string, messageId: string): Promise<void> {
+    if (!this.client) {
+      logger.warn('Discord client not initialized');
+      return;
+    }
+    try {
+      const channelId = jid.replace(/^dc:/, '');
+      const channel = await this.client.channels.fetch(channelId);
+      if (!channel || !('messages' in channel)) {
+        logger.warn({ jid }, 'Discord channel not found or not text-based');
+        return;
+      }
+      const textChannel = channel as TextChannel;
+      const msg = await textChannel.messages.fetch(messageId);
+      await msg.delete();
+      logger.info({ jid, messageId }, 'Discord message deleted');
+    } catch (err) {
+      logger.error({ jid, messageId, err }, 'Failed to delete Discord message');
+    }
+  }
+
   isConnected(): boolean {
     return this.client !== null && this.client.isReady();
   }

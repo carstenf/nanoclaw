@@ -15,13 +15,17 @@ const env = readEnvFile([
   'VOICE_SERVER_PORT',
   'HINDSIGHT_LLM_API_KEY',
   'ELEVENLABS_VOICE_ID',
+  'VOICE_MODE',
+  'OPENAI_REALTIME_VOICE',
 ]);
 
 const PORT = parseInt(env.VOICE_SERVER_PORT || '3600', 10);
-const PUBLIC_URL = env.VOICE_PUBLIC_URL; // e.g. https://domain.ngrok.dev/twilio
+const PUBLIC_URL = env.VOICE_PUBLIC_URL;
 const ACCOUNT_SID = env.TWILIO_ACCOUNT_SID;
 const AUTH_TOKEN = env.TWILIO_AUTH_TOKEN;
 const FROM_NUMBER = env.TWILIO_FROM_NUMBER;
+const VOICE_MODE = env.VOICE_MODE || 'relay'; // 'relay' or 'realtime'
+const REALTIME_VOICE = env.OPENAI_REALTIME_VOICE || 'coral';
 
 const VoiceResponse = twilio.twiml.VoiceResponse;
 
@@ -30,9 +34,10 @@ interface CallState {
   chatJid: string;
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
   currentLanguage: string;
+  voiceMode: 'relay' | 'realtime';
 }
 
-// Detect spoken language from transcribed text — used to switch TTS/STT mid-call
+// Detect spoken language from transcribed text
 function detectLanguage(text: string): string {
   const t = text.toLowerCase();
   const score: Record<string, number> = {
@@ -72,7 +77,7 @@ function detectLanguage(text: string): string {
   }
 
   const best = Object.entries(score).sort((a, b) => b[1] - a[1])[0];
-  return best[1] > 0 ? best[0] : 'de-DE'; // default German
+  return best[1] > 0 ? best[0] : 'de-DE';
 }
 
 const activeCalls = new Map<string, CallState>();
@@ -85,7 +90,11 @@ export async function makeCall(
   to: string,
   goal: string,
   chatJid: string,
+  voiceMode?: string,
 ): Promise<void> {
+  const mode = (voiceMode === 'relay' || voiceMode === 'realtime')
+    ? voiceMode
+    : VOICE_MODE;
   const client = twilio(ACCOUNT_SID, AUTH_TOKEN);
   const call = await client.calls.create({
     to,
@@ -99,8 +108,12 @@ export async function makeCall(
     chatJid,
     history: [],
     currentLanguage: 'de-DE',
+    voiceMode: mode as 'relay' | 'realtime',
   });
-  logger.info({ callSid: call.sid, to, goal }, 'Outbound call initiated');
+  logger.info(
+    { callSid: call.sid, to, goal, mode },
+    'Outbound call initiated',
+  );
 }
 
 export function startVoiceServer(deps: VoiceDeps): void {
@@ -114,7 +127,7 @@ export function startVoiceServer(deps: VoiceDeps): void {
   const app = express();
   app.use(express.urlencoded({ extended: false }));
 
-  // Initial webhook: return ConversationRelay TwiML
+  // Initial webhook: return TwiML based on VOICE_MODE
   app.post('/twilio/voice', (req, res) => {
     const callSid: string = req.body.CallSid;
     const state = activeCalls.get(callSid);
@@ -123,12 +136,22 @@ export function startVoiceServer(deps: VoiceDeps): void {
     if (!state) {
       twiml.say({ language: 'de-DE' }, 'Kein Kontext. Auf Wiederhören.');
       twiml.hangup();
+    } else if (state.voiceMode === 'realtime') {
+      // Media Streams mode → OpenAI Realtime API
+      const wsUrl = PUBLIC_URL.replace(/^https?:\/\//, 'wss://') + '/media';
+      const connect = twiml.connect();
+      const stream = connect.stream({ url: wsUrl });
+      stream.parameter({ name: 'callSid', value: callSid });
+      logger.info(
+        { callSid, wsUrl, twiml: twiml.toString() },
+        'Realtime TwiML generated',
+      );
     } else {
+      // ConversationRelay mode (default)
       const wsUrl = PUBLIC_URL.replace(/^https?:\/\//, 'wss://') + '/ws';
-      // ElevenLabs Sarah (multilingual), Flash 2.5 model for lowest latency
       const voice =
         env.ELEVENLABS_VOICE_ID ||
-        'EXAVITQu4vr4xnSDxMaL-flash_v2_5-1.0_0.8_0.8';
+        'lxYfHSkYm1EzQzGhdbfc-flash_v2_5-1.0_0.8_0.8';
       const connect = twiml.connect();
       connect.conversationRelay({
         url: wsUrl,
@@ -164,10 +187,29 @@ export function startVoiceServer(deps: VoiceDeps): void {
 
   const server = http.createServer(app);
 
-  // WebSocket server for ConversationRelay turns
-  const wss = new WebSocketServer({ server, path: '/twilio/ws' });
+  // Manual WebSocket upgrade routing — two WSS on one server
+  const wssRelay = new WebSocketServer({ noServer: true });
+  const wssMedia = new WebSocketServer({ noServer: true });
 
-  wss.on('connection', (ws: WebSocket) => {
+  server.on('upgrade', (request, socket, head) => {
+    const pathname = request.url || '';
+    if (pathname === '/twilio/ws') {
+      wssRelay.handleUpgrade(request, socket, head, (ws) => {
+        wssRelay.emit('connection', ws, request);
+      });
+    } else if (pathname === '/twilio/media') {
+      wssMedia.handleUpgrade(request, socket, head, (ws) => {
+        wssMedia.emit('connection', ws, request);
+      });
+    } else {
+      logger.warn({ pathname }, 'Unknown WebSocket path, destroying');
+      socket.destroy();
+    }
+  });
+
+  // --- ConversationRelay WebSocket (relay mode) ---
+
+  wssRelay.on('connection', (ws: WebSocket) => {
     let callSid: string | null = null;
     let state: CallState | null = null;
 
@@ -197,7 +239,6 @@ export function startVoiceServer(deps: VoiceDeps): void {
           );
           state.history.push({ role: 'user', content: userText });
 
-          // Detect language from caller's speech and switch TTS/STT if changed
           const detectedLang = detectLanguage(userText);
           if (detectedLang !== state.currentLanguage) {
             state.currentLanguage = detectedLang;
@@ -228,7 +269,7 @@ Rules for spoken conversation (this is text-to-speech — follow strictly):
 - No emojis, no bullet points, no markdown, no special characters
 - Short sentences only — one idea at a time
 - Respond in the same language the other person uses (default: German)
-- When the goal is achieved or the call should end, append [END_CALL] to your final response`,
+- When the goal is achieved or the call should end, finish your spoken goodbye naturally, then add the silent marker [END_CALL] at the very end. NEVER say the words "end call" aloud — the marker is invisible to the listener.`,
                 },
                 ...state.history,
               ],
@@ -308,8 +349,249 @@ Rules for spoken conversation (this is text-to-speech — follow strictly):
     });
   });
 
+  // --- Media Streams WebSocket (realtime mode) ---
+  wssMedia.on('connection', (twilioWs: WebSocket) => {
+    logger.info('Twilio Media Stream WebSocket connection received');
+    let callSid: string | null = null;
+    let state: CallState | null = null;
+    let streamSid: string | null = null;
+    let openaiWs: WebSocket | null = null;
+    const transcript: Array<{ role: 'user' | 'assistant'; text: string }> = [];
+
+    twilioWs.on('message', (raw: Buffer) => {
+      let msg: Record<string, unknown>;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+
+      // Log all non-media events (media events are too frequent)
+      if (msg.event !== 'media' && msg.type !== 'media') {
+        logger.info(
+          { event: msg.event || msg.type, streamSid: msg.streamSid },
+          'Twilio Media Stream event received',
+        );
+      }
+
+      // Twilio Media Streams uses 'event' not 'type'
+      const eventType = (msg.event || msg.type) as string;
+
+      switch (eventType) {
+        case 'connected':
+          logger.info('Twilio Media Stream connected');
+          break;
+
+        case 'start': {
+          const startMsg = msg.start as Record<string, unknown>;
+          streamSid = msg.streamSid as string;
+          logger.info(
+            { streamSid, startMsg: JSON.stringify(startMsg) },
+            'Realtime: raw start event',
+          );
+          callSid =
+            (startMsg?.callSid as string) ||
+            ((startMsg?.customParameters as Record<string, string>)
+              ?.callSid as string);
+          state = callSid ? activeCalls.get(callSid) ?? null : null;
+
+          if (!state || !callSid) {
+            logger.warn({ callSid, activeCalls: [...activeCalls.keys()] }, 'Realtime: no call state found');
+            twilioWs.close();
+            return;
+          }
+
+          logger.info(
+            { callSid, streamSid },
+            'Realtime session starting',
+          );
+
+          // Connect to OpenAI Realtime API
+          openaiWs = new WebSocket(
+            'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview',
+            {
+              headers: {
+                Authorization: `Bearer ${env.HINDSIGHT_LLM_API_KEY}`,
+                'OpenAI-Beta': 'realtime=v1',
+              },
+            },
+          );
+
+          openaiWs.on('open', () => {
+            logger.info({ callSid }, 'OpenAI Realtime WebSocket connected');
+
+            // Configure the session
+            openaiWs!.send(
+              JSON.stringify({
+                type: 'session.update',
+                session: {
+                  instructions: `You are Andy, a personal assistant making a phone call on behalf of Carsten (Munich, Germany).
+Goal: ${state!.goal}
+
+Rules:
+- Respond in the same language the other person uses (default: German)
+- Keep responses short — one or two sentences at a time
+- Be natural, warm, and conversational
+- Start by greeting the person and explaining why you are calling
+- When the goal is achieved, say a natural goodbye and stop responding`,
+                  voice: REALTIME_VOICE,
+                  input_audio_format: 'g711_ulaw',
+                  output_audio_format: 'g711_ulaw',
+                  input_audio_transcription: { model: 'whisper-1' },
+                  turn_detection: {
+                    type: 'server_vad',
+                    threshold: 0.5,
+                    prefix_padding_ms: 300,
+                    silence_duration_ms: 500,
+                  },
+                },
+              }),
+            );
+
+            // Trigger initial greeting — the model speaks first
+            openaiWs!.send(
+              JSON.stringify({
+                type: 'response.create',
+                response: {
+                  modalities: ['audio', 'text'],
+                  instructions:
+                    'Greet the person warmly in German. Introduce yourself as Andy calling on behalf of Carsten, then briefly state the purpose of the call.',
+                },
+              }),
+            );
+          });
+
+          openaiWs.on('message', (data: Buffer) => {
+            let event: Record<string, unknown>;
+            try {
+              event = JSON.parse(data.toString());
+            } catch {
+              return;
+            }
+
+            switch (event.type) {
+              case 'response.audio.delta':
+                // Forward audio from OpenAI to Twilio
+                if (
+                  streamSid &&
+                  twilioWs.readyState === WebSocket.OPEN
+                ) {
+                  twilioWs.send(
+                    JSON.stringify({
+                      event: 'media',
+                      streamSid,
+                      media: { payload: event.delta as string },
+                    }),
+                  );
+                }
+                break;
+
+              case 'input_audio_buffer.speech_started':
+                // User started talking — clear any pending Twilio audio
+                if (streamSid && twilioWs.readyState === WebSocket.OPEN) {
+                  twilioWs.send(
+                    JSON.stringify({ event: 'clear', streamSid }),
+                  );
+                }
+                break;
+
+              case 'conversation.item.input_audio_transcription.completed':
+                if (event.transcript) {
+                  const text = (event.transcript as string).trim();
+                  if (text) {
+                    transcript.push({ role: 'user', text });
+                    logger.debug(
+                      { callSid, text },
+                      'Realtime user transcript',
+                    );
+                  }
+                }
+                break;
+
+              case 'response.audio_transcript.done':
+                if (event.transcript) {
+                  const text = (event.transcript as string).trim();
+                  if (text) {
+                    transcript.push({ role: 'assistant', text });
+                    logger.debug(
+                      { callSid, text },
+                      'Realtime assistant transcript',
+                    );
+                  }
+                }
+                break;
+
+              case 'error':
+                logger.error(
+                  { callSid, error: event.error },
+                  'OpenAI Realtime error',
+                );
+                break;
+            }
+          });
+
+          openaiWs.on('error', (err) => {
+            logger.error({ callSid, err }, 'OpenAI Realtime WebSocket error');
+          });
+
+          openaiWs.on('close', () => {
+            logger.info({ callSid }, 'OpenAI Realtime WebSocket closed');
+          });
+
+          break;
+        }
+
+        case 'media': {
+          // Forward audio from Twilio to OpenAI
+          const media = msg.media as Record<string, unknown>;
+          if (openaiWs?.readyState === WebSocket.OPEN && media?.payload) {
+            openaiWs.send(
+              JSON.stringify({
+                type: 'input_audio_buffer.append',
+                audio: media.payload as string,
+              }),
+            );
+          }
+          break;
+        }
+
+        case 'stop':
+          logger.info({ callSid, streamSid }, 'Twilio Media Stream stopped');
+          if (openaiWs?.readyState === WebSocket.OPEN) {
+            openaiWs.close();
+          }
+          // Send summary
+          if (state && callSid) {
+            const summary = buildRealtimeSummary(state.goal, transcript);
+            void deps.sendMessage(state.chatJid, summary);
+            activeCalls.delete(callSid);
+          }
+          break;
+      }
+    });
+
+    twilioWs.on('close', () => {
+      if (openaiWs?.readyState === WebSocket.OPEN) {
+        openaiWs.close();
+      }
+      if (callSid && state) {
+        const summary = buildRealtimeSummary(state.goal, transcript);
+        void deps.sendMessage(state.chatJid, summary);
+        activeCalls.delete(callSid);
+      }
+      logger.info({ callSid }, 'Twilio Media Stream WebSocket closed');
+    });
+
+    twilioWs.on('error', (err) => {
+      logger.error({ callSid, err }, 'Twilio Media Stream WebSocket error');
+    });
+  });
+
   server.listen(PORT, '0.0.0.0', () => {
-    logger.info({ port: PORT }, 'Voice server started (ConversationRelay)');
+    logger.info(
+      { port: PORT, mode: VOICE_MODE },
+      'Voice server started',
+    );
   });
 }
 
@@ -321,4 +603,17 @@ function buildSummary(state: CallState): string {
     )
     .join('\n');
   return `Anruf abgeschlossen.\nZiel: ${state.goal}\n\n${turns}`;
+}
+
+function buildRealtimeSummary(
+  goal: string,
+  transcript: Array<{ role: 'user' | 'assistant'; text: string }>,
+): string {
+  const turns = transcript
+    .map(
+      (t) =>
+        `${t.role === 'user' ? 'Andere Seite' : 'Andy'}: ${t.text}`,
+    )
+    .join('\n');
+  return `Anruf abgeschlossen.\nZiel: ${goal}\n\n${turns || '(Kein Transkript verfügbar)'}`;
 }

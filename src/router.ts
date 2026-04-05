@@ -51,6 +51,17 @@ export function routeOutbound(
   return channel.sendMessage(jid, text);
 }
 
+export function routeDelete(
+  channels: Channel[],
+  jid: string,
+  messageId: string,
+): Promise<void> {
+  const channel = channels.find((c) => c.ownsJid(jid) && c.isConnected());
+  if (!channel) throw new Error(`No channel for JID: ${jid}`);
+  if (!channel.deleteMessage) throw new Error(`Channel does not support delete`);
+  return channel.deleteMessage(jid, messageId);
+}
+
 export function findChannel(
   channels: Channel[],
   jid: string,

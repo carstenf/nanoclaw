@@ -68,6 +68,26 @@ server.tool(
 );
 
 server.tool(
+  'delete_message',
+  'Delete a message in the current chat by its message ID. Works on Discord. Use this to clean up bot messages or when asked to delete messages.',
+  {
+    messageId: z.string().describe('The message ID to delete'),
+  },
+  async (args) => {
+    const data = {
+      type: 'delete_message',
+      chatJid,
+      messageId: args.messageId,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    };
+    writeIpcFile(MESSAGES_DIR, data);
+    return { content: [{ type: 'text' as const, text: 'Delete request sent.' }] };
+  },
+);
+
+
+server.tool(
   'schedule_task',
   `Schedule a recurring or one-time task. The task will run as a full agent with access to all tools. Returns the task ID for future reference. To modify an existing task, use update_task instead.
 
@@ -509,10 +529,15 @@ server.tool(
 You are NOT making the call yourself — you are triggering a separate telephony service that handles the entire conversation autonomously.
 Use this tool whenever Carsten wants to reach someone by phone, request a callback, make a reservation, or any other phone-based task.
 If no phone number is in the current message, look for it in the conversation history before asking.
-Strips spaces/dashes from numbers automatically — +49 170 123 is fine.`,
+Strips spaces/dashes from numbers automatically — +49 170 123 is fine.
+
+Voice mode selection:
+- "realtime" (default): Fastest response, most natural conversation flow. Best for negotiations, complex discussions, back-and-forth calls.
+- "relay": Higher quality voice (ElevenLabs), slightly higher latency. Best for short announcements, greetings, or when voice quality matters most.`,
   {
     to: z.string().describe('Phone number in E.164 format or with spaces/dashes, e.g. +49 170 8036426'),
     goal: z.string().describe('Clear description of what to achieve, e.g. "Book a dentist appointment for Tuesday 3pm for Carsten Freek"'),
+    voice_mode: z.enum(['realtime', 'relay']).default('realtime').describe('Voice mode: "realtime" for fast/interactive, "relay" for best voice quality'),
   },
   async (args) => {
     const to = args.to.replace(/[\s\-]/g, '');
@@ -520,6 +545,7 @@ Strips spaces/dashes from numbers automatically — +49 170 123 is fine.`,
       type: 'make_call',
       to,
       goal: args.goal,
+      voice_mode: args.voice_mode,
       chatJid,
     };
     writeIpcFile(TASKS_DIR, data);

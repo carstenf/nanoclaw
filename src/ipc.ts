@@ -12,7 +12,8 @@ import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
-  makeCall: (to: string, goal: string, chatJid: string) => Promise<void>;
+  deleteMessage: (jid: string, messageId: string) => Promise<void>;
+  makeCall: (to: string, goal: string, chatJid: string, voiceMode?: string) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
@@ -91,6 +92,27 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   logger.warn(
                     { chatJid: data.chatJid, sourceGroup },
                     'Unauthorized IPC message attempt blocked',
+                  );
+                }
+              } else if (
+                data.type === 'delete_message' &&
+                data.chatJid &&
+                data.messageId
+              ) {
+                const targetGroup = registeredGroups[data.chatJid];
+                if (
+                  isMain ||
+                  (targetGroup && targetGroup.folder === sourceGroup)
+                ) {
+                  await deps.deleteMessage(data.chatJid, data.messageId);
+                  logger.info(
+                    { chatJid: data.chatJid, messageId: data.messageId, sourceGroup },
+                    'IPC message deleted',
+                  );
+                } else {
+                  logger.warn(
+                    { chatJid: data.chatJid, sourceGroup },
+                    'Unauthorized IPC delete attempt blocked',
                   );
                 }
               }
@@ -177,6 +199,7 @@ export async function processTaskIpc(
     // For make_call
     to?: string;
     goal?: string;
+    voice_mode?: string;
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -469,10 +492,10 @@ export async function processTaskIpc(
     case 'make_call':
       if (data.to && data.goal && data.chatJid) {
         logger.info(
-          { to: data.to, goal: data.goal, sourceGroup },
+          { to: data.to, goal: data.goal, voice_mode: data.voice_mode, sourceGroup },
           'Initiating call via IPC',
         );
-        await deps.makeCall(data.to, data.goal, data.chatJid);
+        await deps.makeCall(data.to, data.goal, data.chatJid, data.voice_mode);
       } else {
         logger.warn({ data }, 'make_call missing required fields');
       }
