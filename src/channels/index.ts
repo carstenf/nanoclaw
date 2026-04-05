@@ -4,8 +4,8 @@
 // discord
 import './discord.js';
 
-// gmail
-import './gmail.js';
+// gmail — temporarily disabled (invalid_grant; needs re-auth)
+// import './gmail.js';
 
 // slack
 

@@ -468,7 +468,10 @@ export async function processTaskIpc(
 
     case 'make_call':
       if (data.to && data.goal && data.chatJid) {
-        logger.info({ to: data.to, goal: data.goal, sourceGroup }, 'Initiating call via IPC');
+        logger.info(
+          { to: data.to, goal: data.goal, sourceGroup },
+          'Initiating call via IPC',
+        );
         await deps.makeCall(data.to, data.goal, data.chatJid);
       } else {
         logger.warn({ data }, 'make_call missing required fields');
