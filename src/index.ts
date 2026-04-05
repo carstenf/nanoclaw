@@ -497,6 +497,13 @@ async function startMessageLoop(): Promise<void> {
           }
 
           const isMainGroup = group.isMain === true;
+
+          // Skip if all messages are from the bot itself (prevents re-trigger loops)
+          const hasExternalMessage = groupMessages.some(
+            (m) => !m.is_from_me && !m.is_bot_message,
+          );
+          if (!hasExternalMessage) continue;
+
           const needsTrigger = !isMainGroup && group.requiresTrigger !== false;
 
           // For non-main groups, only act on trigger messages.
