@@ -66,6 +66,7 @@ import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 import { recallMemory, retainMemory } from './hindsight.js';
 import { makeCall, startVoiceServer } from './voice-server.js';
+import { makeSipgateCall, startSipgateVoice } from './sipgate-voice.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -760,6 +761,8 @@ async function main(): Promise<void> {
     },
     makeCall: (to, goal, chatJid, voiceMode) =>
       makeCall(to, goal, chatJid, voiceMode),
+    makeSipgateCall: (to, goal, chatJid) =>
+      makeSipgateCall(to, goal, chatJid),
     onTasksChanged: () => {
       const tasks = getAllTasks();
       const taskRows = tasks.map((t) => ({
@@ -778,6 +781,13 @@ async function main(): Promise<void> {
     },
   });
   startVoiceServer({
+    sendMessage: (jid, text) => {
+      const channel = findChannel(channels, jid);
+      if (!channel) throw new Error(`No channel for JID: ${jid}`);
+      return channel.sendMessage(jid, text);
+    },
+  });
+  startSipgateVoice({
     sendMessage: (jid, text) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);

@@ -19,6 +19,11 @@ export interface IpcDeps {
     chatJid: string,
     voiceMode?: string,
   ) => Promise<void>;
+  makeSipgateCall: (
+    to: string,
+    goal: string,
+    chatJid: string,
+  ) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
@@ -512,6 +517,18 @@ export async function processTaskIpc(
         await deps.makeCall(data.to, data.goal, data.chatJid, data.voice_mode);
       } else {
         logger.warn({ data }, 'make_call missing required fields');
+      }
+      break;
+
+    case 'make_sipgate_call':
+      if (data.to && data.goal && data.chatJid) {
+        logger.info(
+          { to: data.to, goal: data.goal, sourceGroup },
+          'Initiating sipgate call via IPC',
+        );
+        await deps.makeSipgateCall(data.to, data.goal, data.chatJid);
+      } else {
+        logger.warn({ data }, 'make_sipgate_call missing required fields');
       }
       break;
 
