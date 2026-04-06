@@ -754,10 +754,12 @@ async function main(): Promise<void> {
     deleteMessage: async (jid, messageId) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
-      if (!channel.deleteMessage) throw new Error(`Channel does not support delete`);
+      if (!channel.deleteMessage)
+        throw new Error(`Channel does not support delete`);
       return channel.deleteMessage(jid, messageId);
     },
-    makeCall: (to, goal, chatJid, voiceMode) => makeCall(to, goal, chatJid, voiceMode),
+    makeCall: (to, goal, chatJid, voiceMode) =>
+      makeCall(to, goal, chatJid, voiceMode),
     onTasksChanged: () => {
       const tasks = getAllTasks();
       const taskRows = tasks.map((t) => ({

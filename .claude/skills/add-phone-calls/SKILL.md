@@ -36,7 +36,7 @@ TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 TWILIO_AUTH_TOKEN=your_auth_token
 TWILIO_FROM_NUMBER=+1xxxxxxxxxx
 VOICE_PUBLIC_URL=https://your-domain.com/twilio
-VOICE_SERVER_PORT=3600
+VOICE_SERVER_PORT=4401
 ```
 
 `VOICE_PUBLIC_URL` must be publicly reachable by Twilio (HTTPS). The voice server listens on `VOICE_SERVER_PORT`.

@@ -13,7 +13,12 @@ import { RegisteredGroup } from './types.js';
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
   deleteMessage: (jid: string, messageId: string) => Promise<void>;
-  makeCall: (to: string, goal: string, chatJid: string, voiceMode?: string) => Promise<void>;
+  makeCall: (
+    to: string,
+    goal: string,
+    chatJid: string,
+    voiceMode?: string,
+  ) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
@@ -106,7 +111,11 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 ) {
                   await deps.deleteMessage(data.chatJid, data.messageId);
                   logger.info(
-                    { chatJid: data.chatJid, messageId: data.messageId, sourceGroup },
+                    {
+                      chatJid: data.chatJid,
+                      messageId: data.messageId,
+                      sourceGroup,
+                    },
                     'IPC message deleted',
                   );
                 } else {
@@ -492,7 +501,12 @@ export async function processTaskIpc(
     case 'make_call':
       if (data.to && data.goal && data.chatJid) {
         logger.info(
-          { to: data.to, goal: data.goal, voice_mode: data.voice_mode, sourceGroup },
+          {
+            to: data.to,
+            goal: data.goal,
+            voice_mode: data.voice_mode,
+            sourceGroup,
+          },
           'Initiating call via IPC',
         );
         await deps.makeCall(data.to, data.goal, data.chatJid, data.voice_mode);

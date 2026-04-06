@@ -1,0 +1,40 @@
+# NanoClaw Docker Compose — Persistent Services
+#
+# This file manages long-running infrastructure containers only.
+# Agent containers (nanoclaw-main-*) are spawned on-demand by the
+# Node.js orchestrator (src/container-runner.ts) and are NOT part
+# of this Compose stack.
+#
+# Usage:
+#   docker compose -f docker-compose.proposed.yml up -d
+#
+# Port convention: all host ports in range 4400-4499 (see PORTS.md)
+
+services:
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight:latest
+    container_name: nanoclaw-hindsight
+    pull_policy: always
+    ports:
+      - "4410:8888"  # Hindsight API
+      - "4411:9999"  # Hindsight Web UI
+    environment:
+      HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_LLM_API_KEY}
+    volumes:
+      - hindsight-data:/home/hindsight/.pg0
+    networks:
+      - nanoclaw-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8888/docs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+networks:
+  nanoclaw-net:
+    name: nanoclaw-net
+
+volumes:
+  hindsight-data:

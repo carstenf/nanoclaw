@@ -4,6 +4,14 @@ All notable changes to NanoClaw will be documented in this file.
 
 For detailed release notes, see the [full changelog on the documentation site](https://docs.nanoclaw.dev/changelog).
 
+## [Unreleased] - 2026-04-06
+
+- fix(hindsight): migrate host ports from 8888/9999 to 4410/4411 (Port-Konvention 4400-4499). Container-interne Ports bleiben 8888/9999. `.env` und `.env.example` auf `localhost:4410` aktualisiert. NanoClaw und Hindsight neugestartet. Verify: `ss -tlnp` zeigt 4410+4411 lauschend, 8888+9999 frei. API recall-Test OK. Kein Reverse Proxy auf Lenovo1 betroffen.
+- docs: PORTS.md angelegt mit verbindlicher Port-Tabelle
+- docs(inventory): nanoclaw-main ist kein persistenter Container sondern wird on-demand per `docker run -i --rm` pro Nachricht gestartet. Kein Host-Port-Mapping noetig (rein outbound). Container-Name-Schema: `nanoclaw-{group}-{timestamp}` erklaert den Suffix im Briefing.
+- docs: docker-compose.proposed.yml erstellt — bereinigte Compose mit Healthcheck, nanoclaw-net, stabilem Container-Namen. Nicht aktiv, wartet auf Freigabe.
+- fix(voice): migrate voice-server port from 3700 to 4401 (Port-Konvention 4400-4499). Geaendert in `.env`, `src/voice-server.ts` (Default-Fallback), `.claude/skills/add-phone-calls/SKILL.md` (Doku). Verify: `ss -tlnp` zeigt 4401 lauschend, 3700 frei. Express antwortet auf 4401. Echter Anruf-Test nicht moeglich (braucht eingehenden Twilio-Call).
+
 ## [1.2.36] - 2026-03-26
 
 - [BREAKING] Replaced pino logger with built-in logger. WhatsApp users must re-merge the WhatsApp fork to pick up the Baileys logger compatibility fix: `git fetch whatsapp main && git merge whatsapp/main`. If the `whatsapp` remote is not configured: `git remote add whatsapp https://github.com/qwibitai/nanoclaw-whatsapp.git`.

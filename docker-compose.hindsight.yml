@@ -3,8 +3,8 @@ services:
     image: ghcr.io/vectorize-io/hindsight:latest
     pull_policy: always
     ports:
-      - "8888:8888"  # API
-      - "9999:9999"  # Web UI
+      - "4410:8888"  # API
+      - "4411:9999"  # Web UI
     environment:
       HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_LLM_API_KEY}
     volumes:

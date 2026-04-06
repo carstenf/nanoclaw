@@ -19,7 +19,7 @@ const env = readEnvFile([
   'OPENAI_REALTIME_VOICE',
 ]);
 
-const PORT = parseInt(env.VOICE_SERVER_PORT || '3600', 10);
+const PORT = parseInt(env.VOICE_SERVER_PORT || '4401', 10);
 const PUBLIC_URL = env.VOICE_PUBLIC_URL;
 const ACCOUNT_SID = env.TWILIO_ACCOUNT_SID;
 const AUTH_TOKEN = env.TWILIO_AUTH_TOKEN;
@@ -92,9 +92,8 @@ export async function makeCall(
   chatJid: string,
   voiceMode?: string,
 ): Promise<void> {
-  const mode = (voiceMode === 'relay' || voiceMode === 'realtime')
-    ? voiceMode
-    : VOICE_MODE;
+  const mode =
+    voiceMode === 'relay' || voiceMode === 'realtime' ? voiceMode : VOICE_MODE;
   const client = twilio(ACCOUNT_SID, AUTH_TOKEN);
   const call = await client.calls.create({
     to,
@@ -110,10 +109,7 @@ export async function makeCall(
     currentLanguage: 'de-DE',
     voiceMode: mode as 'relay' | 'realtime',
   });
-  logger.info(
-    { callSid: call.sid, to, goal, mode },
-    'Outbound call initiated',
-  );
+  logger.info({ callSid: call.sid, to, goal, mode }, 'Outbound call initiated');
 }
 
 export function startVoiceServer(deps: VoiceDeps): void {
@@ -393,18 +389,18 @@ Rules for spoken conversation (this is text-to-speech — follow strictly):
             (startMsg?.callSid as string) ||
             ((startMsg?.customParameters as Record<string, string>)
               ?.callSid as string);
-          state = callSid ? activeCalls.get(callSid) ?? null : null;
+          state = callSid ? (activeCalls.get(callSid) ?? null) : null;
 
           if (!state || !callSid) {
-            logger.warn({ callSid, activeCalls: [...activeCalls.keys()] }, 'Realtime: no call state found');
+            logger.warn(
+              { callSid, activeCalls: [...activeCalls.keys()] },
+              'Realtime: no call state found',
+            );
             twilioWs.close();
             return;
           }
 
-          logger.info(
-            { callSid, streamSid },
-            'Realtime session starting',
-          );
+          logger.info({ callSid, streamSid }, 'Realtime session starting');
 
           // Connect to OpenAI Realtime API
           openaiWs = new WebSocket(
@@ -472,10 +468,7 @@ Rules:
             switch (event.type) {
               case 'response.audio.delta':
                 // Forward audio from OpenAI to Twilio
-                if (
-                  streamSid &&
-                  twilioWs.readyState === WebSocket.OPEN
-                ) {
+                if (streamSid && twilioWs.readyState === WebSocket.OPEN) {
                   twilioWs.send(
                     JSON.stringify({
                       event: 'media',
@@ -489,9 +482,7 @@ Rules:
               case 'input_audio_buffer.speech_started':
                 // User started talking — clear any pending Twilio audio
                 if (streamSid && twilioWs.readyState === WebSocket.OPEN) {
-                  twilioWs.send(
-                    JSON.stringify({ event: 'clear', streamSid }),
-                  );
+                  twilioWs.send(JSON.stringify({ event: 'clear', streamSid }));
                 }
                 break;
 
@@ -500,10 +491,7 @@ Rules:
                   const text = (event.transcript as string).trim();
                   if (text) {
                     transcript.push({ role: 'user', text });
-                    logger.debug(
-                      { callSid, text },
-                      'Realtime user transcript',
-                    );
+                    logger.debug({ callSid, text }, 'Realtime user transcript');
                   }
                 }
                 break;
@@ -588,10 +576,7 @@ Rules:
   });
 
   server.listen(PORT, '0.0.0.0', () => {
-    logger.info(
-      { port: PORT, mode: VOICE_MODE },
-      'Voice server started',
-    );
+    logger.info({ port: PORT, mode: VOICE_MODE }, 'Voice server started');
   });
 }
 
@@ -610,10 +595,7 @@ function buildRealtimeSummary(
   transcript: Array<{ role: 'user' | 'assistant'; text: string }>,
 ): string {
   const turns = transcript
-    .map(
-      (t) =>
-        `${t.role === 'user' ? 'Andere Seite' : 'Andy'}: ${t.text}`,
-    )
+    .map((t) => `${t.role === 'user' ? 'Andere Seite' : 'Andy'}: ${t.text}`)
     .join('\n');
   return `Anruf abgeschlossen.\nZiel: ${goal}\n\n${turns || '(Kein Transkript verfügbar)'}`;
 }

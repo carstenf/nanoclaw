@@ -58,7 +58,8 @@ export function routeDelete(
 ): Promise<void> {
   const channel = channels.find((c) => c.ownsJid(jid) && c.isConnected());
   if (!channel) throw new Error(`No channel for JID: ${jid}`);
-  if (!channel.deleteMessage) throw new Error(`Channel does not support delete`);
+  if (!channel.deleteMessage)
+    throw new Error(`Channel does not support delete`);
   return channel.deleteMessage(jid, messageId);
 }
 
