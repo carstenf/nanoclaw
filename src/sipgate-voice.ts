@@ -28,7 +28,8 @@ const SIP_DOMAIN =
 const SIP_PASSWORD = env.SIPGATE_SIP_PASSWORD || '';
 const SIPGATE_TOKEN_ID = env.SIPGATE_TOKEN_ID || '';
 const SIPGATE_TOKEN = env.SIPGATE_TOKEN || '';
-const OPENAI_API_KEY = env.OPENAI_SIP_API_KEY || env.HINDSIGHT_LLM_API_KEY || '';
+const OPENAI_API_KEY =
+  env.OPENAI_SIP_API_KEY || env.HINDSIGHT_LLM_API_KEY || '';
 const REALTIME_VOICE = env.OPENAI_REALTIME_VOICE || 'coral';
 const PROJECT_ID = env.OPENAI_PROJECT_ID || '';
 const WEBHOOK_SECRET = env.OPENAI_WEBHOOK_SECRET || '';
@@ -75,8 +76,14 @@ let srf: InstanceType<typeof Srf> | null = null;
 
 // --- OpenAI call accept + control WebSocket ---
 
-async function acceptOpenAICall(openaiCallId: string, state: SipgateCallState): Promise<void> {
-  logger.info({ callId: state.callId, openaiCallId, goal: state.goal }, 'Accepting call via OpenAI Realtime API');
+async function acceptOpenAICall(
+  openaiCallId: string,
+  state: SipgateCallState,
+): Promise<void> {
+  logger.info(
+    { callId: state.callId, openaiCallId, goal: state.goal },
+    'Accepting call via OpenAI Realtime API',
+  );
 
   try {
     await openai.realtime.calls.accept(openaiCallId, {
@@ -91,10 +98,16 @@ Keep responses short and natural.`,
       },
     } as any);
 
-    logger.info({ callId: state.callId, openaiCallId }, 'Call accepted by OpenAI');
+    logger.info(
+      { callId: state.callId, openaiCallId },
+      'Call accepted by OpenAI',
+    );
     connectControlWs(openaiCallId, state);
   } catch (err: any) {
-    logger.error({ callId: state.callId, openaiCallId, err: err?.message }, 'Failed to accept OpenAI call');
+    logger.error(
+      { callId: state.callId, openaiCallId, err: err?.message },
+      'Failed to accept OpenAI call',
+    );
   }
 }
 
@@ -113,25 +126,24 @@ function connectControlWs(openaiCallId: string, state: SipgateCallState): void {
 
   ws.on('open', () => {
     logger.info({ callId: state.callId }, 'Control WebSocket connected');
-    // Enable input transcription and trigger Andy's initial greeting immediately.
-    // session.created may not fire until speech is detected in SIP Native mode.
-    ws.send(JSON.stringify({
-      type: 'session.update',
-      session: {
-        type: 'realtime',
-        input_audio_transcription: { model: 'whisper-1' },
-        turn_detection: { type: 'server_vad' },
-      },
-    }));
-    ws.send(JSON.stringify({
-      type: 'response.create',
-      response: {
-        instructions: state.direction === 'outbound'
-          ? `Greet the person and explain why you are calling. Your goal: ${state.goal}`
-          : 'Greet the caller: "Hallo, hier ist Andy, wie kann ich helfen?"',
-      },
-    }));
-    logger.info({ callId: state.callId, direction: state.direction }, 'Sent initial greeting trigger');
+    // Trigger Andy's initial greeting immediately.
+    // session.created may not fire until speech is detected in SIP Native mode,
+    // so we send response.create right on connect.
+    ws.send(
+      JSON.stringify({
+        type: 'response.create',
+        response: {
+          instructions:
+            state.direction === 'outbound'
+              ? `Greet the person and explain why you are calling. Your goal: ${state.goal}`
+              : 'Greet the caller: "Hallo, hier ist Andy, wie kann ich helfen?"',
+        },
+      }),
+    );
+    logger.info(
+      { callId: state.callId, direction: state.direction },
+      'Sent initial greeting trigger',
+    );
   });
 
   ws.on('message', (data: Buffer) => {
@@ -197,24 +209,39 @@ function cleanupCall(callId: string): void {
     state.controlWs.close();
   }
   if (state.uasDialog) {
-    try { state.uasDialog.destroy(); } catch { /* already ended */ }
+    try {
+      state.uasDialog.destroy();
+    } catch {
+      /* already ended */
+    }
   }
   if (state.uacDialog) {
-    try { state.uacDialog.destroy(); } catch { /* already ended */ }
+    try {
+      state.uacDialog.destroy();
+    } catch {
+      /* already ended */
+    }
   }
 
   // Free rtpengine media ports
   if (rtpEngine && state.sipCallId && state.fromTag) {
     try {
-      rtpEngine.delete({ 'call-id': state.sipCallId, 'from-tag': state.fromTag });
-    } catch { /* ignore */ }
+      rtpEngine.delete({
+        'call-id': state.sipCallId,
+        'from-tag': state.fromTag,
+      });
+    } catch {
+      /* ignore */
+    }
   }
 
   if (voiceDeps && state.chatJid) {
     const summary = buildSummary(state);
     try {
       voiceDeps.sendMessage(state.chatJid, summary).catch(() => {});
-    } catch { /* channel may be unavailable */ }
+    } catch {
+      /* channel may be unavailable */
+    }
   }
 
   activeCalls.delete(callId);
@@ -244,9 +271,14 @@ export async function makeSipgateCall(
 
   pendingOutbound.set(to, { goal, chatJid, to });
 
-  const auth = Buffer.from(`${SIPGATE_TOKEN_ID}:${SIPGATE_TOKEN}`).toString('base64');
+  const auth = Buffer.from(`${SIPGATE_TOKEN_ID}:${SIPGATE_TOKEN}`).toString(
+    'base64',
+  );
 
-  logger.info({ to, goal, deviceId: DEVICE_ID }, 'Initiating sipgate outbound call');
+  logger.info(
+    { to, goal, deviceId: DEVICE_ID },
+    'Initiating sipgate outbound call',
+  );
 
   try {
     const response = await fetch('https://api.sipgate.com/v2/sessions/calls', {
@@ -263,13 +295,19 @@ export async function makeSipgateCall(
 
     if (!response.ok) {
       const body = await response.text();
-      logger.error({ status: response.status, body, to }, 'Sipgate REST API call failed');
+      logger.error(
+        { status: response.status, body, to },
+        'Sipgate REST API call failed',
+      );
       pendingOutbound.delete(to);
       throw new Error(`Sipgate API error ${response.status}: ${body}`);
     }
 
     const result = (await response.json()) as { sessionId?: string };
-    logger.info({ sessionId: result.sessionId, to }, 'Sipgate outbound call initiated');
+    logger.info(
+      { sessionId: result.sessionId, to },
+      'Sipgate outbound call initiated',
+    );
 
     setTimeout(() => {
       if (pendingOutbound.has(to)) {
@@ -335,7 +373,8 @@ function handleRegisterChallenge(res: any): void {
   const hdrs = res?.msg?.headers || {};
   const authHeader = hdrs['www-authenticate'] || hdrs['proxy-authenticate'];
   if (!authHeader) {
-    const alt = res.get?.('www-authenticate') || res.get?.('proxy-authenticate');
+    const alt =
+      res.get?.('www-authenticate') || res.get?.('proxy-authenticate');
     if (!alt) {
       logger.warn('No WWW-Authenticate header in 401 response');
       return;
@@ -354,33 +393,45 @@ function handleRegisterChallengeWithHeader(authHeader: string): void {
 
   const realm = realmMatch[1];
   const nonce = nonceMatch[1];
-  const ha1 = crypto.createHash('md5').update(`${SIP_USER}:${realm}:${SIP_PASSWORD}`).digest('hex');
-  const ha2 = crypto.createHash('md5').update(`REGISTER:sip:${SIP_DOMAIN}`).digest('hex');
-  const response = crypto.createHash('md5').update(`${ha1}:${nonce}:${ha2}`).digest('hex');
+  const ha1 = crypto
+    .createHash('md5')
+    .update(`${SIP_USER}:${realm}:${SIP_PASSWORD}`)
+    .digest('hex');
+  const ha2 = crypto
+    .createHash('md5')
+    .update(`REGISTER:sip:${SIP_DOMAIN}`)
+    .digest('hex');
+  const response = crypto
+    .createHash('md5')
+    .update(`${ha1}:${nonce}:${ha2}`)
+    .digest('hex');
   const authValue = `Digest username="${SIP_USER}", realm="${realm}", nonce="${nonce}", uri="sip:${SIP_DOMAIN}", response="${response}", algorithm=MD5`;
 
-  (srf as any).request({
-    uri: `sip:sip.${SIP_DOMAIN};transport=tls`,
-    method: 'REGISTER',
-    headers: {
-      To: `<sip:${SIP_USER}@${SIP_DOMAIN}>`,
-      From: `<sip:${SIP_USER}@${SIP_DOMAIN}>`,
-      Contact: `<sip:${SIP_USER}@${HETZNER_PUBLIC_IP}:5061;transport=tls>`,
-      Expires: '300',
-      Authorization: authValue,
-    },
-  } as any).then((req2: any) => {
-    (req2 as any).on('response', (res2: any) => {
-      const status2 = res2?.msg?.status ?? res2?.status;
-      if (status2 === 200) {
-        logger.info('SIP REGISTER authenticated successfully with sipgate');
-      } else {
-        logger.error({ status: status2 }, 'SIP REGISTER auth failed');
-      }
+  (srf as any)
+    .request({
+      uri: `sip:sip.${SIP_DOMAIN};transport=tls`,
+      method: 'REGISTER',
+      headers: {
+        To: `<sip:${SIP_USER}@${SIP_DOMAIN}>`,
+        From: `<sip:${SIP_USER}@${SIP_DOMAIN}>`,
+        Contact: `<sip:${SIP_USER}@${HETZNER_PUBLIC_IP}:5061;transport=tls>`,
+        Expires: '300',
+        Authorization: authValue,
+      },
+    } as any)
+    .then((req2: any) => {
+      (req2 as any).on('response', (res2: any) => {
+        const status2 = res2?.msg?.status ?? res2?.status;
+        if (status2 === 200) {
+          logger.info('SIP REGISTER authenticated successfully with sipgate');
+        } else {
+          logger.error({ status: status2 }, 'SIP REGISTER auth failed');
+        }
+      });
+    })
+    .catch((err: any) => {
+      logger.error({ err }, 'SIP REGISTER auth request failed');
     });
-  }).catch((err: any) => {
-    logger.error({ err }, 'SIP REGISTER auth request failed');
-  });
 }
 
 // --- RTP latching trigger ---
@@ -391,46 +442,70 @@ function handleRegisterChallengeWithHeader(authHeader: string): void {
  * playMedia injects packets from rtpengine's allocated ports into both legs,
  * breaking the deadlock.
  */
-function triggerRtpLatching(sipCallId: string, fromTag: string, callId: string): void {
+function triggerRtpLatching(
+  sipCallId: string,
+  fromTag: string,
+  callId: string,
+): void {
   if (!rtpEngine) return;
 
   const playOpts = {
     'call-id': sipCallId,
     'from-tag': fromTag,
     file: '/media/silence.wav',
-    'repeat-times': '3',     // play 3× (3 seconds total) to ensure latching
-    duration: '1000',         // 1 second per play
+    'repeat-times': '3', // play 3× (3 seconds total) to ensure latching
+    duration: '1000', // 1 second per play
   };
 
   // Play into Sipgate leg (from-tag side)
-  rtpEngine.playMedia(playOpts)
+  rtpEngine
+    .playMedia(playOpts)
     .then((res: any) => {
       logger.info({ callId, result: res?.result }, 'playMedia → Sipgate leg');
     })
     .catch((err: any) => {
-      logger.warn({ callId, err: err?.message }, 'playMedia → Sipgate leg failed');
+      logger.warn(
+        { callId, err: err?.message },
+        'playMedia → Sipgate leg failed',
+      );
     });
 
   // Small delay, then play into OpenAI leg (to-tag side) — to-tag may
   // not be known until answer completes, so we query rtpengine for the call
   setTimeout(() => {
-    rtpEngine.query({ 'call-id': sipCallId, 'from-tag': fromTag })
+    rtpEngine
+      .query({ 'call-id': sipCallId, 'from-tag': fromTag })
       .then((qRes: any) => {
-        const toTag = qRes?.tags ? Object.keys(qRes.tags).find((t: string) => t !== fromTag) : null;
+        const toTag = qRes?.tags
+          ? Object.keys(qRes.tags).find((t: string) => t !== fromTag)
+          : null;
         if (toTag) {
-          rtpEngine.playMedia({ ...playOpts, 'from-tag': toTag })
+          rtpEngine
+            .playMedia({ ...playOpts, 'from-tag': toTag })
             .then((res: any) => {
-              logger.info({ callId, result: res?.result }, 'playMedia → OpenAI leg');
+              logger.info(
+                { callId, result: res?.result },
+                'playMedia → OpenAI leg',
+              );
             })
             .catch((err: any) => {
-              logger.warn({ callId, err: err?.message }, 'playMedia → OpenAI leg failed');
+              logger.warn(
+                { callId, err: err?.message },
+                'playMedia → OpenAI leg failed',
+              );
             });
         } else {
-          logger.warn({ callId }, 'No to-tag found — OpenAI leg playMedia skipped');
+          logger.warn(
+            { callId },
+            'No to-tag found — OpenAI leg playMedia skipped',
+          );
         }
       })
       .catch((err: any) => {
-        logger.warn({ callId, err: err?.message }, 'rtpengine query for to-tag failed');
+        logger.warn(
+          { callId, err: err?.message },
+          'rtpengine query for to-tag failed',
+        );
       });
   }, 500);
 }
@@ -447,7 +522,10 @@ async function handleInboundCall(
   const sipCallId = req.get('Call-ID') || '';
   const fromTag = req.getParsedHeader('from')?.params?.tag || 'unknown';
 
-  logger.info({ callId, from, to, uri: req.uri }, 'Incoming SIP INVITE from Sipgate');
+  logger.info(
+    { callId, from, to, uri: req.uri },
+    'Incoming SIP INVITE from Sipgate',
+  );
 
   // Check for pending outbound
   let pendingCall: { goal: string; chatJid: string; to: string } | undefined;
@@ -458,7 +536,9 @@ async function handleInboundCall(
   }
 
   const isOutbound = !!pendingCall;
-  const goal = pendingCall?.goal || `Incoming call from ${from} — answer and help the caller`;
+  const goal =
+    pendingCall?.goal ||
+    `Incoming call from ${from} — answer and help the caller`;
   const chatJid = pendingCall?.chatJid || '';
 
   const state: SipgateCallState = {
@@ -481,8 +561,12 @@ async function handleInboundCall(
     if (mainJid) {
       state.chatJid = mainJid;
       try {
-        voiceDeps.sendMessage(mainJid, `Eingehender Sipgate-Anruf von ${from}`).catch(() => {});
-      } catch { /* channel may be unavailable */ }
+        voiceDeps
+          .sendMessage(mainJid, `Eingehender Sipgate-Anruf von ${from}`)
+          .catch(() => {});
+      } catch {
+        /* channel may be unavailable */
+      }
     }
   }
 
@@ -493,7 +577,10 @@ async function handleInboundCall(
     // rtpengine relays SRTP between Sipgate and OpenAI via Hetzner public IP
     const sipgateSdp = req.body as string;
     const hasSrtp = sipgateSdp.includes('RTP/SAVP');
-    logger.info({ callId, target: OPENAI_SIP_URI, hasSrtp }, 'Bridging to OpenAI SIP via B2BUA + rtpengine');
+    logger.info(
+      { callId, target: OPENAI_SIP_URI, hasSrtp },
+      'Bridging to OpenAI SIP via B2BUA + rtpengine',
+    );
 
     if (!rtpEngine) {
       throw new Error('rtpengine not initialized');
@@ -512,33 +599,41 @@ async function handleInboundCall(
       'transport-protocol': 'RTP/SAVP',
     });
     if (offerRes?.result !== 'ok') {
-      throw new Error(`rtpengine offer failed: ${offerRes?.['error-reason'] || JSON.stringify(offerRes)}`);
+      throw new Error(
+        `rtpengine offer failed: ${offerRes?.['error-reason'] || JSON.stringify(offerRes)}`,
+      );
     }
 
     // Strip DTLS/fingerprint and unsupported crypto suites rtpengine adds.
     // Keep only AES_CM_128_HMAC_SHA1_80 — the only suite OpenAI accepts.
     const cleanSdp = (offerRes.sdp as string)
       .split('\r\n')
-      .filter((line: string) =>
-        !line.startsWith('a=tls-id:') &&
-        !line.startsWith('a=setup:') &&
-        !line.startsWith('a=fingerprint:') &&
-        !line.includes('NULL_HMAC') &&
-        !line.includes('F8_128') &&
-        !line.includes('AEAD_AES') &&
-        !line.includes('AES_256_CM') &&
-        !line.includes('AES_192_CM') &&
-        !line.includes('AES_CM_128_HMAC_SHA1_32'))
+      .filter(
+        (line: string) =>
+          !line.startsWith('a=tls-id:') &&
+          !line.startsWith('a=setup:') &&
+          !line.startsWith('a=fingerprint:') &&
+          !line.includes('NULL_HMAC') &&
+          !line.includes('F8_128') &&
+          !line.includes('AEAD_AES') &&
+          !line.includes('AES_256_CM') &&
+          !line.includes('AES_192_CM') &&
+          !line.includes('AES_CM_128_HMAC_SHA1_32'),
+      )
       .join('\r\n');
-    logger.info({ callId, rtpSdpLen: cleanSdp.length, cleanSdp }, 'rtpengine offer OK, SDP cleaned');
+    logger.info(
+      { callId, rtpSdpLen: cleanSdp.length, cleanSdp },
+      'rtpengine offer OK, SDP cleaned',
+    );
 
     const { uas, uac } = await srf!.createB2BUA(req, res, OPENAI_SIP_URI, {
       localSdpB: cleanSdp,
       proxyRequestHeaders: ['Call-ID'],
       localSdpA: async (sdp: string, sipRes: any): Promise<string> => {
-        const toTag = sipRes?.getParsedHeader?.('to')?.params?.tag
-          || sipRes?.msg?.headers?.to?.match(/tag=([^;]+)/)?.[1]
-          || 'openai';
+        const toTag =
+          sipRes?.getParsedHeader?.('to')?.params?.tag ||
+          sipRes?.msg?.headers?.to?.match(/tag=([^;]+)/)?.[1] ||
+          'openai';
         const answerRes: any = await rtpEngine.answer({
           'call-id': sipCallId,
           'from-tag': fromTag,
@@ -552,16 +647,21 @@ async function handleInboundCall(
           'transport-protocol': 'RTP/SAVP',
         });
         if (answerRes?.result !== 'ok') {
-          logger.error({ err: answerRes?.['error-reason'] }, 'rtpengine answer failed');
+          logger.error(
+            { err: answerRes?.['error-reason'] },
+            'rtpengine answer failed',
+          );
           return sdp;
         }
         // Strip DTLS from answer too
         const cleanAnswer = (answerRes.sdp as string)
           .split('\r\n')
-          .filter((line: string) =>
-            !line.startsWith('a=tls-id:') &&
-            !line.startsWith('a=setup:') &&
-            !line.startsWith('a=fingerprint:'))
+          .filter(
+            (line: string) =>
+              !line.startsWith('a=tls-id:') &&
+              !line.startsWith('a=setup:') &&
+              !line.startsWith('a=fingerprint:'),
+          )
           .join('\r\n');
         logger.info({ callId }, 'rtpengine answer OK');
         return cleanAnswer;
@@ -571,7 +671,10 @@ async function handleInboundCall(
     state.uasDialog = uas;
     state.uacDialog = uac;
 
-    logger.info({ callId, isOutbound }, 'B2BUA bridge established: Sipgate ↔ OpenAI');
+    logger.info(
+      { callId, isOutbound },
+      'B2BUA bridge established: Sipgate ↔ OpenAI',
+    );
 
     // Trigger Sipgate's RTP latching: both Sipgate and OpenAI use symmetric RTP
     // (wait for incoming before sending). rtpengine sits in between but generates
@@ -581,12 +684,20 @@ async function handleInboundCall(
 
     uas.on('destroy', () => {
       logger.info({ callId }, 'Sipgate side hung up');
-      try { uac.destroy(); } catch { /* already ended */ }
+      try {
+        uac.destroy();
+      } catch {
+        /* already ended */
+      }
       cleanupCall(callId);
     });
     uac.on('destroy', () => {
       logger.info({ callId }, 'OpenAI side hung up');
-      try { uas.destroy(); } catch { /* already ended */ }
+      try {
+        uas.destroy();
+      } catch {
+        /* already ended */
+      }
       cleanupCall(callId);
     });
   } catch (err: any) {
@@ -606,24 +717,36 @@ function startWebhookServer(): void {
 
   app.post('/openai-sip', async (req, res) => {
     const rawBody = req.body.toString();
-    logger.info({
-      bodyLen: rawBody.length,
-      webhookId: req.headers['webhook-id'],
-      webhookTs: req.headers['webhook-timestamp'],
-      hasSig: !!req.headers['webhook-signature'],
-      hasSecret: !!WEBHOOK_SECRET,
-    }, 'Webhook request received on /openai-sip');
+    logger.info(
+      {
+        bodyLen: rawBody.length,
+        webhookId: req.headers['webhook-id'],
+        webhookTs: req.headers['webhook-timestamp'],
+        hasSig: !!req.headers['webhook-signature'],
+        hasSecret: !!WEBHOOK_SECRET,
+      },
+      'Webhook request received on /openai-sip',
+    );
 
     let event: any;
     try {
       if (WEBHOOK_SECRET) {
-        event = await openai.webhooks.unwrap(rawBody, req.headers, WEBHOOK_SECRET);
+        event = await openai.webhooks.unwrap(
+          rawBody,
+          req.headers,
+          WEBHOOK_SECRET,
+        );
       } else {
         event = JSON.parse(rawBody);
-        logger.warn('Webhook signature not verified — OPENAI_WEBHOOK_SECRET not set');
+        logger.warn(
+          'Webhook signature not verified — OPENAI_WEBHOOK_SECRET not set',
+        );
       }
     } catch (err: any) {
-      logger.error({ err: err?.message }, 'Webhook signature verification failed — accepting anyway');
+      logger.error(
+        { err: err?.message },
+        'Webhook signature verification failed — accepting anyway',
+      );
       try {
         event = JSON.parse(rawBody);
       } catch {
@@ -632,11 +755,21 @@ function startWebhookServer(): void {
       }
     }
 
-    logger.info({ type: event.type, callId: event.call_id || event.data?.call_id, activeCallCount: activeCalls.size }, 'OpenAI webhook event parsed');
+    logger.info(
+      {
+        type: event.type,
+        callId: event.call_id || event.data?.call_id,
+        activeCallCount: activeCalls.size,
+      },
+      'OpenAI webhook event parsed',
+    );
 
     if (event.type === 'realtime.call.incoming') {
       const openaiCallId = event.call_id || event.data?.call_id;
-      logger.info({ openaiCallId, activeCalls: [...activeCalls.keys()] }, 'Incoming call webhook — searching for matching active call');
+      logger.info(
+        { openaiCallId, activeCalls: [...activeCalls.keys()] },
+        'Incoming call webhook — searching for matching active call',
+      );
 
       let matchedState: SipgateCallState | null = null;
       for (const [, state] of activeCalls) {
@@ -655,11 +788,18 @@ function startWebhookServer(): void {
         res.status(200).send('OK');
         void acceptOpenAICall(openaiCallId, matchedState);
       } else {
-        logger.warn({ openaiCallId, activeCallCount: activeCalls.size }, 'No matching active call for webhook — rejecting');
+        logger.warn(
+          { openaiCallId, activeCallCount: activeCalls.size },
+          'No matching active call for webhook — rejecting',
+        );
         res.status(200).send('OK');
         try {
-          await openai.realtime.calls.reject(openaiCallId, { status_code: 486 });
-        } catch { /* ignore */ }
+          await openai.realtime.calls.reject(openaiCallId, {
+            status_code: 486,
+          });
+        } catch {
+          /* ignore */
+        }
       }
       return;
     }
