@@ -12,8 +12,6 @@ import { logger } from './logger.js';
 const env = readEnvFile([
   'SIPGATE_SIP_URI',
   'SIPGATE_SIP_PASSWORD',
-  'SIPGATE_TOKEN_ID',
-  'SIPGATE_TOKEN',
   'OPENAI_SIP_API_KEY',
   'HINDSIGHT_LLM_API_KEY',
   'OPENAI_REALTIME_VOICE',
@@ -26,15 +24,13 @@ const SIP_USER = env.SIPGATE_SIP_URI?.replace(/^sip:/, '').split('@')[0] || '';
 const SIP_DOMAIN =
   env.SIPGATE_SIP_URI?.replace(/^sip:/, '').split('@')[1] || 'sipgate.de';
 const SIP_PASSWORD = env.SIPGATE_SIP_PASSWORD || '';
-const SIPGATE_TOKEN_ID = env.SIPGATE_TOKEN_ID || '';
-const SIPGATE_TOKEN = env.SIPGATE_TOKEN || '';
 const OPENAI_API_KEY =
   env.OPENAI_SIP_API_KEY || env.HINDSIGHT_LLM_API_KEY || '';
 const REALTIME_VOICE = env.OPENAI_REALTIME_VOICE || 'coral';
 const PROJECT_ID = env.OPENAI_PROJECT_ID || '';
 const WEBHOOK_SECRET = env.OPENAI_WEBHOOK_SECRET || '';
 const PORT = parseInt(env.SIPGATE_VOICE_PORT || '4402', 10);
-const DEVICE_ID = 'e2';
+const DEVICE_ID = 'e5';
 const HETZNER_PUBLIC_IP = '128.140.104.236';
 
 const OPENAI_SIP_URI = `sip:${PROJECT_ID}@sip.api.openai.com;transport=tls`;
@@ -60,10 +56,14 @@ interface SipgateCallState {
 
 const activeCalls = new Map<string, SipgateCallState>();
 
-// Pending outbound calls: keyed by callee number
-const pendingOutbound = new Map<
+// Promise-based correlation for outbound OpenAI webhooks
+const pendingOpenAIWebhook = new Map<
   string,
-  { goal: string; chatJid: string; to: string }
+  {
+    state: SipgateCallState;
+    resolve: () => void;
+    reject: (err: Error) => void;
+  }
 >();
 
 export interface SipgateVoiceDeps {
@@ -86,13 +86,22 @@ async function acceptOpenAICall(
   );
 
   try {
+    const instructions =
+      state.direction === 'outbound'
+        ? `You are Andy, a personal assistant for Carsten (Munich, Germany).
+You are making an outbound phone call. Your goal: ${state.goal}
+Speak German by default. Be friendly and professional.
+If the other person speaks another language, switch to that language.
+Keep responses short and natural.`
+        : `You are Andy, a personal assistant. You answer incoming phone calls for Carsten (Munich, Germany).
+Speak German by default. Be friendly and helpful. Say "Hallo, hier ist Andy, wie kann ich helfen?" when the call starts.
+If the caller speaks another language, switch to that language.
+Keep responses short and natural.`;
+
     await openai.realtime.calls.accept(openaiCallId, {
       type: 'realtime',
       model: 'gpt-4o-realtime-preview',
-      instructions: `You are Andy, a personal assistant. You answer incoming phone calls for Carsten (Munich, Germany).
-Speak German by default. Be friendly and helpful. Say "Hallo, hier ist Andy, wie kann ich helfen?" when the call starts.
-If the caller speaks another language, switch to that language.
-Keep responses short and natural.`,
+      instructions,
       audio: {
         output: { voice: REALTIME_VOICE },
       },
@@ -253,72 +262,271 @@ function buildSummary(state: SipgateCallState): string {
   return `📞 Sipgate-Anruf abgeschlossen.\nZiel: ${state.goal}\n\n${turns || '(Kein Transkript verfügbar)'}`;
 }
 
-// --- Outbound calls via Sipgate REST API ---
+// --- SDP cleaning helpers ---
+
+/** Strip DTLS/fingerprint and unsupported crypto suites from rtpengine SDP.
+ *  Keep only AES_CM_128_HMAC_SHA1_80 — the only suite OpenAI accepts. */
+function cleanSdpForOpenAI(sdp: string): string {
+  return sdp
+    .split('\r\n')
+    .filter(
+      (line: string) =>
+        !line.startsWith('a=tls-id:') &&
+        !line.startsWith('a=setup:') &&
+        !line.startsWith('a=fingerprint:') &&
+        !line.includes('NULL_HMAC') &&
+        !line.includes('F8_128') &&
+        !line.includes('AEAD_AES') &&
+        !line.includes('AES_256_CM') &&
+        !line.includes('AES_192_CM') &&
+        !line.includes('AES_CM_128_HMAC_SHA1_32'),
+    )
+    .join('\r\n');
+}
+
+/** Strip only bad crypto suites but KEEP DTLS fingerprint/setup (for OpenAI). */
+function cleanSdpCryptoSuites(sdp: string): string {
+  return sdp
+    .split('\r\n')
+    .filter(
+      (line: string) =>
+        !line.includes('NULL_HMAC') &&
+        !line.includes('F8_128') &&
+        !line.includes('AEAD_AES') &&
+        !line.includes('AES_256_CM') &&
+        !line.includes('AES_192_CM') &&
+        !line.includes('AES_CM_128_HMAC_SHA1_32'),
+    )
+    .join('\r\n');
+}
+
+/** Strip DTLS attributes from answer SDP (for Sipgate side). */
+function cleanSdpAnswer(sdp: string): string {
+  return sdp
+    .split('\r\n')
+    .filter(
+      (line: string) =>
+        !line.startsWith('a=tls-id:') &&
+        !line.startsWith('a=setup:') &&
+        !line.startsWith('a=fingerprint:'),
+    )
+    .join('\r\n');
+}
+
+// --- Outbound calls via direct SIP INVITE ---
 
 export async function makeSipgateCall(
   to: string,
   goal: string,
   chatJid: string,
 ): Promise<void> {
-  if (!SIPGATE_TOKEN_ID || !SIPGATE_TOKEN) {
-    throw new Error('Sipgate API token not configured');
+  if (!srf) throw new Error('drachtio not connected');
+  if (!rtpEngine) throw new Error('rtpengine not initialized');
+  if (!PROJECT_ID) throw new Error('OPENAI_PROJECT_ID not configured');
+
+  const callId = `sg-out-${Date.now()}-${crypto.randomInt(1000, 9999)}`;
+  const sipUri = `sip:${to}@sip.${SIP_DOMAIN};transport=tls`;
+
+  logger.info({ callId, to, goal, sipUri }, 'Initiating direct SIP INVITE to sipgate');
+
+  if (voiceDeps && chatJid) {
+    voiceDeps.sendMessage(chatJid, `📞 Rufe ${to} an...`).catch(() => {});
   }
-  if (!PROJECT_ID) {
-    throw new Error('OPENAI_PROJECT_ID not configured');
-  }
 
-  pendingOutbound.set(to, { goal, chatJid, to });
+  const state: SipgateCallState = {
+    callId,
+    sipCallId: callId, // use synthetic ID for rtpengine correlation
+    fromTag: `out-${crypto.randomInt(100000, 999999)}`,
+    openaiCallId: null,
+    goal,
+    chatJid,
+    direction: 'outbound',
+    controlWs: null,
+    transcript: [],
+    uasDialog: null,
+    uacDialog: null,
+  };
+  activeCalls.set(callId, state);
 
-  const auth = Buffer.from(`${SIPGATE_TOKEN_ID}:${SIPGATE_TOKEN}`).toString(
-    'base64',
-  );
-
-  logger.info(
-    { to, goal, deviceId: DEVICE_ID },
-    'Initiating sipgate outbound call',
-  );
+  // Application-level timeout: cancel INVITE if callee doesn't answer
+  let inviteReq: any = null;
+  const timeoutId = setTimeout(() => {
+    if (inviteReq) {
+      try { inviteReq.cancel(); } catch { /* ignore */ }
+    }
+  }, 45000);
 
   try {
-    const response = await fetch('https://api.sipgate.com/v2/sessions/calls', {
-      method: 'POST',
+    // Phase 1: Direct SIP INVITE to sipgate trunk
+    const uacResult: any = await (srf as any).createUAC(sipUri, {
+      noAck: true,
       headers: {
-        Authorization: `Basic ${auth}`,
-        'Content-Type': 'application/json',
+        From: `<sip:${SIP_USER}@${SIP_DOMAIN}>`,
+        Contact: `<sip:${SIP_USER}@${HETZNER_PUBLIC_IP}:5061;transport=tls>`,
+        'P-Preferred-Identity': `<sip:+49308687022345@${SIP_DOMAIN}>`,
       },
-      body: JSON.stringify({
-        caller: DEVICE_ID,
-        callee: to,
-        callerId: '+49308687022345',
-      }),
+      auth: { username: SIP_USER, password: SIP_PASSWORD },
+    }, {
+      cbRequest: (req: any) => {
+        inviteReq = req;
+        logger.info({ callId }, 'INVITE sent to sipgate');
+      },
+      cbProvisional: (provisionalRes: any) => {
+        const status = provisionalRes?.status || provisionalRes?.msg?.status;
+        logger.info({ callId, status }, 'Provisional response from sipgate');
+        if (status === 180 && voiceDeps && chatJid) {
+          voiceDeps.sendMessage(chatJid, '📞 Klingelt...').catch(() => {});
+        }
+      },
     });
+    clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      const body = await response.text();
-      logger.error(
-        { status: response.status, body, to },
-        'Sipgate REST API call failed',
-      );
-      pendingOutbound.delete(to);
-      throw new Error(`Sipgate API error ${response.status}: ${body}`);
-    }
+    // 3PCC: callee answered (200 OK) — we have their SDP but haven't ACKed
+    const calleeSdp: string = uacResult.sdp;
+    logger.info({ callId, sdpLen: calleeSdp.length }, 'Callee answered — building OpenAI leg');
 
-    const result = (await response.json()) as { sessionId?: string };
-    logger.info(
-      { sessionId: result.sessionId, to },
-      'Sipgate outbound call initiated',
-    );
+    // Phase 2: Build OpenAI leg via rtpengine, then ACK the PSTN leg
+    const pstnDialog = await buildOpenAILeg(state, calleeSdp, uacResult.ack);
+    state.uacDialog = pstnDialog;
 
-    setTimeout(() => {
-      if (pendingOutbound.has(to)) {
-        pendingOutbound.delete(to);
-        logger.warn({ to }, 'Sipgate outbound call timed out');
-      }
-    }, 30000);
   } catch (err: any) {
-    logger.error({ message: err?.message, to }, 'Sipgate outbound call error');
-    pendingOutbound.delete(to);
-    throw err;
+    clearTimeout(timeoutId);
+    const status = err?.status;
+    logger.error({ callId, status, err: err?.message }, 'Outbound call failed');
+
+    let reason = 'Anruf fehlgeschlagen';
+    if (status === 486 || status === 600) reason = 'Besetzt';
+    else if (status === 480 || status === 408) reason = 'Keine Antwort';
+    else if (status === 603) reason = 'Abgelehnt';
+    else if (status === 487) reason = 'Abgebrochen';
+
+    if (voiceDeps && chatJid) {
+      voiceDeps.sendMessage(chatJid, `📞 ${reason} (${status || 'Fehler'})`).catch(() => {});
+    }
+    cleanupCall(callId);
   }
+}
+
+/** Phase 2: rtpengine offer → INVITE OpenAI → rtpengine answer → ACK PSTN */
+async function buildOpenAILeg(
+  state: SipgateCallState,
+  calleeSdp: string,
+  ackPstn: (sdp: string) => Promise<any>,
+): Promise<any> {
+  const { callId, sipCallId, fromTag } = state;
+
+  // rtpengine offer: callee's SDP (plain RTP/AVP) → get SDP for OpenAI (SDES-SRTP)
+  // Use DTLS:off — OpenAI uses SDES (not DTLS). Setting DTLS:passive would make
+  // rtpengine expect a DTLS handshake on the Sipgate leg which never comes,
+  // causing rtpengine to receive packets but never forward them.
+  // SDES:on generates crypto lines that OpenAI can negotiate with.
+  const offerRes: any = await rtpEngine.offer({
+    'call-id': sipCallId,
+    'from-tag': fromTag,
+    sdp: calleeSdp,
+    ICE: 'remove',
+    DTLS: 'off',
+    SDES: 'on',
+    flags: ['asymmetric'],
+    replace: ['origin', 'session-connection'],
+    direction: ['external', 'external'],
+    'transport-protocol': 'RTP/SAVP',
+  });
+  if (offerRes?.result !== 'ok') {
+    throw new Error(`rtpengine offer failed: ${offerRes?.['error-reason']}`);
+  }
+
+  // Strip bad crypto suites and DTLS attrs; OpenAI uses SDES only for outbound
+  const sdpForOpenAI = cleanSdpForOpenAI(offerRes.sdp as string);
+  logger.info({ callId, sdpLen: sdpForOpenAI.length }, 'rtpengine offer OK — sending INVITE to OpenAI');
+
+  // Register webhook handler BEFORE sending INVITE (webhook can arrive immediately).
+  // The webhook handler will call acceptOpenAICall directly — OpenAI blocks
+  // the SIP 200 OK until we accept via REST API, so createUAC would deadlock
+  // if we tried to accept after it returns.
+  const webhookPromise = new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingOpenAIWebhook.delete(callId);
+      reject(new Error('OpenAI webhook timeout (15s)'));
+    }, 15000);
+    pendingOpenAIWebhook.set(callId, {
+      state,
+      resolve: () => { clearTimeout(timeout); resolve(); },
+      reject: (err) => { clearTimeout(timeout); reject(err); },
+    });
+  });
+
+  // INVITE OpenAI SIP with rtpengine's SDP
+  logger.info({ callId, sdpForOpenAI }, 'Sending INVITE to OpenAI with SDP');
+  const openaiDialog: any = await (srf as any).createUAC(OPENAI_SIP_URI, {
+    localSdp: sdpForOpenAI,
+    headers: {
+      'User-Agent': 'NanoClaw/1.0',
+    },
+  });
+  state.uasDialog = openaiDialog;
+
+  // rtpengine answer: OpenAI's SDP → get SDP for PSTN ACK
+  const openaiSdp: string = openaiDialog.remote?.sdp || '';
+  logger.info({ callId, openaiSdp }, 'OpenAI response SDP');
+  const toTag: string =
+    openaiDialog.sip?.remoteTag ||
+    openaiDialog.remote?.tag ||
+    `oai-${crypto.randomInt(100000, 999999)}`;
+
+  // Sipgate outbound uses plain RTP/AVP, OpenAI uses SRTP/SAVP.
+  // rtpengine bridges: decrypt SRTP from OpenAI, send plain RTP to Sipgate.
+  // TODO: Sipgate might require SRTP even for outbound — see OUTBOUND-AUDIO-ANALYSIS.md
+  // Need to generate SDES keys in the OFFER phase for the Sipgate side.
+  const answerRes: any = await rtpEngine.answer({
+    'call-id': sipCallId,
+    'from-tag': fromTag,
+    'to-tag': toTag,
+    sdp: openaiSdp,
+    ICE: 'remove',
+    DTLS: 'off',
+    flags: ['asymmetric'],
+    replace: ['origin', 'session-connection'],
+    direction: ['external', 'external'],
+    'transport-protocol': 'RTP/AVP',
+  });
+  if (answerRes?.result !== 'ok') {
+    logger.error({ err: answerRes?.['error-reason'] }, 'rtpengine answer failed');
+  }
+
+  // ACK the PSTN leg with rtpengine's answer SDP
+  const sdpForPstn = cleanSdpAnswer(answerRes.sdp as string);
+  logger.info({ callId, sdpForPstn, calleeSdp }, 'ACKing PSTN with rtpengine SDP');
+  const pstnDialog = await ackPstn(sdpForPstn);
+  logger.info({ callId }, 'B2BUA bridge established: PSTN ↔ rtpengine ↔ OpenAI');
+
+  // Trigger RTP latching for outbound.
+  // For outbound, play silence into the OpenAI leg immediately (latches that side).
+  // For the Sipgate leg, delay playMedia by 2s — Sipgate needs time to send its
+  // first RTP packet (triggered by the callee speaking). If we play into the
+  // Sipgate leg too early, MASQUERADE conntrack on Hetzner collides with the
+  // DNAT rule and blocks all forwarded packets.
+  // The 2s delay allows Sipgate's first packet to establish the DNAT conntrack
+  // entry first, so subsequent MASQUERADE traffic follows the same path.
+  triggerRtpLatchingOutbound(sipCallId, fromTag, callId);
+
+  // Wait for webhook handler to accept the OpenAI call
+  // (accept happens in the webhook handler to avoid SIP deadlock)
+  await webhookPromise;
+
+  // Wire up hangup handlers
+  pstnDialog.on('destroy', () => {
+    logger.info({ callId }, 'PSTN callee hung up');
+    try { openaiDialog.destroy(); } catch { /* already ended */ }
+    cleanupCall(callId);
+  });
+  openaiDialog.on('destroy', () => {
+    logger.info({ callId }, 'OpenAI side hung up');
+    try { pstnDialog.destroy(); } catch { /* already ended */ }
+    cleanupCall(callId);
+  });
+
+  return pstnDialog;
 }
 
 // --- SIP Registration with Sipgate ---
@@ -436,6 +644,114 @@ function handleRegisterChallengeWithHeader(authHeader: string): void {
 // --- RTP latching trigger ---
 
 /**
+ * Outbound-specific latching: OpenAI leg immediately, Sipgate leg after 2s delay.
+ * The delay lets Sipgate's first RTP packet arrive via DNAT and establish a
+ * conntrack entry. Only then do we inject silence into the Sipgate leg —
+ * at that point MASQUERADE reuses the existing conntrack instead of creating
+ * a conflicting one.
+ */
+function triggerRtpLatchingOutbound(
+  sipCallId: string,
+  fromTag: string,
+  callId: string,
+): void {
+  if (!rtpEngine) return;
+
+  // Immediately play into OpenAI leg (to-tag side)
+  setTimeout(() => {
+    rtpEngine
+      .query({ 'call-id': sipCallId, 'from-tag': fromTag })
+      .then((qRes: any) => {
+        const toTag = qRes?.tags
+          ? Object.keys(qRes.tags).find((t: string) => t !== fromTag)
+          : null;
+        if (toTag) {
+          rtpEngine
+            .playMedia({
+              'call-id': sipCallId,
+              'from-tag': toTag,
+              file: '/media/silence.wav',
+              'repeat-times': '3',
+              duration: '1000',
+            })
+            .then((res: any) => {
+              logger.info({ callId, result: res?.result }, 'playMedia → OpenAI leg (outbound)');
+            })
+            .catch((err: any) => {
+              logger.warn({ callId, err: err?.message }, 'playMedia → OpenAI leg failed');
+            });
+        }
+      })
+      .catch((err: any) => {
+        logger.warn({ callId, err: err?.message }, 'rtpengine query for to-tag failed');
+      });
+  }, 500);
+
+  // Delayed play into Sipgate leg (from-tag side) — wait for DNAT conntrack
+  setTimeout(() => {
+    rtpEngine
+      .playMedia({
+        'call-id': sipCallId,
+        'from-tag': fromTag,
+        file: '/media/silence.wav',
+        'repeat-times': '3',
+        duration: '1000',
+      })
+      .then((res: any) => {
+        logger.info({ callId, result: res?.result }, 'playMedia → Sipgate leg (outbound, delayed 2s)');
+      })
+      .catch((err: any) => {
+        logger.warn({ callId, err: err?.message }, 'playMedia → Sipgate leg failed');
+      });
+  }, 2000);
+}
+
+/**
+ * Play silence only into the OpenAI leg — for outbound calls.
+ * Sipgate uses plain RTP and sends immediately after ACK.
+ * Playing media into the Sipgate leg BEFORE Sipgate sends its first packet
+ * creates a MASQUERADE conntrack entry on Hetzner that collides with the
+ * DNAT rule, causing all subsequent forwarded packets to be invisible.
+ */
+function triggerRtpLatchingOpenAIOnly(
+  sipCallId: string,
+  fromTag: string,
+  callId: string,
+): void {
+  if (!rtpEngine) return;
+
+  // Small delay to let rtpengine discover the to-tag, then play into OpenAI leg
+  setTimeout(() => {
+    rtpEngine
+      .query({ 'call-id': sipCallId, 'from-tag': fromTag })
+      .then((qRes: any) => {
+        const toTag = qRes?.tags
+          ? Object.keys(qRes.tags).find((t: string) => t !== fromTag)
+          : null;
+        if (toTag) {
+          rtpEngine
+            .playMedia({
+              'call-id': sipCallId,
+              'from-tag': toTag,
+              file: '/media/silence.wav',
+              'repeat-times': '3',
+              duration: '1000',
+            })
+            .then((res: any) => {
+              logger.info({ callId, result: res?.result }, 'playMedia → OpenAI leg only');
+            })
+            .catch((err: any) => {
+              logger.warn({ callId, err: err?.message }, 'playMedia → OpenAI leg failed');
+            });
+        }
+      })
+      .catch((err: any) => {
+        logger.warn({ callId, err: err?.message }, 'rtpengine query for to-tag failed');
+      });
+  }, 500);
+}
+
+/**
  * Send silence RTP via rtpengine playMedia to trigger symmetric NAT latching.
  * Both Sipgate and OpenAI wait for incoming RTP before sending (symmetric RTP).
  * playMedia injects packets from rtpengine's allocated ports into both legs,
@@ -526,19 +842,7 @@ async function handleInboundCall(
     'Incoming SIP INVITE from Sipgate',
   );
 
-  // Check for pending outbound
-  let pendingCall: { goal: string; chatJid: string; to: string } | undefined;
-  for (const [key, pending] of pendingOutbound.entries()) {
-    pendingCall = pending;
-    pendingOutbound.delete(key);
-    break;
-  }
-
-  const isOutbound = !!pendingCall;
-  const goal =
-    pendingCall?.goal ||
-    `Incoming call from ${from} — answer and help the caller`;
-  const chatJid = pendingCall?.chatJid || '';
+  const goal = `Incoming call from ${from} — answer and help the caller`;
 
   const state: SipgateCallState = {
     callId,
@@ -546,16 +850,16 @@ async function handleInboundCall(
     fromTag,
     openaiCallId: null,
     goal,
-    chatJid,
-    direction: isOutbound ? 'outbound' : 'inbound',
+    chatJid: '',
+    direction: 'inbound',
     controlWs: null,
     transcript: [],
     uasDialog: null,
     uacDialog: null,
   };
 
-  // For inbound, notify main group
-  if (!isOutbound && voiceDeps) {
+  // Notify main group
+  if (voiceDeps) {
     const mainJid = voiceDeps.getMainJid();
     if (mainJid) {
       state.chatJid = mainJid;
@@ -603,23 +907,7 @@ async function handleInboundCall(
       );
     }
 
-    // Strip DTLS/fingerprint and unsupported crypto suites rtpengine adds.
-    // Keep only AES_CM_128_HMAC_SHA1_80 — the only suite OpenAI accepts.
-    const cleanSdp = (offerRes.sdp as string)
-      .split('\r\n')
-      .filter(
-        (line: string) =>
-          !line.startsWith('a=tls-id:') &&
-          !line.startsWith('a=setup:') &&
-          !line.startsWith('a=fingerprint:') &&
-          !line.includes('NULL_HMAC') &&
-          !line.includes('F8_128') &&
-          !line.includes('AEAD_AES') &&
-          !line.includes('AES_256_CM') &&
-          !line.includes('AES_192_CM') &&
-          !line.includes('AES_CM_128_HMAC_SHA1_32'),
-      )
-      .join('\r\n');
+    const cleanSdp = cleanSdpForOpenAI(offerRes.sdp as string);
     logger.info(
       { callId, rtpSdpLen: cleanSdp.length, cleanSdp },
       'rtpengine offer OK, SDP cleaned',
@@ -652,28 +940,15 @@ async function handleInboundCall(
           );
           return sdp;
         }
-        // Strip DTLS from answer too
-        const cleanAnswer = (answerRes.sdp as string)
-          .split('\r\n')
-          .filter(
-            (line: string) =>
-              !line.startsWith('a=tls-id:') &&
-              !line.startsWith('a=setup:') &&
-              !line.startsWith('a=fingerprint:'),
-          )
-          .join('\r\n');
         logger.info({ callId }, 'rtpengine answer OK');
-        return cleanAnswer;
+        return cleanSdpAnswer(answerRes.sdp as string);
       },
     });
 
     state.uasDialog = uas;
     state.uacDialog = uac;
 
-    logger.info(
-      { callId, isOutbound },
-      'B2BUA bridge established: Sipgate ↔ OpenAI',
-    );
+    logger.info({ callId }, 'B2BUA bridge established: Sipgate ↔ OpenAI');
 
     // Trigger Sipgate's RTP latching: both Sipgate and OpenAI use symmetric RTP
     // (wait for incoming before sending). rtpengine sits in between but generates
@@ -766,10 +1041,25 @@ function startWebhookServer(): void {
     if (event.type === 'realtime.call.incoming') {
       const openaiCallId = event.call_id || event.data?.call_id;
       logger.info(
-        { openaiCallId, activeCalls: [...activeCalls.keys()] },
+        { openaiCallId, activeCalls: [...activeCalls.keys()], pendingOutbound: [...pendingOpenAIWebhook.keys()] },
         'Incoming call webhook — searching for matching active call',
       );
 
+      // Check outbound calls waiting for webhook first — accept immediately
+      // (OpenAI blocks SIP 200 OK until we call accept via REST API)
+      for (const [key, pending] of pendingOpenAIWebhook) {
+        logger.info({ callId: key, openaiCallId }, 'Matched webhook to pending outbound call — accepting');
+        pending.state.openaiCallId = openaiCallId;
+        pendingOpenAIWebhook.delete(key);
+        res.status(200).send('OK');
+        // Accept + connect WS, then resolve the Promise so buildOpenAILeg can continue
+        acceptOpenAICall(openaiCallId, pending.state)
+          .then(() => pending.resolve())
+          .catch((err) => pending.reject(err));
+        return;
+      }
+
+      // Fall through to inbound matching
       let matchedState: SipgateCallState | null = null;
       for (const [, state] of activeCalls) {
         if (!state.openaiCallId) {
@@ -782,7 +1072,7 @@ function startWebhookServer(): void {
       if (matchedState) {
         logger.info(
           { callId: matchedState.callId, openaiCallId },
-          'Matched OpenAI webhook to active call — accepting',
+          'Matched OpenAI webhook to active inbound call — accepting',
         );
         res.status(200).send('OK');
         void acceptOpenAICall(openaiCallId, matchedState);

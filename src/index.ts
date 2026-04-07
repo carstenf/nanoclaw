@@ -761,8 +761,7 @@ async function main(): Promise<void> {
     },
     makeCall: (to, goal, chatJid, voiceMode) =>
       makeCall(to, goal, chatJid, voiceMode),
-    makeSipgateCall: (to, goal, chatJid) =>
-      makeSipgateCall(to, goal, chatJid),
+    makeSipgateCall: (to, goal, chatJid) => makeSipgateCall(to, goal, chatJid),
     onTasksChanged: () => {
       const tasks = getAllTasks();
       const taskRows = tasks.map((t) => ({
@@ -792,6 +791,10 @@ async function main(): Promise<void> {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       return channel.sendMessage(jid, text);
+    },
+    getMainJid: () => {
+      const entry = Object.entries(registeredGroups).find(([, g]) => g.isMain);
+      return entry?.[0];
     },
   });
   queue.setProcessMessagesFn(processGroupMessages);

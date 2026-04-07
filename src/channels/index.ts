@@ -11,5 +11,5 @@ import './gmail.js';
 
 // telegram
 
-// whatsapp
-import './whatsapp.js';
+// whatsapp — TEMP disabled, auth expired. Re-enable after /setup
+// import './whatsapp.js';

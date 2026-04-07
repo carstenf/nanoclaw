@@ -19,11 +19,7 @@ export interface IpcDeps {
     chatJid: string,
     voiceMode?: string,
   ) => Promise<void>;
-  makeSipgateCall: (
-    to: string,
-    goal: string,
-    chatJid: string,
-  ) => Promise<void>;
+  makeSipgateCall: (to: string, goal: string, chatJid: string) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
@@ -503,22 +499,27 @@ export async function processTaskIpc(
       }
       break;
 
-    case 'make_call':
-      if (data.to && data.goal && data.chatJid) {
-        logger.info(
-          {
-            to: data.to,
-            goal: data.goal,
-            voice_mode: data.voice_mode,
-            sourceGroup,
-          },
-          'Initiating call via IPC',
-        );
-        await deps.makeCall(data.to, data.goal, data.chatJid, data.voice_mode);
-      } else {
+    case 'make_call': {
+      if (!data.to || !data.goal || !data.chatJid) {
         logger.warn({ data }, 'make_call missing required fields');
+        break;
+      }
+      const voiceMode = data.voice_mode || 'sipgate';
+      if (voiceMode === 'sipgate') {
+        logger.info(
+          { to: data.to, goal: data.goal, voiceMode, sourceGroup },
+          'Initiating sipgate call via IPC',
+        );
+        await deps.makeSipgateCall(data.to, data.goal, data.chatJid);
+      } else {
+        logger.info(
+          { to: data.to, goal: data.goal, voiceMode, sourceGroup },
+          'Initiating Twilio call via IPC',
+        );
+        await deps.makeCall(data.to, data.goal, data.chatJid, voiceMode);
       }
       break;
+    }
 
     case 'make_sipgate_call':
       if (data.to && data.goal && data.chatJid) {

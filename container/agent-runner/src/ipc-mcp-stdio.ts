@@ -532,25 +532,28 @@ If no phone number is in the current message, look for it in the conversation hi
 Strips spaces/dashes from numbers automatically — +49 170 123 is fine.
 
 Voice mode selection:
-- "realtime" (default): Fastest response, most natural conversation flow. Best for negotiations, complex discussions, back-and-forth calls.
-- "relay": Higher quality voice (ElevenLabs), slightly higher latency. Best for short announcements, greetings, or when voice quality matters most.`,
+- "sipgate" (default): Direct SIP call via Sipgate. Lowest latency, no Twilio costs. Best for most calls.
+- "realtime": Twilio + OpenAI Realtime. Fast, natural conversation. Use when Sipgate has issues.
+- "relay": Twilio + ElevenLabs. Highest voice quality, slightly higher latency. Best for short announcements.`,
   {
     to: z.string().describe('Phone number in E.164 format or with spaces/dashes, e.g. +49 170 8036426'),
     goal: z.string().describe('Clear description of what to achieve, e.g. "Book a dentist appointment for Tuesday 3pm for Carsten Freek"'),
-    voice_mode: z.enum(['realtime', 'relay']).default('realtime').describe('Voice mode: "realtime" for fast/interactive, "relay" for best voice quality'),
+    voice_mode: z.enum(['sipgate', 'realtime', 'relay']).default('sipgate').describe('Voice mode: "sipgate" (default) direct SIP, "realtime" Twilio/OpenAI, "relay" Twilio/ElevenLabs'),
   },
   async (args) => {
     const to = args.to.replace(/[\s\-]/g, '');
+    const isSipgate = args.voice_mode === 'sipgate';
     const data = {
-      type: 'make_call',
+      type: isSipgate ? 'make_sipgate_call' : 'make_call',
       to,
       goal: args.goal,
-      voice_mode: args.voice_mode,
+      ...(isSipgate ? {} : { voice_mode: args.voice_mode }),
       chatJid,
     };
     writeIpcFile(TASKS_DIR, data);
+    const via = isSipgate ? 'Sipgate' : `Twilio (${args.voice_mode})`;
     return {
-      content: [{ type: 'text' as const, text: `Calling ${to}. You will receive a summary when the call ends.` }],
+      content: [{ type: 'text' as const, text: `Calling ${to} via ${via}. You will receive a summary when the call ends.` }],
     };
   },
 );
