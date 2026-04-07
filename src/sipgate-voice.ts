@@ -126,20 +126,18 @@ function connectControlWs(openaiCallId: string, state: SipgateCallState): void {
 
   ws.on('open', () => {
     logger.info({ callId: state.callId }, 'Control WebSocket connected');
-    // Trigger Andy's initial greeting immediately.
-    // session.created may not fire until speech is detected in SIP Native mode,
-    // so we send response.create right on connect.
-    ws.send(
-      JSON.stringify({
-        type: 'response.create',
-        response: {
-          instructions:
-            state.direction === 'outbound'
-              ? `Greet the person and explain why you are calling. Your goal: ${state.goal}`
-              : 'Greet the caller: "Hallo, hier ist Andy, wie kann ich helfen?"',
-        },
-      }),
-    );
+    // For outbound calls, trigger greeting immediately since Andy initiates.
+    // For inbound, let VAD handle naturally — caller speaks first.
+    if (state.direction === 'outbound') {
+      ws.send(
+        JSON.stringify({
+          type: 'response.create',
+          response: {
+            instructions: `Greet the person and explain why you are calling. Your goal: ${state.goal}`,
+          },
+        }),
+      );
+    }
     logger.info(
       { callId: state.callId, direction: state.direction },
       'Sent initial greeting trigger',
@@ -288,8 +286,9 @@ export async function makeSipgateCall(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        deviceId: DEVICE_ID,
+        caller: DEVICE_ID,
         callee: to,
+        callerId: '+49308687022345',
       }),
     });
 
