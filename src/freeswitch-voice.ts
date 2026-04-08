@@ -292,8 +292,8 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         }),
       );
       ws.send(JSON.stringify({ type: 'response.create' }));
-      logger.info({ callId: state.callId }, 'FS: Silence check 1 (5s)');
-    }, 5000);
+      logger.info({ callId: state.callId }, 'FS: Silence check 1 (20s)');
+    }, 20000);
 
     const s2 = setTimeout(() => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -314,8 +314,8 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         }),
       );
       ws.send(JSON.stringify({ type: 'response.create' }));
-      logger.info({ callId: state.callId }, 'FS: Silence check 2 (8s)');
-    }, 8000);
+      logger.info({ callId: state.callId }, 'FS: Silence check 2 (25s)');
+    }, 25000);
 
     const s3 = setTimeout(() => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -336,8 +336,8 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         }),
       );
       ws.send(JSON.stringify({ type: 'response.create' }));
-      logger.info({ callId: state.callId }, 'FS: Silence check 3 (11s)');
-    }, 11000);
+      logger.info({ callId: state.callId }, 'FS: Silence check 3 (30s)');
+    }, 30000);
 
     const sHangup = setTimeout(() => {
       logger.info(
@@ -345,7 +345,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         'FS: No response after silence checks, hanging up',
       );
       cleanupCall(state.callId);
-    }, 14000);
+    }, 35000);
 
     state.timers.push(s1, s2, s3, sHangup);
   }
