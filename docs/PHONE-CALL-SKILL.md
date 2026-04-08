@@ -109,11 +109,18 @@ Per Call konfigurierbar via `voice` Parameter im IPC:
 - Nach `response.done` VAD wieder aktivieren
 - `session.update` mit `turn_detection: null` zum Deaktivieren
 
-### Transcript
-- OpenAI SIP-Modus liefert KEINE zuverlässigen Transcript-Events auf dem Control-WebSocket
-- `input_audio_transcription` und `response.audio_transcript.done` kommen nicht oder unvollständig
-- Goodbye-Detection via Transcript funktioniert daher nicht → Silence Detection als Fallback
-- TODO: Function Calling für zuverlässige Goodbye-Detection
+### Transcript (Whisper Post-Processing)
+- OpenAI SIP-Modus liefert KEINE Transcript-Events auf dem Control-WebSocket
+- Lösung: FreeSWITCH nimmt den Call auf (`uuid_record` / `record_session`)
+- Nach Call-Ende: WAV von Hetzner downloaden → Whisper API → Transcript an Discord
+- Recordings auf Hetzner: `/home/carsten/call-recordings/`, serviert via Caddy `/recordings/`
+- Whisper-Sprache: `de` (Deutsch)
+
+### Mid-Call Silence Timings
+- 18s Stille → "Hallo? Bist du noch da?"
+- 27s → "Hallo?"
+- 36s → Auto-Hangup
+- Timer resettet sich bei jeder Sprach-Aktivität
 
 ### FreeSWITCH Konfiguration
 - SIP Port: 5060 (UDP)
