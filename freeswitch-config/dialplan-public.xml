@@ -12,7 +12,7 @@
       <action application="answer"/>
       <!-- Record both legs for post-call Whisper transcription -->
       <action application="set" data="RECORD_STEREO=true"/>
-      <action application="record_session" data="/recordings/${strftime(%Y%m%d-%H%M%S)}-${caller_id_number}.wav"/>
+      <action application="record_session" data="/recordings/inbound-${uuid}.wav"/>
       <!-- Bridge directly to OpenAI — webhook handles acceptance -->
       <action application="bridge" data="{rtp_secure_media=true,absolute_codec_string=PCMA}sofia/external/sip:${openai_project_id}@sip.api.openai.com;transport=tls"/>
     </condition>

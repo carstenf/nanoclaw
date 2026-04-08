@@ -347,10 +347,15 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
             'FS: VAD re-enabled after greeting',
           );
         }
-        // Restart silence timer after EVERY Andy response (latest activity wins)
-        startSilenceTimer();
+        // Don't start silence timer here — wait for output_audio_buffer.stopped
         break;
       }
+
+      case 'output_audio_buffer.stopped':
+        // Andy's audio has finished playing on the SIP stream — THIS is the real "last word"
+        logger.info({ callId: state.callId }, 'FS: Andy audio finished playing');
+        startSilenceTimer();
+        break;
 
       case 'input_audio_buffer.speech_started':
         // Callee spoke — cancel silence timers, restart after speech ends
@@ -514,7 +519,24 @@ async function transcribeRecording(
   // Wait 3s for FS to flush the recording file
   await new Promise((r) => setTimeout(r, 3000));
 
-  const filename = recFile.split('/').pop() || '';
+  let filename: string;
+  if (recFile === 'inbound') {
+    // Inbound: find the most recent inbound-*.wav file via directory listing
+    const dirResp = await fetch(HETZNER_RECORDINGS_URL + '/');
+    if (!dirResp.ok) {
+      logger.warn({ callId }, 'FS: Cannot list recordings directory');
+      return;
+    }
+    const dirHtml = await dirResp.text();
+    const files = [...dirHtml.matchAll(/href="(inbound-[^"]+\.wav)"/g)].map(m => m[1]);
+    if (files.length === 0) {
+      logger.warn({ callId }, 'FS: No inbound recording found');
+      return;
+    }
+    filename = files[files.length - 1]; // most recent
+  } else {
+    filename = recFile.split('/').pop() || '';
+  }
   const url = `${HETZNER_RECORDINGS_URL}/${filename}`;
 
   logger.info({ callId, url }, 'FS: Downloading recording for transcription');
@@ -736,30 +758,13 @@ export function handleFSInboundWebhook(openaiCallId: string): void {
     controlWs: null,
     transcript: [],
     timers: [],
-    recordingFile: '',
+    recordingFile: 'inbound', // marker — actual file found by timestamp after call
   };
 
-  // Find a working chat JID to send notifications/transcript to
+  // Set chat JID for transcript delivery (Discord preferred)
   if (voiceDeps) {
     const mainJid = voiceDeps.getMainJid();
-    if (mainJid) {
-      state.chatJid = mainJid;
-      try {
-        voiceDeps
-          .sendMessage(mainJid, 'Eingehender Anruf (FreeSWITCH)')
-          .catch(() => {});
-      } catch {
-        // Main JID channel not connected — try Discord fallback
-        state.chatJid = 'dc:1490365616518070407';
-        try {
-          voiceDeps
-            .sendMessage(state.chatJid, 'Eingehender Anruf (FreeSWITCH)')
-            .catch(() => {});
-        } catch {
-          /* no channel available */
-        }
-      }
-    }
+    state.chatJid = mainJid || 'dc:1490365616518070407';
   }
 
   activeCalls.set(callId, state);
