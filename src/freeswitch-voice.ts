@@ -126,26 +126,63 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
 
   ws.on('open', () => {
     logger.info({ callId: state.callId }, 'FS: Control WebSocket connected');
-    // Disable VAD immediately, then send greeting
-    ws.send(JSON.stringify({
-      type: 'session.update',
-      session: { turn_detection: null },
-    }));
-    // Don't wait for session.updated — send greeting right away
-    const greetText = state.direction === 'outbound'
-      ? `Greet the person in German. Say: "Hallo, hier ist Andy, der Assistent von Carsten." Then explain: ${state.goal}`
-      : 'Greet the caller in German. Say: "Hallo, hier ist Andy, wie kann ich helfen?"';
-    ws.send(JSON.stringify({
-      type: 'conversation.item.create',
-      item: {
-        type: 'message',
-        role: 'user',
-        content: [{ type: 'input_text', text: greetText }],
-      },
-    }));
-    ws.send(JSON.stringify({ type: 'response.create' }));
-    greetingSent = true;
-    logger.info({ callId: state.callId }, 'FS: Greeting sent on WS open (VAD disabled)');
+
+    if (state.direction === 'inbound') {
+      // Inbound: greet immediately (caller expects Andy to answer)
+      ws.send(JSON.stringify({ type: 'session.update', session: { turn_detection: null } }));
+      ws.send(JSON.stringify({
+        type: 'conversation.item.create',
+        item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Greet the caller in German. Say: "Hallo, hier ist Andy, wie kann ich helfen?"' }] },
+      }));
+      ws.send(JSON.stringify({ type: 'response.create' }));
+      greetingSent = true;
+      logger.info({ callId: state.callId }, 'FS: Inbound greeting sent immediately');
+    } else {
+      // Outbound: wait for callee to speak (VAD enabled).
+      // If silent after 5s → "Hallo? Ist da jemand?" via conversation.item.create
+      // This uses the fast path (conversation.item.create) even with VAD enabled.
+      logger.info({ callId: state.callId }, 'FS: Outbound — waiting for callee, 5s fallback timer set');
+
+      const t1 = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN || greetingSent) return;
+        greetingSent = true;
+        // Disable VAD briefly to send the hallo
+        ws.send(JSON.stringify({ type: 'session.update', session: { turn_detection: null } }));
+        ws.send(JSON.stringify({
+          type: 'conversation.item.create',
+          item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Say only: "Hallo? Ist da jemand?"' }] },
+        }));
+        ws.send(JSON.stringify({ type: 'response.create' }));
+        logger.info({ callId: state.callId }, 'FS: Hallo attempt 1 (5s)');
+      }, 5000);
+
+      const t2 = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({
+          type: 'conversation.item.create',
+          item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Say only: "Hallo?"' }] },
+        }));
+        ws.send(JSON.stringify({ type: 'response.create' }));
+        logger.info({ callId: state.callId }, 'FS: Hallo attempt 2 (8s)');
+      }, 8000);
+
+      const t3 = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({
+          type: 'conversation.item.create',
+          item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Say only: "Hallo?"' }] },
+        }));
+        ws.send(JSON.stringify({ type: 'response.create' }));
+        logger.info({ callId: state.callId }, 'FS: Hallo attempt 3 (11s)');
+      }, 11000);
+
+      const tHangup = setTimeout(() => {
+        logger.info({ callId: state.callId }, 'FS: No response after 3 attempts, hanging up');
+        cleanupCall(state.callId);
+      }, 13000);
+
+      state.timers.push(t1, t2, t3, tHangup);
+    }
   });
 
   ws.on('message', (data: Buffer) => {
@@ -176,35 +213,53 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         // Re-enable VAD after greeting completes
         if (!conversationStarted) {
           conversationStarted = true;
-          ws.send(JSON.stringify({
-            type: 'session.update',
-            session: {
-              turn_detection: {
-                type: 'server_vad',
-                threshold: 0.5,
-                prefix_padding_ms: 300,
-                silence_duration_ms: 500,
+          ws.send(
+            JSON.stringify({
+              type: 'session.update',
+              session: {
+                turn_detection: {
+                  type: 'server_vad',
+                  threshold: 0.5,
+                  prefix_padding_ms: 300,
+                  silence_duration_ms: 500,
+                },
               },
-            },
-          }));
-          logger.info({ callId: state.callId }, 'FS: VAD re-enabled after greeting');
+            }),
+          );
+          logger.info(
+            { callId: state.callId },
+            'FS: VAD re-enabled after greeting',
+          );
 
           // Start mid-call silence monitor (30s → "Bist du noch da?" → 10s → hangup)
           const midCallTimer = setTimeout(() => {
             if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({
-                type: 'conversation.item.create',
-                item: {
-                  type: 'message',
-                  role: 'user',
-                  content: [{ type: 'input_text', text: 'Nobody has spoken for a while. Ask: "Bist du noch da?"' }],
-                },
-              }));
+              ws.send(
+                JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: {
+                    type: 'message',
+                    role: 'user',
+                    content: [
+                      {
+                        type: 'input_text',
+                        text: 'Nobody has spoken for a while. Ask: "Bist du noch da?"',
+                      },
+                    ],
+                  },
+                }),
+              );
               ws.send(JSON.stringify({ type: 'response.create' }));
-              logger.info({ callId: state.callId }, 'FS: Mid-call silence check (30s)');
+              logger.info(
+                { callId: state.callId },
+                'FS: Mid-call silence check (30s)',
+              );
             }
             const hangupTimer = setTimeout(() => {
-              logger.info({ callId: state.callId }, 'FS: No response after silence check, hanging up');
+              logger.info(
+                { callId: state.callId },
+                'FS: No response after silence check, hanging up',
+              );
               cleanupCall(state.callId);
             }, 10000);
             state.timers.push(hangupTimer);
@@ -278,7 +333,11 @@ function cleanupCallState(callId: string): void {
     const summary = buildSummary(state);
     // Try chatJid first, then fall back to any reachable main group
     const jids = state.chatJid ? [state.chatJid] : [];
-    if (voiceDeps.getMainJid && voiceDeps.getMainJid() && !jids.includes(voiceDeps.getMainJid()!)) {
+    if (
+      voiceDeps.getMainJid &&
+      voiceDeps.getMainJid() &&
+      !jids.includes(voiceDeps.getMainJid()!)
+    ) {
       jids.push(voiceDeps.getMainJid()!);
     }
     for (const jid of jids) {
@@ -477,13 +536,19 @@ export function handleFSInboundWebhook(openaiCallId: string): void {
     if (mainJid) {
       state.chatJid = mainJid;
       try {
-        voiceDeps.sendMessage(mainJid, 'Eingehender Anruf (FreeSWITCH)').catch(() => {});
+        voiceDeps
+          .sendMessage(mainJid, 'Eingehender Anruf (FreeSWITCH)')
+          .catch(() => {});
       } catch {
         // Main JID channel not connected — try Discord fallback
         state.chatJid = 'dc:1490365616518070407';
         try {
-          voiceDeps.sendMessage(state.chatJid, 'Eingehender Anruf (FreeSWITCH)').catch(() => {});
-        } catch { /* no channel available */ }
+          voiceDeps
+            .sendMessage(state.chatJid, 'Eingehender Anruf (FreeSWITCH)')
+            .catch(() => {});
+        } catch {
+          /* no channel available */
+        }
       }
     }
   }
