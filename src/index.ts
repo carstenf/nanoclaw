@@ -66,11 +66,11 @@ import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 import { recallMemory, retainMemory } from './hindsight.js';
 import { makeCall, startVoiceServer } from './voice-server.js';
-import { makeSipgateCall, startSipgateVoice } from './sipgate-voice.js';
 import {
   makeFreeswitchCall,
   startFreeswitchVoice,
 } from './freeswitch-voice.js';
+import { startWebhookServer } from './openai-webhook.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -765,7 +765,9 @@ async function main(): Promise<void> {
     },
     makeCall: (to, goal, chatJid, voiceMode) =>
       makeCall(to, goal, chatJid, voiceMode),
-    makeSipgateCall: (to, goal, chatJid) => makeSipgateCall(to, goal, chatJid),
+    makeSipgateCall: async () => {
+      throw new Error('sipgate mode disabled — use freeswitch');
+    },
     makeFreeswitchCall: (to, goal, chatJid, voice) =>
       makeFreeswitchCall(to, goal, chatJid, voice),
     onTasksChanged: () => {
@@ -803,7 +805,7 @@ async function main(): Promise<void> {
       return entry?.[0];
     },
   };
-  startSipgateVoice(voiceDeps);
+  startWebhookServer();
   startFreeswitchVoice(voiceDeps);
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();

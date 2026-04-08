@@ -511,19 +511,18 @@ export async function processTaskIpc(
         logger.warn({ data }, 'make_call missing required fields');
         break;
       }
-      const voiceMode = data.voice_mode || 'sipgate';
-      if (voiceMode === 'sipgate') {
-        logger.info(
-          { to: data.to, goal: data.goal, voiceMode, sourceGroup },
-          'Initiating sipgate call via IPC',
-        );
-        await deps.makeSipgateCall(data.to, data.goal, data.chatJid);
-      } else if (voiceMode === 'freeswitch') {
+      const voiceMode = data.voice_mode || 'freeswitch';
+      if (voiceMode === 'freeswitch' || voiceMode === 'sipgate') {
         logger.info(
           { to: data.to, goal: data.goal, voiceMode, sourceGroup },
           'Initiating FreeSWITCH call via IPC',
         );
-        await deps.makeFreeswitchCall(data.to, data.goal, data.chatJid, data.voice);
+        await deps.makeFreeswitchCall(
+          data.to,
+          data.goal,
+          data.chatJid,
+          data.voice,
+        );
       } else {
         logger.info(
           { to: data.to, goal: data.goal, voiceMode, sourceGroup },

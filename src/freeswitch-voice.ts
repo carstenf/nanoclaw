@@ -377,6 +377,47 @@ export async function makeFreeswitchCall(
   }
 }
 
+// --- Inbound call handler (webhook-triggered, no ESL needed) ---
+
+export function handleFSInboundWebhook(openaiCallId: string): void {
+  const callId = `fs-in-${Date.now()}-${crypto.randomInt(1000, 9999)}`;
+  logger.info({ callId, openaiCallId }, 'FS: Handling inbound call via webhook');
+
+  const state: FSCallState = {
+    callId,
+    fsUuid: '', // unknown — FS handles the bridge via dialplan
+    openaiCallId,
+    goal: 'Incoming call — answer and help the caller',
+    chatJid: '',
+    direction: 'inbound',
+    voice: DEFAULT_VOICE,
+    controlWs: null,
+    transcript: [],
+  };
+
+  if (voiceDeps) {
+    const mainJid = voiceDeps.getMainJid();
+    if (mainJid) {
+      state.chatJid = mainJid;
+      try {
+        voiceDeps.sendMessage(mainJid, 'Eingehender Anruf (FreeSWITCH)').catch(() => {});
+      } catch { /* channel may not be connected */ }
+    }
+  }
+
+  activeCalls.set(callId, state);
+
+  // Accept + connect control WebSocket
+  acceptOpenAICall(openaiCallId, state).catch((err) => {
+    logger.error({ callId, err: err?.message }, 'FS: Inbound accept failed');
+    cleanupCall(callId);
+  });
+}
+
+// Inbound is handled via webhook only (handleFSInboundWebhook above).
+// FreeSWITCH dialplan bridges inbound calls directly to OpenAI.
+// No ESL-based inbound detection needed.
+
 // --- ESL connection and event handling ---
 
 function connectESL(): void {
@@ -387,119 +428,8 @@ function connectESL(): void {
 
   eslConn = new esl.Connection(ESL_HOST, ESL_PORT, ESL_PASSWORD, () => {
     logger.info('FS: ESL connected');
-
-    // Subscribe to channel events
-    eslConn.subscribe([
-      'CHANNEL_ANSWER',
-      'CHANNEL_HANGUP_COMPLETE',
-      'CHANNEL_CREATE',
-    ]);
-
-    eslConn.on('esl::event::CHANNEL_HANGUP_COMPLETE::*', (event: any) => {
-      const uuid = event.getHeader('Unique-ID') || '';
-      const nanoclaw_id = event.getHeader('variable_nanoclaw_call_id') || '';
-
-      // Find matching call by UUID or nanoclaw_call_id
-      for (const [callId, state] of activeCalls) {
-        if (state.fsUuid === uuid || callId === nanoclaw_id) {
-          logger.info({ callId, uuid }, 'FS: Channel hung up');
-          cleanupCall(callId);
-          break;
-        }
-      }
-    });
-
-    // Handle inbound calls from Sipgate (parked by dialplan)
-    eslConn.on('esl::event::CHANNEL_ANSWER::*', (event: any) => {
-      const direction = event.getHeader('Call-Direction') || '';
-      const uuid = event.getHeader('Unique-ID') || '';
-      const callerNumber =
-        event.getHeader('Caller-Caller-ID-Number') || 'unknown';
-      const gateway = event.getHeader('variable_sip_gateway') || '';
-
-      // Only handle inbound from Sipgate gateway
-      if (direction !== 'inbound' || !gateway.includes('sipgate')) return;
-
-      // Check if we already have this UUID
-      for (const state of activeCalls.values()) {
-        if (state.fsUuid === uuid) return;
-      }
-
-      const callId = `fs-in-${Date.now()}-${crypto.randomInt(1000, 9999)}`;
-      logger.info(
-        { callId, uuid, from: callerNumber },
-        'FS: Inbound call from Sipgate',
-      );
-
-      const state: FSCallState = {
-        callId,
-        fsUuid: uuid,
-        openaiCallId: null,
-        goal: `Incoming call from ${callerNumber}`,
-        chatJid: '',
-        direction: 'inbound',
-        voice: DEFAULT_VOICE,
-        controlWs: null,
-        transcript: [],
-      };
-
-      if (voiceDeps) {
-        const mainJid = voiceDeps.getMainJid();
-        if (mainJid) {
-          state.chatJid = mainJid;
-          voiceDeps
-            .sendMessage(
-              mainJid,
-              `Eingehender Anruf von ${callerNumber} (FreeSWITCH)`,
-            )
-            .catch(() => {});
-        }
-      }
-
-      activeCalls.set(callId, state);
-
-      // Register webhook handler
-      const webhookPromise = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          pendingFSWebhook.delete(callId);
-          reject(new Error('OpenAI webhook timeout (15s)'));
-        }, 15000);
-        pendingFSWebhook.set(callId, {
-          state,
-          resolve: () => {
-            clearTimeout(timeout);
-            resolve();
-          },
-          reject: (err) => {
-            clearTimeout(timeout);
-            reject(err);
-          },
-        });
-      });
-
-      // Bridge to OpenAI via dialplan transfer
-      eslConn.api(
-        `uuid_setvar ${uuid} openai_project_id ${PROJECT_ID}`,
-        () => {},
-      );
-      eslConn.api(`uuid_transfer ${uuid} openai XML public`, (res: any) => {
-        const body = res?.body || res?.getBody?.() || '';
-        logger.info(
-          { callId, result: body.trim() },
-          'FS: Inbound transfer result',
-        );
-      });
-
-      eslConn.api(`uuid_setvar ${uuid} nanoclaw_call_id ${callId}`, () => {});
-
-      webhookPromise.catch((err) => {
-        logger.error(
-          { callId, err: err?.message },
-          'FS: Inbound webhook failed',
-        );
-        cleanupCall(callId);
-      });
-    });
+    // ESL is used for outbound originate commands only.
+    // Inbound detection is via OpenAI webhook (no polling needed).
   });
 
   eslConn.on('error', (err: any) => {

@@ -43,6 +43,12 @@ sed -i '/<\/settings>/i \
     <param name="tls-verify-policy" value="out_none"/>\
     <param name="tls-verify-depth" value="2"/>' /etc/freeswitch/sip_profiles/external.xml
 
+# Move external profile to port 5060 (guaranteed open in firewall)
+# Internal profile moves to 15060 to avoid conflict
+sed -i 's|data="external_sip_port=5080"|data="external_sip_port=5060"|' /etc/freeswitch/vars.xml
+sed -i 's|data="external_tls_port=5081"|data="external_tls_port=5061"|' /etc/freeswitch/vars.xml
+sed -i 's|data="internal_sip_port=5060"|data="internal_sip_port=15060"|' /etc/freeswitch/vars.xml
+
 # Set external IP (override stun detection)
 sed -i 's|<X-PRE-PROCESS cmd="stun-set".*external_rtp_ip.*|<X-PRE-PROCESS cmd="set" data="external_rtp_ip=128.140.104.236"/>|' /etc/freeswitch/vars.xml
 sed -i 's|<X-PRE-PROCESS cmd="stun-set".*external_sip_ip.*|<X-PRE-PROCESS cmd="set" data="external_sip_ip=128.140.104.236"/>|' /etc/freeswitch/vars.xml

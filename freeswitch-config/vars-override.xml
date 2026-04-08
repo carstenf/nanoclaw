@@ -9,6 +9,13 @@
   <X-PRE-PROCESS cmd="set" data="external_rtp_ip=128.140.104.236"/>
   <X-PRE-PROCESS cmd="set" data="external_sip_ip=128.140.104.236"/>
 
+  <!-- Use port 5060 for external profile (guaranteed open in firewall) -->
+  <X-PRE-PROCESS cmd="set" data="external_sip_port=5060"/>
+  <X-PRE-PROCESS cmd="set" data="external_tls_port=5061"/>
+  <!-- Move internal profile out of the way -->
+  <X-PRE-PROCESS cmd="set" data="internal_sip_port=15060"/>
+  <X-PRE-PROCESS cmd="set" data="internal_tls_port=15061"/>
+
   <!-- Prefer G.722 HD Voice -->
   <X-PRE-PROCESS cmd="set" data="global_codec_prefs=G722,PCMA,PCMU"/>
   <X-PRE-PROCESS cmd="set" data="outbound_codec_prefs=G722,PCMA,PCMU"/>
