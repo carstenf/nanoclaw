@@ -443,17 +443,24 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         break;
 
       case 'input_audio_buffer.speech_started':
-        // Callee spoke — cancel ALL timers, reset silence check
         if (!conversationStarted) conversationStarted = true;
-        silenceCheckActive = false;
+        if (silenceCheckActive) {
+          // During silence check: VAD may pick up echo of Andy's own
+          // "Hallo?" audio. Don't cancel timers yet — wait for actual
+          // transcription (transcription.completed) to confirm real speech.
+          break;
+        }
         cancelOutboundTimers();
         for (const t of state.timers) clearTimeout(t);
         state.timers.length = 0;
         break;
 
       case 'input_audio_buffer.speech_stopped':
-        // Callee stopped speaking — restart silence timer
-        startSilenceTimer();
+        // Only restart silence timer outside of a silence check sequence
+        // (otherwise echo from Andy's "Hallo?" resets the sequence endlessly)
+        if (!silenceCheckActive) {
+          startSilenceTimer();
+        }
         break;
 
       case 'response.audio_transcript.done': {
@@ -494,6 +501,18 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
       case 'conversation.item.input_audio_transcription.completed':
         if (event.transcript) {
           const text = (event.transcript as string).trim();
+          if (text) {
+            // Real speech confirmed — exit silence check if active
+            if (silenceCheckActive) {
+              silenceCheckActive = false;
+              for (const t of state.timers) clearTimeout(t);
+              state.timers.length = 0;
+              logger.info(
+                { callId: state.callId },
+                'FS: Silence check cancelled — user spoke',
+              );
+            }
+          }
           if (text && state.transcript.length < MAX_TRANSCRIPT_TURNS) {
             state.transcript.push({ role: 'user', text });
             logger.info({ callId: state.callId, text }, 'FS: Caller said');
@@ -603,26 +622,45 @@ async function transcribeRecording(
   callId: string,
   chatJid: string,
 ): Promise<void> {
-  // Wait 3s for FS to flush the recording file
-  await new Promise((r) => setTimeout(r, 3000));
+  // Wait 5s for FS to flush the recording file
+  await new Promise((r) => setTimeout(r, 5000));
 
   let filename: string;
   if (recFile === 'inbound') {
-    // Inbound: find the most recent inbound-*.wav file via directory listing
-    const dirResp = await fetch(HETZNER_RECORDINGS_URL + '/');
+    // Inbound: find the most recent inbound-*.wav via Caddy JSON listing
+    const dirResp = await fetch(HETZNER_RECORDINGS_URL + '/', {
+      headers: { Accept: 'application/json' },
+    });
     if (!dirResp.ok) {
-      logger.warn({ callId }, 'FS: Cannot list recordings directory');
+      logger.warn(
+        { callId, status: dirResp.status },
+        'FS: Cannot list recordings directory',
+      );
       return;
     }
-    const dirHtml = await dirResp.text();
-    const files = [...dirHtml.matchAll(/href="(inbound-[^"]+\.wav)"/g)].map(
-      (m) => m[1],
-    );
-    if (files.length === 0) {
+    const listing = (await dirResp.json()) as Array<{
+      name: string;
+      mod_time: string;
+      size: number;
+    }>;
+    const inboundFiles = listing
+      .filter(
+        (f) => f.name.startsWith('inbound-') && f.name.endsWith('.wav'),
+      )
+      .sort(
+        (a, b) =>
+          new Date(b.mod_time).getTime() - new Date(a.mod_time).getTime(),
+      );
+
+    if (inboundFiles.length === 0) {
       logger.warn({ callId }, 'FS: No inbound recording found');
       return;
     }
-    filename = files[files.length - 1]; // most recent
+    filename = inboundFiles[0].name; // most recently modified
+    logger.info(
+      { callId, filename, modTime: inboundFiles[0].mod_time },
+      'FS: Found inbound recording',
+    );
   } else {
     filename = recFile.split('/').pop() || '';
   }
