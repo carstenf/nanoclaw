@@ -24,6 +24,7 @@ export interface IpcDeps {
     to: string,
     goal: string,
     chatJid: string,
+    voice?: string,
   ) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
@@ -215,6 +216,7 @@ export async function processTaskIpc(
     to?: string;
     goal?: string;
     voice_mode?: string;
+    voice?: string;
   },
   sourceGroup: string, // Verified identity from IPC directory
   isMain: boolean, // Verified from directory path
@@ -521,7 +523,7 @@ export async function processTaskIpc(
           { to: data.to, goal: data.goal, voiceMode, sourceGroup },
           'Initiating FreeSWITCH call via IPC',
         );
-        await deps.makeFreeswitchCall(data.to, data.goal, data.chatJid);
+        await deps.makeFreeswitchCall(data.to, data.goal, data.chatJid, data.voice);
       } else {
         logger.info(
           { to: data.to, goal: data.goal, voiceMode, sourceGroup },

@@ -22,7 +22,7 @@ const env = readEnvFile([
 
 const OPENAI_API_KEY =
   env.OPENAI_SIP_API_KEY || env.HINDSIGHT_LLM_API_KEY || '';
-const REALTIME_VOICE = env.OPENAI_REALTIME_VOICE || 'coral';
+const DEFAULT_VOICE = env.OPENAI_REALTIME_VOICE || 'shimmer';
 const PROJECT_ID = env.OPENAI_PROJECT_ID || '';
 const WEBHOOK_SECRET = env.OPENAI_WEBHOOK_SECRET || '';
 const ESL_HOST = env.FREESWITCH_ESL_HOST || '10.0.0.1';
@@ -44,6 +44,7 @@ interface FSCallState {
   goal: string;
   chatJid: string;
   direction: 'inbound' | 'outbound';
+  voice: string;
   controlWs: WebSocket | null;
   transcript: Array<{ role: 'user' | 'assistant'; text: string }>;
 }
@@ -96,7 +97,7 @@ Keep responses short and natural.`;
       model: 'gpt-4o-realtime-preview',
       instructions,
       audio: {
-        output: { voice: REALTIME_VOICE },
+        output: { voice: state.voice },
       },
     } as any);
 
@@ -242,7 +243,9 @@ export async function makeFreeswitchCall(
   to: string,
   goal: string,
   chatJid: string,
+  voice?: string,
 ): Promise<void> {
+  const callVoice = voice || DEFAULT_VOICE;
   if (!eslConn) throw new Error('FreeSWITCH ESL not connected');
   if (!PROJECT_ID) throw new Error('OPENAI_PROJECT_ID not configured');
 
@@ -266,6 +269,7 @@ export async function makeFreeswitchCall(
     goal,
     chatJid,
     direction: 'outbound',
+    voice: callVoice,
     controlWs: null,
     transcript: [],
   };
@@ -434,6 +438,7 @@ function connectESL(): void {
         goal: `Incoming call from ${callerNumber}`,
         chatJid: '',
         direction: 'inbound',
+        voice: DEFAULT_VOICE,
         controlWs: null,
         transcript: [],
       };

@@ -766,8 +766,8 @@ async function main(): Promise<void> {
     makeCall: (to, goal, chatJid, voiceMode) =>
       makeCall(to, goal, chatJid, voiceMode),
     makeSipgateCall: (to, goal, chatJid) => makeSipgateCall(to, goal, chatJid),
-    makeFreeswitchCall: (to, goal, chatJid) =>
-      makeFreeswitchCall(to, goal, chatJid),
+    makeFreeswitchCall: (to, goal, chatJid, voice) =>
+      makeFreeswitchCall(to, goal, chatJid, voice),
     onTasksChanged: () => {
       const tasks = getAllTasks();
       const taskRows = tasks.map((t) => ({
