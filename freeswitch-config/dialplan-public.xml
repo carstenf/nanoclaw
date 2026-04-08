@@ -6,6 +6,9 @@
       <action application="set" data="suppress_cng=true"/>
       <action application="set" data="bridge_generate_comfort_noise=false"/>
       <action application="set" data="openai_project_id=${openai_project_id}"/>
+      <!-- Ring 2-3 times before answering -->
+      <action application="ring_ready"/>
+      <action application="sleep" data="4000"/>
       <action application="answer"/>
       <!-- Bridge directly to OpenAI — webhook handles acceptance -->
       <action application="bridge" data="{rtp_secure_media=true,absolute_codec_string=PCMA}sofia/external/sip:${openai_project_id}@sip.api.openai.com;transport=tls"/>
