@@ -413,7 +413,10 @@ async function buildOutboundEarlyOfferUDP(
     '',
   ].join('\r\n');
 
-  logger.info({ callId }, 'Early Offer UDP: synthetic plain RTP offer to rtpengine');
+  logger.info(
+    { callId },
+    'Early Offer UDP: synthetic plain RTP offer to rtpengine',
+  );
   const offerRes: any = await rtpEngine.offer({
     'call-id': sipCallId,
     'from-tag': fromTag,
@@ -432,7 +435,10 @@ async function buildOutboundEarlyOfferUDP(
 
   // Step 2: INVITE OpenAI with SRTP SDP from rtpengine
   const sdpForOpenAI = cleanSdpForOpenAI(offerRes.sdp as string);
-  logger.info({ callId, sdpForOpenAI }, 'Sending INVITE to OpenAI with SRTP SDP');
+  logger.info(
+    { callId, sdpForOpenAI },
+    'Sending INVITE to OpenAI with SRTP SDP',
+  );
 
   // Register webhook handler BEFORE sending INVITE
   const webhookPromise = new Promise<void>((resolve, reject) => {
@@ -834,14 +840,14 @@ async function handleInboundCall(
       throw new Error('rtpengine not initialized');
     }
 
-    // Offer to rtpengine: Sipgate's SDP (plain RTP with UDP) → SRTP for OpenAI
+    // Offer to rtpengine: Sipgate's SRTP SDP → SRTP for OpenAI
+    // INBOUND PATH — do NOT change, this works in production
     const offerRes: any = await rtpEngine.offer({
       'call-id': sipCallId,
       'from-tag': fromTag,
       sdp: sipgateSdp,
       ICE: 'remove',
       DTLS: 'off',
-      SDES: 'on',
       flags: ['asymmetric'],
       replace: ['origin', 'session-connection'],
       direction: ['external', 'external'],
@@ -867,7 +873,8 @@ async function handleInboundCall(
           sipRes?.getParsedHeader?.('to')?.params?.tag ||
           sipRes?.msg?.headers?.to?.match(/tag=([^;]+)/)?.[1] ||
           'openai';
-        // Answer back to Sipgate: plain RTP (UDP registration = no SRTP)
+        // Answer back to Sipgate: SRTP (inbound always via TLS)
+        // INBOUND PATH — do NOT change, this works in production
         const answerRes: any = await rtpEngine.answer({
           'call-id': sipCallId,
           'from-tag': fromTag,
@@ -878,7 +885,7 @@ async function handleInboundCall(
           flags: ['asymmetric'],
           replace: ['origin', 'session-connection'],
           direction: ['external', 'external'],
-          'transport-protocol': 'RTP/AVP',
+          'transport-protocol': 'RTP/SAVP',
         });
         if (answerRes?.result !== 'ok') {
           logger.error(
