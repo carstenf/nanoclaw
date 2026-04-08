@@ -589,7 +589,10 @@ async function buildOutboundEarlyOfferUDP(
           },
         }),
       );
-      logger.info({ callId }, 'Outbound greeting sent (after Sipgate answered)');
+      logger.info(
+        { callId },
+        'Outbound greeting sent (after Sipgate answered)',
+      );
     }
   }, 1000);
 
