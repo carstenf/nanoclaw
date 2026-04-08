@@ -270,8 +270,8 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         }),
       );
       ws.send(JSON.stringify({ type: 'response.create' }));
-      logger.info({ callId: state.callId }, 'FS: Silence check 1 (18s)');
-    }, 18000);
+      logger.info({ callId: state.callId }, 'FS: Silence check 1 (6s)');
+    }, 6000);
 
     const s2 = setTimeout(() => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -286,8 +286,8 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         }),
       );
       ws.send(JSON.stringify({ type: 'response.create' }));
-      logger.info({ callId: state.callId }, 'FS: Silence check 2 (27s)');
-    }, 27000);
+      logger.info({ callId: state.callId }, 'FS: Silence check 2 (9s)');
+    }, 9000);
 
     const s3 = setTimeout(() => {
       logger.info(
@@ -295,7 +295,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         'FS: No response after silence checks, hanging up',
       );
       cleanupCall(state.callId);
-    }, 36000);
+    }, 12000);
 
     state.timers.push(s1, s2, s3);
   }
@@ -346,9 +346,9 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
             { callId: state.callId },
             'FS: VAD re-enabled after greeting',
           );
-          // Start silence timer only after greeting (not after every response)
-          startSilenceTimer();
         }
+        // Restart silence timer after EVERY Andy response (latest activity wins)
+        startSilenceTimer();
         break;
       }
 
@@ -470,14 +470,21 @@ function cleanupCallState(callId: string): void {
   if (voiceDeps) {
     try {
       voiceDeps.sendMessage(chatJid, buildSummary(state)).catch(() => {});
-    } catch { /* channel not connected */ }
+    } catch {
+      /* channel not connected */
+    }
   }
 
   // Post-call Whisper transcription (async, don't block cleanup)
   if (state.recordingFile) {
-    transcribeRecording(state.recordingFile, state.callId, chatJid).catch((err) => {
-      logger.error({ callId, err: err?.message }, 'FS: Whisper transcription failed');
-    });
+    transcribeRecording(state.recordingFile, state.callId, chatJid).catch(
+      (err) => {
+        logger.error(
+          { callId, err: err?.message },
+          'FS: Whisper transcription failed',
+        );
+      },
+    );
   }
 
   logger.info({ callId }, 'FS: Call state cleaned up');
@@ -524,7 +531,10 @@ async function transcribeRecording(
   // Download WAV from Hetzner (via Caddy)
   const resp = await fetch(url);
   if (!resp.ok) {
-    logger.warn({ callId, status: resp.status }, 'FS: Recording download failed');
+    logger.warn(
+      { callId, status: resp.status },
+      'FS: Recording download failed',
+    );
     return;
   }
   const wavBuffer = Buffer.from(await resp.arrayBuffer());
@@ -532,29 +542,46 @@ async function transcribeRecording(
 
   // Send to Whisper API
   const formData = new FormData();
-  formData.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), filename);
+  formData.append(
+    'file',
+    new Blob([wavBuffer], { type: 'audio/wav' }),
+    filename,
+  );
   formData.append('model', 'whisper-1');
   formData.append('language', 'de');
 
-  const whisperResp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
-    body: formData,
-  });
+  const whisperResp = await fetch(
+    'https://api.openai.com/v1/audio/transcriptions',
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+      body: formData,
+    },
+  );
 
   if (!whisperResp.ok) {
-    logger.warn({ callId, status: whisperResp.status }, 'FS: Whisper transcription failed');
+    logger.warn(
+      { callId, status: whisperResp.status },
+      'FS: Whisper transcription failed',
+    );
     return;
   }
 
-  const result = await whisperResp.json() as { text: string };
+  const result = (await whisperResp.json()) as { text: string };
   const transcript = result.text?.trim();
 
   if (transcript && voiceDeps) {
-    logger.info({ callId, transcriptLen: transcript.length }, 'FS: Whisper transcript ready');
+    logger.info(
+      { callId, transcriptLen: transcript.length },
+      'FS: Whisper transcript ready',
+    );
     try {
-      voiceDeps.sendMessage(chatJid, `📝 Transkript:\n${transcript}`).catch(() => {});
-    } catch { /* channel not connected */ }
+      voiceDeps
+        .sendMessage(chatJid, `📝 Transkript:\n${transcript}`)
+        .catch(() => {});
+    } catch {
+      /* channel not connected */
+    }
   }
 }
 
@@ -631,7 +658,10 @@ export async function makeFreeswitchCall(
     const recFile = `/recordings/${callId}.wav`;
     state.recordingFile = recFile;
     eslConn.api(`uuid_record ${uuid} start ${recFile}`, () => {});
-    logger.info({ callId, uuid, recFile }, 'FS: Call answered, recording started');
+    logger.info(
+      { callId, uuid, recFile },
+      'FS: Call answered, recording started',
+    );
 
     if (voiceDeps && chatJid) {
       voiceDeps
