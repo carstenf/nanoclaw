@@ -136,9 +136,8 @@ function connectControlWs(openaiCallId: string, state: SipgateCallState): void {
 
   ws.on('open', () => {
     logger.info({ callId: state.callId }, 'Control WebSocket connected');
-    // For outbound calls, trigger greeting immediately since Andy initiates.
-    // For inbound, let VAD handle naturally — caller speaks first.
     if (state.direction === 'outbound') {
+      // Outbound: greet immediately since Andy initiates the call
       ws.send(
         JSON.stringify({
           type: 'response.create',
@@ -147,11 +146,23 @@ function connectControlWs(openaiCallId: string, state: SipgateCallState): void {
           },
         }),
       );
+      logger.info({ callId: state.callId }, 'Outbound greeting sent immediately');
+    } else {
+      // Inbound: wait 1.5s for caller to speak first (VAD), then greet if silent
+      setTimeout(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: 'response.create',
+              response: {
+                instructions: `The caller hasn't spoken yet. Greet them: "Hallo, hier ist Andy, wie kann ich helfen?"`,
+              },
+            }),
+          );
+          logger.info({ callId: state.callId }, 'Inbound greeting sent after 1.5s silence');
+        }
+      }, 1500);
     }
-    logger.info(
-      { callId: state.callId, direction: state.direction },
-      'Sent initial greeting trigger',
-    );
   });
 
   ws.on('message', (data: Buffer) => {
@@ -840,14 +851,16 @@ async function handleInboundCall(
       throw new Error('rtpengine not initialized');
     }
 
-    // Offer to rtpengine: Sipgate's SRTP SDP → SRTP for OpenAI
-    // INBOUND PATH — do NOT change, this works in production
+    // Offer to rtpengine: Sipgate's SDP → SRTP for OpenAI.
+    // With UDP registration, Sipgate may send plain RTP — need SDES: 'on'
+    // so rtpengine generates crypto keys for the OpenAI side.
     const offerRes: any = await rtpEngine.offer({
       'call-id': sipCallId,
       'from-tag': fromTag,
       sdp: sipgateSdp,
       ICE: 'remove',
       DTLS: 'off',
+      SDES: 'on',
       flags: ['asymmetric'],
       replace: ['origin', 'session-connection'],
       direction: ['external', 'external'],
@@ -873,8 +886,11 @@ async function handleInboundCall(
           sipRes?.getParsedHeader?.('to')?.params?.tag ||
           sipRes?.msg?.headers?.to?.match(/tag=([^;]+)/)?.[1] ||
           'openai';
-        // Answer back to Sipgate: SRTP (inbound always via TLS)
-        // INBOUND PATH — do NOT change, this works in production
+        // Answer back to Sipgate: match their offer transport.
+        // With UDP registration, Sipgate sends plain RTP. With TLS, SRTP.
+        const sipgateProto = sipgateSdp.includes('RTP/SAVP')
+          ? 'RTP/SAVP'
+          : 'RTP/AVP';
         const answerRes: any = await rtpEngine.answer({
           'call-id': sipCallId,
           'from-tag': fromTag,
@@ -885,7 +901,7 @@ async function handleInboundCall(
           flags: ['asymmetric'],
           replace: ['origin', 'session-connection'],
           direction: ['external', 'external'],
-          'transport-protocol': 'RTP/SAVP',
+          'transport-protocol': sipgateProto,
         });
         if (answerRes?.result !== 'ok') {
           logger.error(
