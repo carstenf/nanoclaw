@@ -465,17 +465,8 @@ function cleanupCallState(callId: string): void {
   for (const t of state.timers) clearTimeout(t);
   state.timers.length = 0;
 
-  // Send summary and trigger Whisper transcription
-  const chatJid = state.chatJid || 'dc:1490365616518070407';
-  if (voiceDeps) {
-    try {
-      voiceDeps.sendMessage(chatJid, buildSummary(state)).catch(() => {});
-    } catch {
-      /* channel not connected */
-    }
-  }
-
   // Post-call Whisper transcription (async, don't block cleanup)
+  const chatJid = state.chatJid || 'dc:1490365616518070407';
   if (state.recordingFile) {
     transcribeRecording(state.recordingFile, state.callId, chatJid).catch(
       (err) => {
