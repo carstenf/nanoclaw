@@ -158,10 +158,10 @@ function connectControlWs(openaiCallId: string, state: SipgateCallState): void {
           );
           logger.info(
             { callId: state.callId },
-            'Inbound greeting sent after 1.5s silence',
+            'Inbound greeting sent after 2s silence',
           );
         }
-      }, 1500);
+      }, 2000);
     }
   });
 
@@ -945,8 +945,8 @@ async function handleInboundCall(
     // (wait for incoming before sending). rtpengine sits in between but generates
     // no traffic by itself → deadlock. playMedia injects silence RTP from
     // rtpengine's allocated ports, which triggers latching on both sides.
-    // Inbound needs longer latching burst (3x1s) — no re-offer to pre-populate endpoints
-    triggerRtpLatching(sipCallId, fromTag, callId, '3', '1000');
+    // Inbound needs longer latching than outbound (no re-offer), but keep it short
+    triggerRtpLatching(sipCallId, fromTag, callId, '2', '500');
 
     uas.on('destroy', () => {
       logger.info({ callId }, 'Sipgate side hung up');
@@ -1118,7 +1118,10 @@ export function startSipgateVoice(deps: SipgateVoiceDeps): void {
   const RTPENGINE_HOST = '10.0.0.1';
   const rtpUtils = RtpEngineClient([`${RTPENGINE_HOST}:22222`]);
   rtpEngine = rtpUtils.getRtpEngine();
-  logger.info({ host: RTPENGINE_HOST }, 'rtpengine client initialized (Hetzner)');
+  logger.info(
+    { host: RTPENGINE_HOST },
+    'rtpengine client initialized (Hetzner)',
+  );
 
   // drachtio stays on Lenovo1 (TLS support needed for OpenAI SIP)
   srf = new Srf();
