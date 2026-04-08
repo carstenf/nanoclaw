@@ -360,7 +360,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
 
     // Log event types (skip noisy ones)
     const eventType = event.type as string;
-    if (!eventType?.includes('audio_buffer') && !eventType?.includes('delta')) {
+    if (!eventType?.includes('input_audio_buffer') && !eventType?.includes('delta')) {
       logger.info({ callId: state.callId }, `FS: WS event: ${eventType}`);
     }
 
@@ -404,24 +404,33 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         break;
       }
 
+      case 'output_audio_buffer.started':
+        // Andy started speaking — cancel any silence timers
+        for (const t of state.timers) clearTimeout(t);
+        state.timers.length = 0;
+        break;
+
+      case 'output_audio_buffer.cleared':
+        // User interrupted Andy — cancel silence timers
+        for (const t of state.timers) clearTimeout(t);
+        state.timers.length = 0;
+        break;
+
       case 'response.output_audio.done':
-        // Audio generation complete — closest event to when Andy stops speaking on the SIP stream
-        // (output_audio_buffer.stopped does NOT fire in SIP mode)
+        // Audio GENERATION complete — playback may still be ongoing.
+        // Don't start silence timer here.
+        break;
+
+      case 'output_audio_buffer.stopped':
+        // Audio PLAYBACK finished — the listener has heard Andy's last word.
+        // This is the correct trigger for the silence timer.
         logger.info(
           { callId: state.callId },
-          'FS: Andy audio generation done, starting silence timer',
+          'FS: Audio playback finished (output_audio_buffer.stopped)',
         );
         if (conversationStarted) {
           startSilenceTimer();
         }
-        break;
-
-      case 'output_audio_buffer.stopped':
-        // Kept for logging — does not fire in SIP mode but log if it ever does
-        logger.info(
-          { callId: state.callId },
-          'FS: output_audio_buffer.stopped (unexpected in SIP mode)',
-        );
         break;
 
       case 'input_audio_buffer.speech_started':
