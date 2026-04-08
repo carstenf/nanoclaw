@@ -67,14 +67,10 @@ export function startWebhookServer(): void {
     } catch (err: any) {
       logger.error(
         { err: err?.message },
-        'Webhook signature failed — accepting anyway',
+        'Webhook signature verification failed — rejecting',
       );
-      try {
-        event = JSON.parse(rawBody);
-      } catch {
-        res.status(400).send('Invalid JSON');
-        return;
-      }
+      res.status(401).send('Signature verification failed');
+      return;
     }
 
     logger.info(
@@ -92,7 +88,9 @@ export function startWebhookServer(): void {
         'Incoming call webhook — searching for matching call',
       );
 
-      // Check FreeSWITCH pending outbound calls
+      // Check FreeSWITCH pending outbound calls (FIFO — first pending gets first webhook).
+      // OpenAI webhook doesn't include originating SIP info, so exact matching isn't possible.
+      // Concurrent outbound calls could mis-match; keep outbound calls sequential.
       for (const [key, pending] of pendingFSWebhook) {
         logger.info(
           { callId: key, openaiCallId },
@@ -106,7 +104,10 @@ export function startWebhookServer(): void {
       }
 
       // No pending outbound — this is an inbound call (FS dialplan auto-bridged)
-      logger.info({ openaiCallId }, 'No pending outbound — FreeSWITCH inbound call');
+      logger.info(
+        { openaiCallId },
+        'No pending outbound — FreeSWITCH inbound call',
+      );
       res.status(200).send('OK');
       try {
         handleFSInboundWebhook(openaiCallId);

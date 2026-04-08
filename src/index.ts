@@ -765,9 +765,6 @@ async function main(): Promise<void> {
     },
     makeCall: (to, goal, chatJid, voiceMode) =>
       makeCall(to, goal, chatJid, voiceMode),
-    makeSipgateCall: async () => {
-      throw new Error('sipgate mode disabled — use freeswitch');
-    },
     makeFreeswitchCall: (to, goal, chatJid, voice) =>
       makeFreeswitchCall(to, goal, chatJid, voice),
     onTasksChanged: () => {

@@ -1,7 +1,6 @@
 import crypto from 'crypto';
 import OpenAI from 'openai';
 import { WebSocket } from 'ws';
-import express from 'express';
 // @ts-ignore — no type declarations for modesl
 import esl from 'modesl';
 
@@ -13,27 +12,24 @@ const env = readEnvFile([
   'HINDSIGHT_LLM_API_KEY',
   'OPENAI_REALTIME_VOICE',
   'OPENAI_PROJECT_ID',
-  'OPENAI_WEBHOOK_SECRET',
   'FREESWITCH_ESL_HOST',
   'FREESWITCH_ESL_PORT',
   'FREESWITCH_ESL_PASSWORD',
-  'FREESWITCH_WEBHOOK_PORT',
 ]);
 
 const OPENAI_API_KEY =
   env.OPENAI_SIP_API_KEY || env.HINDSIGHT_LLM_API_KEY || '';
 const DEFAULT_VOICE = env.OPENAI_REALTIME_VOICE || 'shimmer';
 const PROJECT_ID = env.OPENAI_PROJECT_ID || '';
-const WEBHOOK_SECRET = env.OPENAI_WEBHOOK_SECRET || '';
 const ESL_HOST = env.FREESWITCH_ESL_HOST || '10.0.0.1';
 const ESL_PORT = parseInt(env.FREESWITCH_ESL_PORT || '8021', 10);
 const ESL_PASSWORD = env.FREESWITCH_ESL_PASSWORD || 'ClueCon';
-const WEBHOOK_PORT = parseInt(env.FREESWITCH_WEBHOOK_PORT || '4403', 10);
-
-const OPENAI_SIP_URI = `sofia/external/sip:${PROJECT_ID}@sip.api.openai.com;transport=tls`;
 
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 let eslConn: any = null;
+
+/** Cap transcript to prevent memory growth on very long calls */
+const MAX_TRANSCRIPT_TURNS = 200;
 
 // --- Call state ---
 
@@ -47,11 +43,13 @@ interface FSCallState {
   voice: string;
   controlWs: WebSocket | null;
   transcript: Array<{ role: 'user' | 'assistant'; text: string }>;
+  /** Pending timers that should be cleared on cleanup */
+  timers: ReturnType<typeof setTimeout>[];
 }
 
 const activeCalls = new Map<string, FSCallState>();
 
-// Exported so sipgate-voice webhook handler can check FreeSWITCH pending calls too
+// Exported so openai-webhook handler can match incoming webhooks to pending outbound calls
 export const pendingFSWebhook = new Map<
   string,
   {
@@ -134,7 +132,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
       );
     } else {
       // Inbound: greet after 2s silence
-      setTimeout(() => {
+      const greetTimer = setTimeout(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(
             JSON.stringify({
@@ -150,6 +148,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
           );
         }
       }, 2000);
+      state.timers.push(greetTimer);
     }
   });
 
@@ -165,7 +164,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
       case 'conversation.item.input_audio_transcription.completed':
         if (event.transcript) {
           const text = (event.transcript as string).trim();
-          if (text) {
+          if (text && state.transcript.length < MAX_TRANSCRIPT_TURNS) {
             state.transcript.push({ role: 'user', text });
             logger.info({ callId: state.callId, text }, 'FS: Caller said');
           }
@@ -174,7 +173,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
       case 'response.audio_transcript.done':
         if (event.transcript) {
           const text = (event.transcript as string).trim();
-          if (text) {
+          if (text && state.transcript.length < MAX_TRANSCRIPT_TURNS) {
             state.transcript.push({ role: 'assistant', text });
             logger.info({ callId: state.callId, text }, 'FS: Andy said');
           }
@@ -191,6 +190,8 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
 
   ws.on('close', () => {
     logger.info({ callId: state.callId }, 'FS: Control WebSocket closed');
+    // WebSocket close means the call ended on OpenAI's side — clean up
+    cleanupCallState(state.callId);
   });
 
   ws.on('error', (err) => {
@@ -200,6 +201,30 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
 
 // --- Call cleanup ---
 
+/**
+ * Remove call from activeCalls and send transcript summary.
+ * Does NOT close the WebSocket or kill the FS channel (use cleanupCall for full teardown).
+ */
+function cleanupCallState(callId: string): void {
+  const state = activeCalls.get(callId);
+  if (!state) return;
+  activeCalls.delete(callId);
+
+  // Clear any pending timers (greeting delays, etc.)
+  for (const t of state.timers) clearTimeout(t);
+  state.timers.length = 0;
+
+  if (voiceDeps && state.chatJid) {
+    const summary = buildSummary(state);
+    voiceDeps.sendMessage(state.chatJid, summary).catch(() => {});
+  }
+
+  logger.info({ callId }, 'FS: Call state cleaned up');
+}
+
+/**
+ * Full teardown: close WebSocket, kill FS channel, then clean up state.
+ */
 function cleanupCall(callId: string): void {
   const state = activeCalls.get(callId);
   if (!state) return;
@@ -217,17 +242,7 @@ function cleanupCall(callId: string): void {
     }
   }
 
-  if (voiceDeps && state.chatJid) {
-    const summary = buildSummary(state);
-    try {
-      voiceDeps.sendMessage(state.chatJid, summary).catch(() => {});
-    } catch {
-      /* channel may be unavailable */
-    }
-  }
-
-  activeCalls.delete(callId);
-  logger.info({ callId }, 'FS: Call cleaned up');
+  cleanupCallState(callId);
 }
 
 function buildSummary(state: FSCallState): string {
@@ -272,12 +287,13 @@ export async function makeFreeswitchCall(
     voice: callVoice,
     controlWs: null,
     transcript: [],
+    timers: [],
   };
   activeCalls.set(callId, state);
 
   try {
     // Step 1: Originate call to Sipgate, park the channel
-    const originateCmd = `originate {origination_caller_id_number=+49308687022346,origination_caller_id_name=Andy,hangup_after_bridge=true}sofia/gateway/sipgate/${to} &park()`;
+    const originateArgs = `{origination_caller_id_number=+49308687022346,origination_caller_id_name=Andy,hangup_after_bridge=true}sofia/gateway/sipgate/${to} &park()`;
 
     const uuid = await new Promise<string>((resolve, reject) => {
       const timeout = setTimeout(
@@ -285,7 +301,7 @@ export async function makeFreeswitchCall(
         45000,
       );
       eslConn.api(
-        `originate ${originateCmd.replace('originate ', '')}`,
+        `originate ${originateArgs}`,
         (res: any) => {
           clearTimeout(timeout);
           const body = res?.body || res?.getBody?.() || '';
@@ -340,7 +356,7 @@ export async function makeFreeswitchCall(
       logger.info({ callId, result: body.trim() }, 'FS: Transfer result');
     });
 
-    // Step 4: Wait for OpenAI webhook (resolved by sipgate-voice webhook handler)
+    // Step 4: Wait for OpenAI webhook (resolved by openai-webhook handler)
     await webhookPromise;
 
     // Step 4b: Accept the OpenAI call (webhook set the openaiCallId on state)
@@ -350,7 +366,7 @@ export async function makeFreeswitchCall(
 
     // Step 5: Send greeting after bridge is established.
     // 1.5s delay lets the media path stabilize before first audio.
-    setTimeout(() => {
+    const greetTimer = setTimeout(() => {
       if (state.controlWs?.readyState === WebSocket.OPEN) {
         state.controlWs.send(
           JSON.stringify({
@@ -363,6 +379,7 @@ export async function makeFreeswitchCall(
         logger.info({ callId }, 'FS: Outbound greeting sent (1.5s delay)');
       }
     }, 1500);
+    state.timers.push(greetTimer);
 
     // Step 6: Subscribe to hangup for this channel
     eslConn.api(`uuid_setvar ${uuid} nanoclaw_call_id ${callId}`, () => {});
@@ -381,7 +398,10 @@ export async function makeFreeswitchCall(
 
 export function handleFSInboundWebhook(openaiCallId: string): void {
   const callId = `fs-in-${Date.now()}-${crypto.randomInt(1000, 9999)}`;
-  logger.info({ callId, openaiCallId }, 'FS: Handling inbound call via webhook');
+  logger.info(
+    { callId, openaiCallId },
+    'FS: Handling inbound call via webhook',
+  );
 
   const state: FSCallState = {
     callId,
@@ -393,6 +413,7 @@ export function handleFSInboundWebhook(openaiCallId: string): void {
     voice: DEFAULT_VOICE,
     controlWs: null,
     transcript: [],
+    timers: [],
   };
 
   if (voiceDeps) {
@@ -400,8 +421,12 @@ export function handleFSInboundWebhook(openaiCallId: string): void {
     if (mainJid) {
       state.chatJid = mainJid;
       try {
-        voiceDeps.sendMessage(mainJid, 'Eingehender Anruf (FreeSWITCH)').catch(() => {});
-      } catch { /* channel may not be connected */ }
+        voiceDeps
+          .sendMessage(mainJid, 'Eingehender Anruf (FreeSWITCH)')
+          .catch(() => {});
+      } catch {
+        /* channel may not be connected */
+      }
     }
   }
 
@@ -420,6 +445,18 @@ export function handleFSInboundWebhook(openaiCallId: string): void {
 
 // --- ESL connection and event handling ---
 
+let eslReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleESLReconnect(): void {
+  // Prevent duplicate reconnect timers from error + end both firing
+  if (eslReconnectTimer) return;
+  eslConn = null;
+  eslReconnectTimer = setTimeout(() => {
+    eslReconnectTimer = null;
+    connectESL();
+  }, 5000);
+}
+
 function connectESL(): void {
   logger.info(
     { host: ESL_HOST, port: ESL_PORT },
@@ -428,95 +465,16 @@ function connectESL(): void {
 
   eslConn = new esl.Connection(ESL_HOST, ESL_PORT, ESL_PASSWORD, () => {
     logger.info('FS: ESL connected');
-    // ESL is used for outbound originate commands only.
-    // Inbound detection is via OpenAI webhook (no polling needed).
   });
 
   eslConn.on('error', (err: any) => {
     logger.error({ err: err?.message }, 'FS: ESL connection error');
-    eslConn = null;
-    // Reconnect after 5s
-    setTimeout(connectESL, 5000);
+    scheduleESLReconnect();
   });
 
   eslConn.on('esl::end', () => {
     logger.warn('FS: ESL connection closed, reconnecting in 5s');
-    eslConn = null;
-    setTimeout(connectESL, 5000);
-  });
-}
-
-// --- Webhook server for OpenAI SIP callbacks ---
-
-function startWebhookServer(): void {
-  const app = express();
-  app.use(express.raw({ type: 'application/json' }));
-
-  app.post('/openai-sip-fs', async (req, res) => {
-    const rawBody = req.body.toString();
-    logger.info(
-      { bodyLen: rawBody.length, webhookId: req.headers['webhook-id'] },
-      'FS: Webhook received',
-    );
-
-    let event: any;
-    try {
-      if (WEBHOOK_SECRET) {
-        event = await openai.webhooks.unwrap(
-          rawBody,
-          req.headers,
-          WEBHOOK_SECRET,
-        );
-      } else {
-        event = JSON.parse(rawBody);
-      }
-    } catch (err: any) {
-      logger.error(
-        { err: err?.message },
-        'FS: Webhook signature failed, accepting anyway',
-      );
-      try {
-        event = JSON.parse(rawBody);
-      } catch {
-        res.status(400).send('Invalid JSON');
-        return;
-      }
-    }
-
-    if (event.type === 'realtime.call.incoming') {
-      const openaiCallId = event.call_id || event.data?.call_id;
-
-      // Check pending outbound calls first
-      for (const [key, pending] of pendingFSWebhook) {
-        logger.info(
-          { callId: key, openaiCallId },
-          'FS: Matched webhook to call',
-        );
-        pending.state.openaiCallId = openaiCallId;
-        pendingFSWebhook.delete(key);
-        res.status(200).send('OK');
-        acceptOpenAICall(openaiCallId, pending.state)
-          .then(() => pending.resolve())
-          .catch((err) => pending.reject(err));
-        return;
-      }
-
-      // No matching call
-      logger.warn({ openaiCallId }, 'FS: No matching call for webhook');
-      res.status(200).send('OK');
-      try {
-        await openai.realtime.calls.reject(openaiCallId, { status_code: 486 });
-      } catch {
-        /* ignore */
-      }
-      return;
-    }
-
-    res.status(200).send('OK');
-  });
-
-  app.listen(WEBHOOK_PORT, '0.0.0.0', () => {
-    logger.info({ port: WEBHOOK_PORT }, 'FS: OpenAI webhook server started');
+    scheduleESLReconnect();
   });
 }
 
@@ -531,11 +489,8 @@ export function startFreeswitchVoice(deps: FreeswitchVoiceDeps): void {
   }
 
   connectESL();
-  // No separate webhook server — FreeSWITCH pending calls are checked
-  // by the sipgate-voice webhook handler via the exported pendingFSWebhook map.
-
   logger.info(
     { eslHost: ESL_HOST, eslPort: ESL_PORT },
-    'FS: FreeSWITCH voice initialized (webhook shared with sipgate on 4402)',
+    'FS: FreeSWITCH voice initialized (webhook via openai-webhook on 4402)',
   );
 }

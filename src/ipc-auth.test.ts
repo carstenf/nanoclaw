@@ -65,7 +65,6 @@ beforeEach(() => {
     writeGroupsSnapshot: () => {},
     onTasksChanged: () => {},
     makeCall: async () => {},
-    makeSipgateCall: async () => {},
     makeFreeswitchCall: async () => {},
   };
 });

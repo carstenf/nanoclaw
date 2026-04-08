@@ -19,7 +19,6 @@ export interface IpcDeps {
     chatJid: string,
     voiceMode?: string,
   ) => Promise<void>;
-  makeSipgateCall: (to: string, goal: string, chatJid: string) => Promise<void>;
   makeFreeswitchCall: (
     to: string,
     goal: string,
@@ -514,7 +513,7 @@ export async function processTaskIpc(
       const voiceMode = data.voice_mode || 'freeswitch';
       if (voiceMode === 'freeswitch' || voiceMode === 'sipgate') {
         logger.info(
-          { to: data.to, goal: data.goal, voiceMode, sourceGroup },
+          { to: data.to, goal: data.goal, sourceGroup },
           'Initiating FreeSWITCH call via IPC',
         );
         await deps.makeFreeswitchCall(
@@ -532,18 +531,6 @@ export async function processTaskIpc(
       }
       break;
     }
-
-    case 'make_sipgate_call':
-      if (data.to && data.goal && data.chatJid) {
-        logger.info(
-          { to: data.to, goal: data.goal, sourceGroup },
-          'Initiating sipgate call via IPC',
-        );
-        await deps.makeSipgateCall(data.to, data.goal, data.chatJid);
-      } else {
-        logger.warn({ data }, 'make_sipgate_call missing required fields');
-      }
-      break;
 
     default:
       logger.warn({ type: data.type }, 'Unknown IPC task type');

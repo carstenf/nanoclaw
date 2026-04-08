@@ -35,13 +35,15 @@ if [ ! -f /etc/freeswitch/tls/agent.pem ]; then
   rm -f /tmp/key.pem /tmp/cert.pem
 fi
 
-# Add TLS params to external profile (for outbound to OpenAI)
-sed -i '/<\/settings>/i \
+# Add TLS params to external profile (for outbound to OpenAI) — idempotent
+if ! grep -q 'name="tls"' /etc/freeswitch/sip_profiles/external.xml; then
+  sed -i '/<\/settings>/i \
     <param name="tls" value="true"/>\
     <param name="tls-cert-dir" value="/etc/freeswitch/tls"/>\
     <param name="tls-version" value="tlsv1.2"/>\
     <param name="tls-verify-policy" value="out_none"/>\
     <param name="tls-verify-depth" value="2"/>' /etc/freeswitch/sip_profiles/external.xml
+fi
 
 # Move external profile to port 5060 (guaranteed open in firewall)
 # Internal profile moves to 15060 to avoid conflict
