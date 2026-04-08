@@ -121,35 +121,31 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
   );
 
   state.controlWs = ws;
+  let greetingSent = false;
+  let conversationStarted = false; // true after first speech from either side
 
   ws.on('open', () => {
     logger.info({ callId: state.callId }, 'FS: Control WebSocket connected');
-    if (state.direction === 'outbound') {
-      // Greeting deferred: sent after bridge is established (see makeFreeswitchCall)
-      logger.info(
-        { callId: state.callId },
-        'FS: Outbound WS open, greeting deferred',
-      );
-    } else {
-      // Inbound: greet after 2s silence
-      const greetTimer = setTimeout(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(
-            JSON.stringify({
-              type: 'response.create',
-              response: {
-                instructions: `The caller hasn't spoken yet. Greet them: "Hallo, hier ist Andy, wie kann ich helfen?"`,
-              },
-            }),
-          );
-          logger.info(
-            { callId: state.callId },
-            'FS: Inbound greeting sent after 2s',
-          );
-        }
-      }, 2000);
-      state.timers.push(greetTimer);
-    }
+    // Disable VAD immediately, then send greeting
+    ws.send(JSON.stringify({
+      type: 'session.update',
+      session: { turn_detection: null },
+    }));
+    // Don't wait for session.updated — send greeting right away
+    const greetText = state.direction === 'outbound'
+      ? `Greet the person in German. Say: "Hallo, hier ist Andy, der Assistent von Carsten." Then explain: ${state.goal}`
+      : 'Greet the caller in German. Say: "Hallo, hier ist Andy, wie kann ich helfen?"';
+    ws.send(JSON.stringify({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: greetText }],
+      },
+    }));
+    ws.send(JSON.stringify({ type: 'response.create' }));
+    greetingSent = true;
+    logger.info({ callId: state.callId }, 'FS: Greeting sent on WS open (VAD disabled)');
   });
 
   ws.on('message', (data: Buffer) => {
@@ -160,7 +156,71 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
       return;
     }
 
+    // Log event types (skip noisy ones)
+    const eventType = event.type as string;
+    if (!eventType?.includes('audio_buffer') && !eventType?.includes('delta')) {
+      logger.info({ callId: state.callId }, `FS: WS event: ${eventType}`);
+    }
+
     switch (event.type) {
+      // --- Event-driven greeting state machine ---
+      case 'session.created':
+        logger.info({ callId: state.callId }, 'FS: Session created');
+        break;
+
+      case 'session.updated':
+        logger.info({ callId: state.callId }, 'FS: Session updated');
+        break;
+
+      case 'response.done':
+        // Re-enable VAD after greeting completes
+        if (!conversationStarted) {
+          conversationStarted = true;
+          ws.send(JSON.stringify({
+            type: 'session.update',
+            session: {
+              turn_detection: {
+                type: 'server_vad',
+                threshold: 0.5,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 500,
+              },
+            },
+          }));
+          logger.info({ callId: state.callId }, 'FS: VAD re-enabled after greeting');
+
+          // Start mid-call silence monitor (30s → "Bist du noch da?" → 10s → hangup)
+          const midCallTimer = setTimeout(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                type: 'conversation.item.create',
+                item: {
+                  type: 'message',
+                  role: 'user',
+                  content: [{ type: 'input_text', text: 'Nobody has spoken for a while. Ask: "Bist du noch da?"' }],
+                },
+              }));
+              ws.send(JSON.stringify({ type: 'response.create' }));
+              logger.info({ callId: state.callId }, 'FS: Mid-call silence check (30s)');
+            }
+            const hangupTimer = setTimeout(() => {
+              logger.info({ callId: state.callId }, 'FS: No response after silence check, hanging up');
+              cleanupCall(state.callId);
+            }, 10000);
+            state.timers.push(hangupTimer);
+          }, 30000);
+          state.timers.push(midCallTimer);
+        }
+        break;
+
+      case 'input_audio_buffer.speech_started':
+        // Callee spoke — cancel any silence timers, mark conversation started
+        if (!conversationStarted) conversationStarted = true;
+        for (const t of state.timers) clearTimeout(t);
+        state.timers.length = 0;
+        break;
+
+      // --- Transcript handlers ---
       case 'conversation.item.input_audio_transcription.completed':
         if (event.transcript) {
           const text = (event.transcript as string).trim();
@@ -181,7 +241,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         break;
       case 'error':
         logger.error(
-          { callId: state.callId, error: event.error },
+          { callId: state.callId, error: JSON.stringify(event.error || event) },
           'FS: OpenAI Realtime error',
         );
         break;
@@ -214,9 +274,21 @@ function cleanupCallState(callId: string): void {
   for (const t of state.timers) clearTimeout(t);
   state.timers.length = 0;
 
-  if (voiceDeps && state.chatJid) {
+  if (voiceDeps) {
     const summary = buildSummary(state);
-    voiceDeps.sendMessage(state.chatJid, summary).catch(() => {});
+    // Try chatJid first, then fall back to any reachable main group
+    const jids = state.chatJid ? [state.chatJid] : [];
+    if (voiceDeps.getMainJid && voiceDeps.getMainJid() && !jids.includes(voiceDeps.getMainJid()!)) {
+      jids.push(voiceDeps.getMainJid()!);
+    }
+    for (const jid of jids) {
+      try {
+        voiceDeps.sendMessage(jid, summary).catch(() => {});
+        break; // sent successfully
+      } catch {
+        /* try next JID */
+      }
+    }
   }
 
   logger.info({ callId }, 'FS: Call state cleaned up');
@@ -300,19 +372,16 @@ export async function makeFreeswitchCall(
         () => reject(new Error('Originate timeout (45s)')),
         45000,
       );
-      eslConn.api(
-        `originate ${originateArgs}`,
-        (res: any) => {
-          clearTimeout(timeout);
-          const body = res?.body || res?.getBody?.() || '';
-          if (body.startsWith('+OK')) {
-            const channelUuid = body.replace('+OK ', '').trim();
-            resolve(channelUuid);
-          } else {
-            reject(new Error(`Originate failed: ${body}`));
-          }
-        },
-      );
+      eslConn.api(`originate ${originateArgs}`, (res: any) => {
+        clearTimeout(timeout);
+        const body = res?.body || res?.getBody?.() || '';
+        if (body.startsWith('+OK')) {
+          const channelUuid = body.replace('+OK ', '').trim();
+          resolve(channelUuid);
+        } else {
+          reject(new Error(`Originate failed: ${body}`));
+        }
+      });
     });
 
     state.fsUuid = uuid;
@@ -364,22 +433,8 @@ export async function makeFreeswitchCall(
       await acceptOpenAICall(state.openaiCallId, state);
     }
 
-    // Step 5: Send greeting after bridge is established.
-    // 1.5s delay lets the media path stabilize before first audio.
-    const greetTimer = setTimeout(() => {
-      if (state.controlWs?.readyState === WebSocket.OPEN) {
-        state.controlWs.send(
-          JSON.stringify({
-            type: 'response.create',
-            response: {
-              instructions: `Greet the person and explain why you are calling. Your goal: ${state.goal}`,
-            },
-          }),
-        );
-        logger.info({ callId }, 'FS: Outbound greeting sent (1.5s delay)');
-      }
-    }, 1500);
-    state.timers.push(greetTimer);
+    // Greeting is sent via event-driven state machine in connectControlWs
+    // (session.created → disable VAD → session.updated → conversation.item.create → response.create)
 
     // Step 6: Subscribe to hangup for this channel
     eslConn.api(`uuid_setvar ${uuid} nanoclaw_call_id ${callId}`, () => {});
@@ -416,16 +471,19 @@ export function handleFSInboundWebhook(openaiCallId: string): void {
     timers: [],
   };
 
+  // Find a working chat JID to send notifications/transcript to
   if (voiceDeps) {
     const mainJid = voiceDeps.getMainJid();
     if (mainJid) {
       state.chatJid = mainJid;
       try {
-        voiceDeps
-          .sendMessage(mainJid, 'Eingehender Anruf (FreeSWITCH)')
-          .catch(() => {});
+        voiceDeps.sendMessage(mainJid, 'Eingehender Anruf (FreeSWITCH)').catch(() => {});
       } catch {
-        /* channel may not be connected */
+        // Main JID channel not connected — try Discord fallback
+        state.chatJid = 'dc:1490365616518070407';
+        try {
+          voiceDeps.sendMessage(state.chatJid, 'Eingehender Anruf (FreeSWITCH)').catch(() => {});
+        } catch { /* no channel available */ }
       }
     }
   }
