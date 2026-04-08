@@ -129,61 +129,149 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
 
     if (state.direction === 'inbound') {
       // Inbound: greet immediately (caller expects Andy to answer)
-      ws.send(JSON.stringify({ type: 'session.update', session: { turn_detection: null } }));
-      ws.send(JSON.stringify({
-        type: 'conversation.item.create',
-        item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Greet the caller in German. Say: "Hallo, hier ist Andy, wie kann ich helfen?"' }] },
-      }));
+      ws.send(
+        JSON.stringify({
+          type: 'session.update',
+          session: { turn_detection: null },
+        }),
+      );
+      ws.send(
+        JSON.stringify({
+          type: 'conversation.item.create',
+          item: {
+            type: 'message',
+            role: 'user',
+            content: [
+              {
+                type: 'input_text',
+                text: 'Greet the caller in German. Say: "Hallo, hier ist Andy, wie kann ich helfen?"',
+              },
+            ],
+          },
+        }),
+      );
       ws.send(JSON.stringify({ type: 'response.create' }));
       greetingSent = true;
-      logger.info({ callId: state.callId }, 'FS: Inbound greeting sent immediately');
+      logger.info(
+        { callId: state.callId },
+        'FS: Inbound greeting sent immediately',
+      );
     } else {
       // Outbound: wait for callee to speak (VAD enabled).
       // If silent after 5s → "Hallo? Ist da jemand?" via conversation.item.create
       // This uses the fast path (conversation.item.create) even with VAD enabled.
-      logger.info({ callId: state.callId }, 'FS: Outbound — waiting for callee, 5s fallback timer set');
+      logger.info(
+        { callId: state.callId },
+        'FS: Outbound — waiting for callee, 5s fallback timer set',
+      );
 
       const t1 = setTimeout(() => {
         if (ws.readyState !== WebSocket.OPEN || greetingSent) return;
         greetingSent = true;
         // Disable VAD briefly to send the hallo
-        ws.send(JSON.stringify({ type: 'session.update', session: { turn_detection: null } }));
-        ws.send(JSON.stringify({
-          type: 'conversation.item.create',
-          item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Say only: "Hallo? Ist da jemand?"' }] },
-        }));
+        ws.send(
+          JSON.stringify({
+            type: 'session.update',
+            session: { turn_detection: null },
+          }),
+        );
+        ws.send(
+          JSON.stringify({
+            type: 'conversation.item.create',
+            item: {
+              type: 'message',
+              role: 'user',
+              content: [
+                {
+                  type: 'input_text',
+                  text: 'Say only: "Hallo? Ist da jemand?"',
+                },
+              ],
+            },
+          }),
+        );
         ws.send(JSON.stringify({ type: 'response.create' }));
         logger.info({ callId: state.callId }, 'FS: Hallo attempt 1 (5s)');
       }, 5000);
 
       const t2 = setTimeout(() => {
         if (ws.readyState !== WebSocket.OPEN) return;
-        ws.send(JSON.stringify({
-          type: 'conversation.item.create',
-          item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Say only: "Hallo?"' }] },
-        }));
+        ws.send(
+          JSON.stringify({
+            type: 'conversation.item.create',
+            item: {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'Say only: "Hallo?"' }],
+            },
+          }),
+        );
         ws.send(JSON.stringify({ type: 'response.create' }));
         logger.info({ callId: state.callId }, 'FS: Hallo attempt 2 (8s)');
       }, 8000);
 
       const t3 = setTimeout(() => {
         if (ws.readyState !== WebSocket.OPEN) return;
-        ws.send(JSON.stringify({
-          type: 'conversation.item.create',
-          item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Say only: "Hallo?"' }] },
-        }));
+        ws.send(
+          JSON.stringify({
+            type: 'conversation.item.create',
+            item: {
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'input_text', text: 'Say only: "Hallo?"' }],
+            },
+          }),
+        );
         ws.send(JSON.stringify({ type: 'response.create' }));
         logger.info({ callId: state.callId }, 'FS: Hallo attempt 3 (11s)');
       }, 11000);
 
       const tHangup = setTimeout(() => {
-        logger.info({ callId: state.callId }, 'FS: No response after 3 attempts, hanging up');
+        logger.info(
+          { callId: state.callId },
+          'FS: No response after 3 attempts, hanging up',
+        );
         cleanupCall(state.callId);
       }, 13000);
 
       state.timers.push(t1, t2, t3, tHangup);
     }
   });
+
+  // Mid-call silence timer: 30s silence → "Hallo?" series → hangup
+  function startSilenceTimer() {
+    // Clear any existing silence timers
+    for (const t of state.timers) clearTimeout(t);
+    state.timers.length = 0;
+
+    const s1 = setTimeout(() => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: 'session.update', session: { turn_detection: null } }));
+      ws.send(JSON.stringify({
+        type: 'conversation.item.create',
+        item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Say only: "Hallo? Bist du noch da?"' }] },
+      }));
+      ws.send(JSON.stringify({ type: 'response.create' }));
+      logger.info({ callId: state.callId }, 'FS: Silence check 1 (6s)');
+    }, 6000);
+
+    const s2 = setTimeout(() => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        type: 'conversation.item.create',
+        item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Say only: "Hallo?"' }] },
+      }));
+      ws.send(JSON.stringify({ type: 'response.create' }));
+      logger.info({ callId: state.callId }, 'FS: Silence check 2 (9s)');
+    }, 9000);
+
+    const s3 = setTimeout(() => {
+      logger.info({ callId: state.callId }, 'FS: No response after silence checks, hanging up');
+      cleanupCall(state.callId);
+    }, 12000);
+
+    state.timers.push(s1, s2, s3);
+  }
 
   ws.on('message', (data: Buffer) => {
     let event: Record<string, unknown>;
@@ -209,71 +297,60 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         logger.info({ callId: state.callId }, 'FS: Session updated');
         break;
 
-      case 'response.done':
-        // Re-enable VAD after greeting completes
+      case 'response.done': {
+        // Re-enable VAD after first response (greeting)
         if (!conversationStarted) {
           conversationStarted = true;
-          ws.send(
-            JSON.stringify({
-              type: 'session.update',
-              session: {
-                turn_detection: {
-                  type: 'server_vad',
-                  threshold: 0.5,
-                  prefix_padding_ms: 300,
-                  silence_duration_ms: 500,
-                },
+          ws.send(JSON.stringify({
+            type: 'session.update',
+            session: {
+              turn_detection: {
+                type: 'server_vad',
+                threshold: 0.5,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 500,
               },
-            }),
-          );
-          logger.info(
-            { callId: state.callId },
-            'FS: VAD re-enabled after greeting',
-          );
-
-          // Start mid-call silence monitor (30s → "Bist du noch da?" → 10s → hangup)
-          const midCallTimer = setTimeout(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(
-                JSON.stringify({
-                  type: 'conversation.item.create',
-                  item: {
-                    type: 'message',
-                    role: 'user',
-                    content: [
-                      {
-                        type: 'input_text',
-                        text: 'Nobody has spoken for a while. Ask: "Bist du noch da?"',
-                      },
-                    ],
-                  },
-                }),
-              );
-              ws.send(JSON.stringify({ type: 'response.create' }));
-              logger.info(
-                { callId: state.callId },
-                'FS: Mid-call silence check (30s)',
-              );
-            }
-            const hangupTimer = setTimeout(() => {
-              logger.info(
-                { callId: state.callId },
-                'FS: No response after silence check, hanging up',
-              );
-              cleanupCall(state.callId);
-            }, 10000);
-            state.timers.push(hangupTimer);
-          }, 30000);
-          state.timers.push(midCallTimer);
+              input_audio_transcription: { model: 'whisper-1' },
+            },
+          }));
+          logger.info({ callId: state.callId }, 'FS: VAD re-enabled after greeting');
+          // Start silence timer only after greeting (not after every response)
+          startSilenceTimer();
         }
         break;
+      }
 
       case 'input_audio_buffer.speech_started':
-        // Callee spoke — cancel any silence timers, mark conversation started
+        // Callee spoke — cancel silence timers, restart after speech ends
         if (!conversationStarted) conversationStarted = true;
         for (const t of state.timers) clearTimeout(t);
         state.timers.length = 0;
         break;
+
+      case 'input_audio_buffer.speech_stopped':
+        // Callee stopped speaking — restart silence timer
+        startSilenceTimer();
+        break;
+
+      case 'response.audio_transcript.done': {
+        // Check for goodbye → auto-hangup after 2s
+        const transcript = (event.transcript as string || '').toLowerCase();
+        const goodbyeWords = ['tschüs', 'tschüss', 'auf wiedersehen', 'auf wiederhören', 'bye', 'ciao', 'goodbye'];
+        if (goodbyeWords.some(w => transcript.includes(w))) {
+          logger.info({ callId: state.callId }, 'FS: Goodbye detected, hanging up in 2s');
+          const goodbyeTimer = setTimeout(() => cleanupCall(state.callId), 2000);
+          state.timers.push(goodbyeTimer);
+        }
+        // Transcript logging (existing)
+        if (event.transcript) {
+          const text = (event.transcript as string).trim();
+          if (text && state.transcript.length < MAX_TRANSCRIPT_TURNS) {
+            state.transcript.push({ role: 'assistant', text });
+            logger.info({ callId: state.callId, text }, 'FS: Andy said');
+          }
+        }
+        break;
+      }
 
       // --- Transcript handlers ---
       case 'conversation.item.input_audio_transcription.completed':
@@ -282,15 +359,14 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
           if (text && state.transcript.length < MAX_TRANSCRIPT_TURNS) {
             state.transcript.push({ role: 'user', text });
             logger.info({ callId: state.callId, text }, 'FS: Caller said');
-          }
-        }
-        break;
-      case 'response.audio_transcript.done':
-        if (event.transcript) {
-          const text = (event.transcript as string).trim();
-          if (text && state.transcript.length < MAX_TRANSCRIPT_TURNS) {
-            state.transcript.push({ role: 'assistant', text });
-            logger.info({ callId: state.callId, text }, 'FS: Andy said');
+            // Check caller goodbye too
+            const callerText = text.toLowerCase();
+            const byeWords = ['tschüs', 'tschüss', 'auf wiedersehen', 'auf wiederhören', 'bye', 'ciao', 'goodbye'];
+            if (byeWords.some(w => callerText.includes(w))) {
+              logger.info({ callId: state.callId }, 'FS: Caller goodbye detected, hanging up in 3s');
+              const byeTimer = setTimeout(() => cleanupCall(state.callId), 3000);
+              state.timers.push(byeTimer);
+            }
           }
         }
         break;
