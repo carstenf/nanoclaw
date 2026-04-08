@@ -261,11 +261,14 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
     }
   });
 
-  // Mid-call silence timer: 30s silence → "Hallo?" series → hangup
+  let silenceCheckActive = false;
+
+  // Mid-call silence timer: silence → "Hallo?" series → hangup
   function startSilenceTimer() {
     // Clear any existing silence timers
     for (const t of state.timers) clearTimeout(t);
     state.timers.length = 0;
+    silenceCheckActive = true;
 
     const s1 = setTimeout(() => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -360,7 +363,10 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
 
     // Log event types (skip noisy ones)
     const eventType = event.type as string;
-    if (!eventType?.includes('input_audio_buffer') && !eventType?.includes('delta')) {
+    if (
+      !eventType?.includes('input_audio_buffer') &&
+      !eventType?.includes('delta')
+    ) {
       logger.info({ callId: state.callId }, `FS: WS event: ${eventType}`);
     }
 
@@ -405,13 +411,16 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
       }
 
       case 'output_audio_buffer.started':
-        // Andy started speaking — cancel any silence timers
-        for (const t of state.timers) clearTimeout(t);
-        state.timers.length = 0;
+        // Andy started speaking — only cancel timers if NOT from our silence check
+        if (!silenceCheckActive) {
+          for (const t of state.timers) clearTimeout(t);
+          state.timers.length = 0;
+        }
         break;
 
       case 'output_audio_buffer.cleared':
-        // User interrupted Andy — cancel silence timers
+        // User interrupted Andy — cancel silence timers, reset silence check
+        silenceCheckActive = false;
         for (const t of state.timers) clearTimeout(t);
         state.timers.length = 0;
         break;
@@ -423,19 +432,20 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
 
       case 'output_audio_buffer.stopped':
         // Audio PLAYBACK finished — the listener has heard Andy's last word.
-        // This is the correct trigger for the silence timer.
         logger.info(
-          { callId: state.callId },
+          { callId: state.callId, silenceCheckActive },
           'FS: Audio playback finished (output_audio_buffer.stopped)',
         );
-        if (conversationStarted) {
+        // Only start NEW silence timer if not already in a silence check sequence
+        if (conversationStarted && !silenceCheckActive) {
           startSilenceTimer();
         }
         break;
 
       case 'input_audio_buffer.speech_started':
-        // Callee spoke — cancel silence timers and outbound greeting timers
+        // Callee spoke — cancel ALL timers, reset silence check
         if (!conversationStarted) conversationStarted = true;
+        silenceCheckActive = false;
         cancelOutboundTimers();
         for (const t of state.timers) clearTimeout(t);
         state.timers.length = 0;
