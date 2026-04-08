@@ -233,13 +233,28 @@ DNAT  tcp  0.0.0.0/0 → 10.0.0.2:5061   (Lenovo1 drachtio TLS)
 DNAT  udp  0.0.0.0/0 → 10.0.0.2:40000-40100  (rtpengine RTP)
 ```
 
-### Status: AUSSTEHEND — Test erforderlich
+### Status: GELÖST ✅ (2026-04-08)
 
-- [ ] NanoClaw neu starten
-- [ ] SIP REGISTER erfolgreich (200 OK in Logs)
-- [ ] Outbound-Call testen: Angerufener hört Andy
-- [ ] Inbound-Call testen: Regression-Check
-- [ ] rtpengine Debug-Level von 7 auf 6 zurücksetzen
+- [x] UDP-Registrierung: `sipgate.de;transport=udp` (nicht `sip.sipgate.de`)
+- [x] SIP REGISTER erfolgreich (200 OK)
+- [x] Outbound-Call: Audio fließt bidirektional
+- [x] rtpengine Final Stats: ~800 Pakete pro Leg, 0 Errors
+- [x] rtpengine Debug-Level von 7 auf 6 zurückgesetzt
+- [ ] Inbound-Call Regression-Test (steht aus)
+
+### Finale Lösung: UDP Early Offer
+
+Late Offer (INVITE ohne SDP) funktioniert NICHT mit Sipgate/UDP — 200 OK
+enthält kein SDP. Deshalb Early Offer: OpenAI zuerst anrufen, dann Sipgate
+mit plain RTP SDP im INVITE. Re-offer nach Sipgate's Antwort aktualisiert
+rtpengine mit Sipgate's echtem Endpoint. playMedia-Latching mit kurzem
+200ms-Burst statt 3 Sekunden (vermeidet Stottern am Anfang).
+
+**Wichtig:** `sipgate.de` vs `sip.sipgate.de`:
+- Registrierung: `sipgate.de;transport=udp` (sip.sipgate.de antwortet nicht auf UDP)
+- INVITE: `sipgate.de;transport=udp` (sip.sipgate.de gibt 408 Timeout auf UDP)
+- DNS SRV `_sips._tcp.sip.sipgate.de` existiert und leitet drachtio auf TLS um
+  → `;transport=udp` MUSS explizit angegeben werden
 
 ## Positive Zwischenergebnisse
 
