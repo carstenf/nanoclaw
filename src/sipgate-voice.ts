@@ -1114,12 +1114,13 @@ export function startSipgateVoice(deps: SipgateVoiceDeps): void {
     return;
   }
 
-  // Init rtpengine client — call as function, not constructor
-  const rtpUtils = RtpEngineClient(['127.0.0.1:22222']);
+  // rtpengine runs on Hetzner (public IP, no WireGuard hop for RTP media)
+  const RTPENGINE_HOST = '10.0.0.1';
+  const rtpUtils = RtpEngineClient([`${RTPENGINE_HOST}:22222`]);
   rtpEngine = rtpUtils.getRtpEngine();
-  logger.info('rtpengine client initialized');
+  logger.info({ host: RTPENGINE_HOST }, 'rtpengine client initialized (Hetzner)');
 
-  // Start drachtio connection for SIP signaling
+  // drachtio stays on Lenovo1 (TLS support needed for OpenAI SIP)
   srf = new Srf();
   srf.connect({ host: '127.0.0.1', port: 9022, secret: 'cymru' });
 
