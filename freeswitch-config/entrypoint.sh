@@ -28,22 +28,15 @@ sed -i 's|<!--<param name="apply-inbound-acl" value="loopback.auto"/>-->|<param 
 # Enable TLS on external profile (needed for OpenAI SIP)
 # Generate self-signed cert if none exists (OpenAI doesn't verify our cert)
 mkdir -p /etc/freeswitch/tls
-if [ ! -f /etc/freeswitch/tls/agent.pem ]; then
-  openssl req -x509 -newkey rsa:2048 -keyout /tmp/key.pem -out /tmp/cert.pem -days 3650 -nodes -subj "/CN=nanoclaw-freeswitch" 2>/dev/null
-  cat /tmp/cert.pem /tmp/key.pem > /etc/freeswitch/tls/agent.pem
-  cp /tmp/cert.pem /etc/freeswitch/tls/cafile.pem
-  rm -f /tmp/key.pem /tmp/cert.pem
+# Use FreeSWITCH's auto-generated dtls-srtp.pem as agent.pem (openssl not available)
+if [ ! -s /etc/freeswitch/tls/agent.pem ] && [ -s /etc/freeswitch/tls/dtls-srtp.pem ]; then
+  cp /etc/freeswitch/tls/dtls-srtp.pem /etc/freeswitch/tls/agent.pem
+  cp /etc/freeswitch/tls/dtls-srtp.pem /etc/freeswitch/tls/cafile.pem
 fi
 
-# Add TLS params to external profile (for outbound to OpenAI) — idempotent
-if ! grep -q 'name="tls"' /etc/freeswitch/sip_profiles/external.xml; then
-  sed -i '/<\/settings>/i \
-    <param name="tls" value="true"/>\
-    <param name="tls-cert-dir" value="/etc/freeswitch/tls"/>\
-    <param name="tls-version" value="tlsv1.2"/>\
-    <param name="tls-verify-policy" value="out_none"/>\
-    <param name="tls-verify-depth" value="2"/>' /etc/freeswitch/sip_profiles/external.xml
-fi
+# Enable TLS on external profile (for outbound to OpenAI)
+sed -i 's|external_ssl_enable=false|external_ssl_enable=true|' /etc/freeswitch/vars.xml
+sed -i 's|value="\$\${external_tls_dir}"|value="/etc/freeswitch/tls"|' /etc/freeswitch/sip_profiles/external.xml
 
 # Move external profile to port 5060 (guaranteed open in firewall)
 # Internal profile moves to 15060 to avoid conflict
