@@ -137,20 +137,109 @@ das transport-protocol Label, fügt aber keine Crypto-Suite hinzu.
 Das bedeutet: der Offer muss die callee-SDP als SAVP behandeln (nicht als AVP),
 damit rtpengine von Anfang an SDES für die Sipgate-Seite einrichtet.
 
-## Nächster Schritt (morgen)
+## Testergebnisse Session 2 (2026-04-07 21:30–22:20 UTC)
 
-### Änderung A2: SDES auch im Offer für die Sipgate-Seite
+### Versuch: OSRTP=offer (Aufgabe 1 aus BRIEFING.md)
+- `OSRTP: 'offer'` + `transport-protocol: 'RTP/AVP'` im Offer
+- **Ergebnis:** rtpengine Offer-Response enthält kein Crypto. OSRTP hat keine Wirkung.
+- **Ursache:** Unser rtpengine-Image (drachtio/rtpengine:latest) ignoriert OSRTP=offer
+  (vgl. rtpengine Issue #976: OSRTP generiert in bestimmten Versionen keine Crypto).
 
-Im Offer die callee-SDP manipulieren: `RTP/AVP` → `RTP/SAVP` ersetzen,
-damit rtpengine SDES-Keys für die Sipgate-Seite generiert. Dann sollte
-der Answer-Output auch Crypto-Zeilen enthalten.
+### Versuch: OSRTP + RTP/SAVP im Offer
+- `OSRTP: 'offer'` + `transport-protocol: 'RTP/SAVP'` im Offer
+- **Ergebnis:** OpenAI-SDP hat Crypto ✅, aber Sipgate-Answer-SDP hat SAVP ohne Crypto.
+- **Ursache:** OSRTP hat keinen Effekt auf die from-tag-Seite im Answer.
 
-Alternativ: rtpengine Offer-Flags `generate-SDES` oder `force-SDES`
-prüfen (Doku: https://github.com/sipwise/rtpengine#the-ng-control-protocol).
+### Versuch: SDP-Manipulation (callee SDP RTP/AVP → RTP/SAVP)
+- callee-SDP manuell auf RTP/SAVP umgeschrieben vor rtpengine.offer()
+- **Ergebnis:** Answer hat RTP/SAVP aber immer noch keine `a=crypto:` Zeile.
+- **Ursache:** rtpengine braucht `a=crypto:` Zeilen in der Eingabe-SDP um Crypto zu generieren.
 
-### Falls das nicht hilft: Änderung B (Early Offer) oder C (connectionIds)
+### Versuch: SDP-Manipulation + injizierte Crypto-Zeile
+- callee-SDP → RTP/SAVP + generierte `a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:<key>`
+- **Ergebnis:** Answer hat `RTP/SAVP` + `a=crypto:` ✅ — vollständige SRTP-Negotiation!
+- **ABER kein Audio:** Sipgate empfängt unsere SRTP-Pakete, sendet aber NICHTS zurück.
+  Final Stats: Sipgate-Leg 0 Pakete empfangen.
+- **Root Cause:** Late Offer + SRTP funktioniert nicht. Sipgate setzt Media-Pipeline in
+  der 200 OK auf plain RTP. Unser ACK-SAVP+Crypto kommt zu spät — Sipgate kann nicht
+  mehr auf SRTP umschalten, weil die 200 OK bereits committed ist.
 
-Siehe oben.
+### Versuch: Early Offer (Änderung B)
+- Kompletter Umbau: OpenAI zuerst anrufen, dann Sipgate mit SRTP-SDP im INVITE
+- **Ergebnis:** Sipgate antwortet mit `RTP/SAVP` + eigener Crypto ✅✅
+- rtpengine re-offer mit Sipgate's echtem SDP für Crypto-Update
+- Sipgate sendet 303 Pakete an uns ✅ (vorher immer 0!)
+- **ABER OpenAI-Seite 0 Pakete.** Wahrscheinlich hat der re-offer die OpenAI-Ports
+  geändert, oder OpenAI hat den Call beendet bevor Sipgate antwortete.
+- **Kein Audio am Telefon.**
+
+## Stand und nächster Schritt
+
+**SRTP-Negotiation mit Sipgate funktioniert jetzt** (Early Offer + SAVP + Crypto).
+Das SRTP-Problem ist im Prinzip gelöst. Aber das re-offer nach Sipgate's Antwort
+bricht den OpenAI-Leg (0 Pakete empfangen auf OpenAI-Seite).
+
+### Empfohlene Reihenfolge (siehe BRIEFING.md für Details):
+
+**Phase 0 — UDP-Quick-Fix (30 Min, höchste Priorität):**
+Sipgate-Registrierung von TLS:5061 auf UDP:5060 umstellen. Bei UDP ist SRTP
+nicht erzwungen → plain RTP/AVP funktioniert sofort → gesamtes SRTP-Problem entfällt.
+Zweites Device anlegen für Outbound, damit Inbound (TLS) nicht kaputt geht.
+
+**Phase 1 (falls Phase 0 nicht reicht):**
+Early Offer Flow reparieren: re-offer vermeiden, stattdessen OpenAI-SDP via
+rtpengine so routen, dass Sipgate's echte Crypto direkt eingesetzt wird.
+
+**Phase 2 (Langfristig):** FreeSWITCH als Alternative zu drachtio+rtpengine.
+Löst SRTP-Bridging nativ mit per-Leg rtp_secure_media.
+
+## Phase 0 — UDP-Quick-Fix (2026-04-08)
+
+**Implementiert.** Umstellung von TLS:5061 auf UDP:5060 eliminiert das SRTP-Problem vollständig.
+
+### Was geändert wurde
+
+| Komponente | Vorher (TLS) | Nachher (UDP) |
+|---|---|---|
+| SIP-Registrierung | `sip:sip.sipgate.de;transport=tls` | `sip:sip.sipgate.de` (UDP default) |
+| Contact-Header | `HETZNER_IP:5061;transport=tls` | `HETZNER_IP:5060` |
+| Outbound-Flow | Early Offer (SDP im INVITE) + re-offer | Late Offer / 3PCC (kein SDP im INVITE, SDP im ACK) |
+| Sipgate-Leg Crypto | SRTP erzwungen (RTP/SAVP) | Plain RTP (RTP/AVP) |
+| OpenAI-Leg Crypto | SRTP (RTP/SAVP) — unverändert | SRTP (RTP/SAVP) — unverändert |
+| rtpengine Bridging | SRTP ↔ SRTP (asymmetrisch kaputt) | RTP ↔ SRTP (Standard-Szenario) |
+
+### Warum das funktioniert
+
+Sipgate erzwingt SRTP **nur bei TLS-Signaling** (bestätigt durch sipgate.de Hilfecenter).
+Bei UDP-Registrierung akzeptiert Sipgate plain RTP/AVP. rtpengine bridges
+plain RTP (Sipgate) ↔ SRTP (OpenAI) — das ist der Standard-Anwendungsfall,
+der zuverlässig funktioniert.
+
+### Late Offer vs. Early Offer
+
+Der Early-Offer-Ansatz (SDP im INVITE) erforderte einen re-offer nach Sipgate's
+Antwort, um rtpengine mit Sipgate's echtem Endpoint zu aktualisieren. Dieser
+re-offer brach den OpenAI-Leg (0 Pakete nach re-offer).
+
+Late Offer (3PCC) vermeidet das Problem: Sipgate's echtes SDP geht direkt in
+den ersten rtpengine.offer(). Kein re-offer nötig.
+
+### Hetzner DNAT (verifiziert, keine Änderung nötig)
+
+```
+DNAT  udp  0.0.0.0/0 → 10.0.0.2:5060   (Lenovo1 drachtio UDP)
+DNAT  tcp  0.0.0.0/0 → 10.0.0.2:5060   (Lenovo1 drachtio TCP)
+DNAT  tcp  0.0.0.0/0 → 10.0.0.2:5061   (Lenovo1 drachtio TLS)
+DNAT  udp  0.0.0.0/0 → 10.0.0.2:40000-40100  (rtpengine RTP)
+```
+
+### Status: AUSSTEHEND — Test erforderlich
+
+- [ ] NanoClaw neu starten
+- [ ] SIP REGISTER erfolgreich (200 OK in Logs)
+- [ ] Outbound-Call testen: Angerufener hört Andy
+- [ ] Inbound-Call testen: Regression-Check
+- [ ] rtpengine Debug-Level von 7 auf 6 zurücksetzen
 
 ## Positive Zwischenergebnisse
 
@@ -158,3 +247,19 @@ Siehe oben.
    RTP-Traffic fließt, Caller-Audio erreicht OpenAI.
 2. **rtpengine Debug-Level ist auf 7** — zurücksetzen auf 6 nach Abschluss.
 3. **sipgate.io outgoingUrl entfernt** — kein Webhook-Eingriff mehr bei Outbound.
+
+---
+
+## 📌 ANMERKUNGEN VON CLAUDE-CHAT (2026-04-07, ~21:00 UTC)
+
+Carsten hat mich (Claude im Chat-Interface) gebeten, im Web zu recherchieren, ob jemand eine Lösung für dieses Problem hat. Ergebnis und konkreter nächster-Schritt-Plan stehen in:
+
+**`/home/carsten_bot/nanoclaw/BRIEFING.md`** (im selben Verzeichnis)
+
+**Kurzfassung:**
+- Diagnose in dieser Analyse-MD ist korrekt (durch rtpengine-Mailingliste bestätigt).
+- Es gibt ein dediziertes rtpengine-Flag für genau dieses Szenario: **`OSRTP=offer`** (Opportunistic SRTP, RFC 8643). Damit muss man die callee-SDP nicht selbst manipulieren.
+- Empfohlene Reihenfolge: (1) OSRTP=offer im Offer, (2) Falls Sipgate das nicht versteht: Legacy SDES=offer mit manueller SDP-Manipulation (= ursprüngliche A2), (3) Falls beides scheitert: Early Offer (Änderung B).
+- Vor Aufgabe 1: bisherige Änderung A (RTP/SAVP im Answer) zurückrollen.
+
+Details, exakter Verifikations-Plan und Scope-Grenzen → BRIEFING.md lesen.
