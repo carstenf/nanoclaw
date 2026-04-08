@@ -137,16 +137,13 @@ function connectControlWs(openaiCallId: string, state: SipgateCallState): void {
   ws.on('open', () => {
     logger.info({ callId: state.callId }, 'Control WebSocket connected');
     if (state.direction === 'outbound') {
-      // Outbound: greet immediately since Andy initiates the call
-      ws.send(
-        JSON.stringify({
-          type: 'response.create',
-          response: {
-            instructions: `Greet the person and explain why you are calling. Your goal: ${state.goal}`,
-          },
-        }),
+      // Outbound: do NOT greet here. Greeting is triggered after Sipgate answers
+      // (in buildOutboundEarlyOfferUDP). If we greet now, OpenAI buffers audio
+      // for ~8s while the phone rings, then dumps it all at once → stuttering.
+      logger.info(
+        { callId: state.callId },
+        'Outbound: WebSocket open, greeting deferred until Sipgate answers',
       );
-      logger.info({ callId: state.callId }, 'Outbound greeting sent immediately');
     } else {
       // Inbound: wait 1.5s for caller to speak first (VAD), then greet if silent
       setTimeout(() => {
@@ -159,7 +156,10 @@ function connectControlWs(openaiCallId: string, state: SipgateCallState): void {
               },
             }),
           );
-          logger.info({ callId: state.callId }, 'Inbound greeting sent after 1.5s silence');
+          logger.info(
+            { callId: state.callId },
+            'Inbound greeting sent after 1.5s silence',
+          );
         }
       }, 1500);
     }
@@ -577,6 +577,22 @@ async function buildOutboundEarlyOfferUDP(
   // Wait for webhook handler to accept the OpenAI call
   await webhookPromise;
 
+  // NOW trigger Andy's greeting — Sipgate has answered, media path is ready.
+  // 1s delay lets playMedia latching finish before real audio flows.
+  setTimeout(() => {
+    if (state.controlWs?.readyState === WebSocket.OPEN) {
+      state.controlWs.send(
+        JSON.stringify({
+          type: 'response.create',
+          response: {
+            instructions: `Greet the person and explain why you are calling. Your goal: ${state.goal}`,
+          },
+        }),
+      );
+      logger.info({ callId }, 'Outbound greeting sent (after Sipgate answered)');
+    }
+  }, 1000);
+
   // Wire up hangup handlers
   pstnDialog.on('destroy', () => {
     logger.info({ callId }, 'PSTN callee hung up');
@@ -725,6 +741,8 @@ function triggerRtpLatching(
   sipCallId: string,
   fromTag: string,
   callId: string,
+  repeatTimes = '1',
+  duration = '200',
 ): void {
   if (!rtpEngine) return;
 
@@ -732,8 +750,8 @@ function triggerRtpLatching(
     'call-id': sipCallId,
     'from-tag': fromTag,
     file: '/media/silence.wav',
-    'repeat-times': '1', // single short burst to trigger latching
-    duration: '200', // 200ms — just enough to wake up the other side
+    'repeat-times': repeatTimes,
+    duration,
   };
 
   // Play into Sipgate leg (from-tag side)
@@ -924,7 +942,8 @@ async function handleInboundCall(
     // (wait for incoming before sending). rtpengine sits in between but generates
     // no traffic by itself → deadlock. playMedia injects silence RTP from
     // rtpengine's allocated ports, which triggers latching on both sides.
-    triggerRtpLatching(sipCallId, fromTag, callId);
+    // Inbound needs longer latching burst (3x1s) — no re-offer to pre-populate endpoints
+    triggerRtpLatching(sipCallId, fromTag, callId, '3', '1000');
 
     uas.on('destroy', () => {
       logger.info({ callId }, 'Sipgate side hung up');
