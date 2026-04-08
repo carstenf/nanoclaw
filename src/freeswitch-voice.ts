@@ -125,6 +125,25 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
   state.controlWs = ws;
   let greetingSent = false;
   let conversationStarted = false; // true after first speech from either side
+  let outboundTimersCancelled = false; // true once outbound greeting timers are cancelled
+  /** Outbound greeting timers — tracked separately so they can be cancelled on first speech */
+  const outboundTimers: ReturnType<typeof setTimeout>[] = [];
+
+  function cancelOutboundTimers(): void {
+    if (outboundTimersCancelled) return;
+    outboundTimersCancelled = true;
+    for (const t of outboundTimers) clearTimeout(t);
+    // Also remove them from state.timers
+    for (const t of outboundTimers) {
+      const idx = state.timers.indexOf(t);
+      if (idx !== -1) state.timers.splice(idx, 1);
+    }
+    outboundTimers.length = 0;
+    logger.info(
+      { callId: state.callId },
+      'FS: Outbound greeting timers cancelled',
+    );
+  }
 
   ws.on('open', () => {
     logger.info({ callId: state.callId }, 'FS: Control WebSocket connected');
@@ -197,7 +216,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
       }, 5000);
 
       const t2 = setTimeout(() => {
-        if (ws.readyState !== WebSocket.OPEN) return;
+        if (ws.readyState !== WebSocket.OPEN || outboundTimersCancelled) return;
         ws.send(
           JSON.stringify({
             type: 'conversation.item.create',
@@ -213,7 +232,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
       }, 8000);
 
       const t3 = setTimeout(() => {
-        if (ws.readyState !== WebSocket.OPEN) return;
+        if (ws.readyState !== WebSocket.OPEN || outboundTimersCancelled) return;
         ws.send(
           JSON.stringify({
             type: 'conversation.item.create',
@@ -229,13 +248,15 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
       }, 11000);
 
       const tHangup = setTimeout(() => {
+        if (outboundTimersCancelled) return;
         logger.info(
           { callId: state.callId },
           'FS: No response after 3 attempts, hanging up',
         );
         cleanupCall(state.callId);
-      }, 13000);
+      }, 14000);
 
+      outboundTimers.push(t1, t2, t3, tHangup);
       state.timers.push(t1, t2, t3, tHangup);
     }
   });
@@ -248,6 +269,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
 
     const s1 = setTimeout(() => {
       if (ws.readyState !== WebSocket.OPEN) return;
+      // Disable VAD to send silence check prompt
       ws.send(
         JSON.stringify({
           type: 'session.update',
@@ -277,6 +299,12 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
       if (ws.readyState !== WebSocket.OPEN) return;
       ws.send(
         JSON.stringify({
+          type: 'session.update',
+          session: { turn_detection: null },
+        }),
+      );
+      ws.send(
+        JSON.stringify({
           type: 'conversation.item.create',
           item: {
             type: 'message',
@@ -286,18 +314,40 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         }),
       );
       ws.send(JSON.stringify({ type: 'response.create' }));
-      logger.info({ callId: state.callId }, 'FS: Silence check 2 (6s)');
-    }, 6000);
+      logger.info({ callId: state.callId }, 'FS: Silence check 2 (8s)');
+    }, 8000);
 
     const s3 = setTimeout(() => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(
+        JSON.stringify({
+          type: 'session.update',
+          session: { turn_detection: null },
+        }),
+      );
+      ws.send(
+        JSON.stringify({
+          type: 'conversation.item.create',
+          item: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Say only: "Hallo?"' }],
+          },
+        }),
+      );
+      ws.send(JSON.stringify({ type: 'response.create' }));
+      logger.info({ callId: state.callId }, 'FS: Silence check 3 (11s)');
+    }, 11000);
+
+    const sHangup = setTimeout(() => {
       logger.info(
         { callId: state.callId },
         'FS: No response after silence checks, hanging up',
       );
       cleanupCall(state.callId);
-    }, 7000);
+    }, 14000);
 
-    state.timers.push(s1, s2, s3);
+    state.timers.push(s1, s2, s3, sHangup);
   }
 
   ws.on('message', (data: Buffer) => {
@@ -325,44 +375,59 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         break;
 
       case 'response.done': {
-        // Re-enable VAD after first response (greeting)
+        // First response: mark conversation as started, cancel outbound timers
         if (!conversationStarted) {
           conversationStarted = true;
-          ws.send(
-            JSON.stringify({
-              type: 'session.update',
-              session: {
-                turn_detection: {
-                  type: 'server_vad',
-                  threshold: 0.5,
-                  prefix_padding_ms: 300,
-                  silence_duration_ms: 500,
-                },
-                input_audio_transcription: { model: 'whisper-1' },
-              },
-            }),
-          );
-          logger.info(
-            { callId: state.callId },
-            'FS: VAD re-enabled after greeting',
-          );
+          // Cancel outbound greeting timers — callee already responded
+          cancelOutboundTimers();
         }
-        // Don't start silence timer here — wait for output_audio_buffer.stopped
+        // Re-enable VAD after EVERY response (greeting, silence checks, etc.)
+        // This ensures VAD is always active when it's the caller's turn to speak
+        ws.send(
+          JSON.stringify({
+            type: 'session.update',
+            session: {
+              turn_detection: {
+                type: 'server_vad',
+                threshold: 0.5,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 500,
+              },
+              input_audio_transcription: { model: 'whisper-1' },
+            },
+          }),
+        );
+        logger.info(
+          { callId: state.callId },
+          'FS: VAD re-enabled after response',
+        );
         break;
       }
 
-      case 'output_audio_buffer.stopped':
-        // Andy's audio has finished playing on the SIP stream — THIS is the real "last word"
+      case 'response.output_audio.done':
+        // Audio generation complete — closest event to when Andy stops speaking on the SIP stream
+        // (output_audio_buffer.stopped does NOT fire in SIP mode)
         logger.info(
           { callId: state.callId },
-          'FS: Andy audio finished playing',
+          'FS: Andy audio generation done, starting silence timer',
         );
-        startSilenceTimer();
+        if (conversationStarted) {
+          startSilenceTimer();
+        }
+        break;
+
+      case 'output_audio_buffer.stopped':
+        // Kept for logging — does not fire in SIP mode but log if it ever does
+        logger.info(
+          { callId: state.callId },
+          'FS: output_audio_buffer.stopped (unexpected in SIP mode)',
+        );
         break;
 
       case 'input_audio_buffer.speech_started':
-        // Callee spoke — cancel silence timers, restart after speech ends
+        // Callee spoke — cancel silence timers and outbound greeting timers
         if (!conversationStarted) conversationStarted = true;
+        cancelOutboundTimers();
         for (const t of state.timers) clearTimeout(t);
         state.timers.length = 0;
         break;
