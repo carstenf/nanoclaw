@@ -270,8 +270,8 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         }),
       );
       ws.send(JSON.stringify({ type: 'response.create' }));
-      logger.info({ callId: state.callId }, 'FS: Silence check 1 (6s)');
-    }, 6000);
+      logger.info({ callId: state.callId }, 'FS: Silence check 1 (5s)');
+    }, 5000);
 
     const s2 = setTimeout(() => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -286,8 +286,8 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         }),
       );
       ws.send(JSON.stringify({ type: 'response.create' }));
-      logger.info({ callId: state.callId }, 'FS: Silence check 2 (9s)');
-    }, 9000);
+      logger.info({ callId: state.callId }, 'FS: Silence check 2 (6s)');
+    }, 6000);
 
     const s3 = setTimeout(() => {
       logger.info(
@@ -295,7 +295,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         'FS: No response after silence checks, hanging up',
       );
       cleanupCall(state.callId);
-    }, 12000);
+    }, 7000);
 
     state.timers.push(s1, s2, s3);
   }
@@ -353,7 +353,10 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
 
       case 'output_audio_buffer.stopped':
         // Andy's audio has finished playing on the SIP stream — THIS is the real "last word"
-        logger.info({ callId: state.callId }, 'FS: Andy audio finished playing');
+        logger.info(
+          { callId: state.callId },
+          'FS: Andy audio finished playing',
+        );
         startSilenceTimer();
         break;
 
@@ -528,7 +531,9 @@ async function transcribeRecording(
       return;
     }
     const dirHtml = await dirResp.text();
-    const files = [...dirHtml.matchAll(/href="(inbound-[^"]+\.wav)"/g)].map(m => m[1]);
+    const files = [...dirHtml.matchAll(/href="(inbound-[^"]+\.wav)"/g)].map(
+      (m) => m[1],
+    );
     if (files.length === 0) {
       logger.warn({ callId }, 'FS: No inbound recording found');
       return;
