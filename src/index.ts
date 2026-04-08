@@ -67,6 +67,10 @@ import { logger } from './logger.js';
 import { recallMemory, retainMemory } from './hindsight.js';
 import { makeCall, startVoiceServer } from './voice-server.js';
 import { makeSipgateCall, startSipgateVoice } from './sipgate-voice.js';
+import {
+  makeFreeswitchCall,
+  startFreeswitchVoice,
+} from './freeswitch-voice.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -762,6 +766,8 @@ async function main(): Promise<void> {
     makeCall: (to, goal, chatJid, voiceMode) =>
       makeCall(to, goal, chatJid, voiceMode),
     makeSipgateCall: (to, goal, chatJid) => makeSipgateCall(to, goal, chatJid),
+    makeFreeswitchCall: (to, goal, chatJid) =>
+      makeFreeswitchCall(to, goal, chatJid),
     onTasksChanged: () => {
       const tasks = getAllTasks();
       const taskRows = tasks.map((t) => ({
@@ -786,8 +792,8 @@ async function main(): Promise<void> {
       return channel.sendMessage(jid, text);
     },
   });
-  startSipgateVoice({
-    sendMessage: (jid, text) => {
+  const voiceDeps = {
+    sendMessage: (jid: string, text: string) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       return channel.sendMessage(jid, text);
@@ -796,7 +802,9 @@ async function main(): Promise<void> {
       const entry = Object.entries(registeredGroups).find(([, g]) => g.isMain);
       return entry?.[0];
     },
-  });
+  };
+  startSipgateVoice(voiceDeps);
+  startFreeswitchVoice(voiceDeps);
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {

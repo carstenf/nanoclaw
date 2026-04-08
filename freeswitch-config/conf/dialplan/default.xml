@@ -1,0 +1,25 @@
+<!-- Dialplan: Sipgate inbound calls → park for ESL control -->
+<include>
+  <context name="public">
+
+    <!-- Inbound from Sipgate: answer and park, NanoClaw handles via ESL -->
+    <extension name="inbound-sipgate">
+      <condition field="destination_number" expression=".*">
+        <action application="set" data="hangup_after_bridge=true"/>
+        <action application="set" data="continue_on_fail=false"/>
+        <action application="answer"/>
+        <action application="park"/>
+      </condition>
+    </extension>
+
+  </context>
+
+  <!-- OpenAI inbound context (not used, we only call out to OpenAI) -->
+  <context name="openai-in">
+    <extension name="openai-inbound">
+      <condition field="destination_number" expression=".*">
+        <action application="park"/>
+      </condition>
+    </extension>
+  </context>
+</include>

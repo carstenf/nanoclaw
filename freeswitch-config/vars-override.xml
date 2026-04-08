@@ -1,0 +1,15 @@
+<!-- NanoClaw overrides — injected before stock vars.xml -->
+<include>
+  <!-- Sipgate credentials (from Docker env) -->
+  <X-PRE-PROCESS cmd="exec-set" data="sipgate_user=echo $SIPGATE_SIP_USER"/>
+  <X-PRE-PROCESS cmd="exec-set" data="sipgate_pass=echo $SIPGATE_SIP_PASSWORD"/>
+  <X-PRE-PROCESS cmd="exec-set" data="openai_project_id=echo $OPENAI_PROJECT_ID"/>
+
+  <!-- Hetzner public IP for RTP/SIP -->
+  <X-PRE-PROCESS cmd="set" data="external_rtp_ip=128.140.104.236"/>
+  <X-PRE-PROCESS cmd="set" data="external_sip_ip=128.140.104.236"/>
+
+  <!-- Prefer G.722 HD Voice -->
+  <X-PRE-PROCESS cmd="set" data="global_codec_prefs=G722,PCMA,PCMU"/>
+  <X-PRE-PROCESS cmd="set" data="outbound_codec_prefs=G722,PCMA,PCMU"/>
+</include>

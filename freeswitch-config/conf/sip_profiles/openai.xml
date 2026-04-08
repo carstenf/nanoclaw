@@ -1,0 +1,31 @@
+<!-- OpenAI SIP Profile — TLS signaling, SRTP media -->
+<profile name="openai">
+  <settings>
+    <param name="context" value="openai-in"/>
+    <param name="dialplan" value="XML"/>
+
+    <!-- TLS on port 5081 -->
+    <param name="sip-port" value="5081"/>
+    <param name="sip-ip" value="$${local_ip_v4}"/>
+    <param name="tls" value="true"/>
+    <param name="tls-bind-params" value="transport=tls"/>
+    <param name="tls-sip-port" value="5081"/>
+    <param name="tls-version" value="tlsv1.2"/>
+
+    <!-- RTP: Hetzner public IP -->
+    <param name="ext-rtp-ip" value="128.140.104.236"/>
+    <param name="ext-sip-ip" value="128.140.104.236"/>
+    <param name="rtp-ip" value="128.140.104.236"/>
+
+    <!-- SRTP mandatory for OpenAI -->
+    <param name="rtp-secure-media" value="true"/>
+    <param name="rtp-secure-media-suites" value="AEAD_AES_256_GCM_8,AEAD_AES_128_GCM_8,AES_CM_256_HMAC_SHA1_80,AES_CM_128_HMAC_SHA1_80"/>
+
+    <!-- Codec: G.711 a-law (what OpenAI supports for SIP) -->
+    <param name="inbound-codec-string" value="PCMA"/>
+    <param name="outbound-codec-string" value="PCMA"/>
+
+    <!-- Misc -->
+    <param name="manage-presence" value="false"/>
+  </settings>
+</profile>

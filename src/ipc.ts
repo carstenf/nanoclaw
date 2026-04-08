@@ -20,6 +20,7 @@ export interface IpcDeps {
     voiceMode?: string,
   ) => Promise<void>;
   makeSipgateCall: (to: string, goal: string, chatJid: string) => Promise<void>;
+  makeFreeswitchCall: (to: string, goal: string, chatJid: string) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
@@ -511,6 +512,12 @@ export async function processTaskIpc(
           'Initiating sipgate call via IPC',
         );
         await deps.makeSipgateCall(data.to, data.goal, data.chatJid);
+      } else if (voiceMode === 'freeswitch') {
+        logger.info(
+          { to: data.to, goal: data.goal, voiceMode, sourceGroup },
+          'Initiating FreeSWITCH call via IPC',
+        );
+        await deps.makeFreeswitchCall(data.to, data.goal, data.chatJid);
       } else {
         logger.info(
           { to: data.to, goal: data.goal, voiceMode, sourceGroup },

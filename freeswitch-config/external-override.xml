@@ -1,0 +1,4 @@
+<!-- Override external profile settings for Hetzner deployment -->
+<!-- This file is included by the stock external.xml via X-PRE-PROCESS -->
+<!-- We set it here but it only takes effect if external.xml includes it -->
+<!-- Main settings are controlled via FreeSWITCH global vars -->

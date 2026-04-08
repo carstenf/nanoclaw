@@ -1,0 +1,6 @@
+<!-- Global variables — Sipgate credentials come from Docker environment -->
+<include>
+  <X-PRE-PROCESS cmd="set" data="sipgate_user=$${env:SIPGATE_SIP_USER}"/>
+  <X-PRE-PROCESS cmd="set" data="sipgate_password=$${env:SIPGATE_SIP_PASSWORD}"/>
+  <X-PRE-PROCESS cmd="set" data="openai_project_id=$${env:OPENAI_PROJECT_ID}"/>
+</include>

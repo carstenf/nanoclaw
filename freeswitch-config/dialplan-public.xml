@@ -1,0 +1,19 @@
+<include>
+  <!-- Inbound from Sipgate: answer and park for ESL control -->
+  <extension name="sipgate-inbound">
+    <condition field="destination_number" expression="^park$">
+      <action application="set" data="hangup_after_bridge=true"/>
+      <action application="answer"/>
+      <action application="park"/>
+    </condition>
+  </extension>
+
+  <!-- Bridge to OpenAI (triggered by ESL uuid_transfer) -->
+  <extension name="openai-bridge">
+    <condition field="destination_number" expression="^openai$">
+      <action application="set" data="hangup_after_bridge=true"/>
+      <action application="set" data="rtp_secure_media=true"/>
+      <action application="bridge" data="sofia/external/sip:${openai_project_id}@sip.api.openai.com;transport=tls"/>
+    </condition>
+  </extension>
+</include>

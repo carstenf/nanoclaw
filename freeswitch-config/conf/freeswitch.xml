@@ -1,0 +1,66 @@
+<?xml version="1.0"?>
+<document type="freeswitch/xml">
+  <section name="configuration" description="FreeSWITCH Configuration">
+
+    <!-- Global settings -->
+    <configuration name="switch.conf" description="Core Configuration">
+      <settings>
+        <param name="colorize-console" value="false"/>
+        <param name="max-sessions" value="10"/>
+        <param name="sessions-per-second" value="5"/>
+        <param name="rtp-start-port" value="40200"/>
+        <param name="rtp-end-port" value="40300"/>
+      </settings>
+    </configuration>
+
+    <!-- Event Socket for NanoClaw ESL control -->
+    <configuration name="event_socket.conf" description="Event Socket">
+      <settings>
+        <param name="nat-map" value="false"/>
+        <param name="listen-ip" value="0.0.0.0"/>
+        <param name="listen-port" value="8021"/>
+        <param name="password" value="ClueCon"/>
+        <param name="apply-inbound-acl" value="loopback.auto,localnet.auto"/>
+      </settings>
+    </configuration>
+
+    <!-- Modules to load -->
+    <configuration name="modules.conf" description="Modules">
+      <modules>
+        <load module="mod_console"/>
+        <load module="mod_logfile"/>
+        <load module="mod_event_socket"/>
+        <load module="mod_sofia"/>
+        <load module="mod_dialplan_xml"/>
+        <load module="mod_dptools"/>
+        <load module="mod_commands"/>
+        <load module="mod_tone_stream"/>
+        <load module="mod_sndfile"/>
+        <load module="mod_g722"/>
+        <load module="mod_g711"/>
+      </modules>
+    </configuration>
+
+    <!-- Sofia SIP module -->
+    <configuration name="sofia.conf" description="Sofia SIP">
+      <global_settings>
+        <param name="log-level" value="0"/>
+        <param name="debug-presence" value="0"/>
+      </global_settings>
+      <profiles>
+        <X-PRE-PROCESS cmd="include" data="../sip_profiles/*.xml"/>
+      </profiles>
+    </configuration>
+
+  </section>
+
+  <!-- Dialplan -->
+  <section name="dialplan" description="Dialplan">
+    <X-PRE-PROCESS cmd="include" data="dialplan/*.xml"/>
+  </section>
+
+  <!-- Empty directory section (required) -->
+  <section name="directory" description="User Directory">
+  </section>
+
+</document>

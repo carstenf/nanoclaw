@@ -1,0 +1,45 @@
+<!-- Sipgate SIP Profile — UDP registration, plain RTP, G.722 HD Voice -->
+<profile name="sipgate">
+  <gateways>
+    <gateway name="sipgate">
+      <param name="username" value="$${sipgate_user}"/>
+      <param name="password" value="$${sipgate_password}"/>
+      <param name="proxy" value="sipgate.de"/>
+      <param name="realm" value="sipgate.de"/>
+      <param name="register" value="true"/>
+      <param name="register-transport" value="udp"/>
+      <param name="expire-seconds" value="300"/>
+      <param name="retry-seconds" value="30"/>
+      <param name="caller-id-in-from" value="false"/>
+    </gateway>
+  </gateways>
+
+  <settings>
+    <param name="context" value="public"/>
+    <param name="dialplan" value="XML"/>
+
+    <!-- Bind to port 5080 to avoid conflict with drachtio on 5060 -->
+    <param name="sip-port" value="5080"/>
+    <param name="sip-ip" value="$${local_ip_v4}"/>
+
+    <!-- RTP: use Hetzner public IP directly -->
+    <param name="ext-rtp-ip" value="128.140.104.236"/>
+    <param name="ext-sip-ip" value="128.140.104.236"/>
+    <param name="rtp-ip" value="128.140.104.236"/>
+
+    <!-- Codecs: prefer G.722 (HD Voice 16kHz), fallback G.711 -->
+    <param name="inbound-codec-string" value="G722,PCMA,PCMU"/>
+    <param name="outbound-codec-string" value="G722,PCMA,PCMU"/>
+
+    <!-- No SRTP on Sipgate leg (UDP registration) -->
+    <param name="rtp-secure-media" value="false"/>
+
+    <!-- NAT handling -->
+    <param name="aggressive-nat-detection" value="true"/>
+    <param name="NDLB-force-rport" value="true"/>
+
+    <!-- Misc -->
+    <param name="manage-presence" value="false"/>
+    <param name="inbound-reg-force-matching-username" value="true"/>
+  </settings>
+</profile>

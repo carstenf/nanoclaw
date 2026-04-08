@@ -66,6 +66,7 @@ beforeEach(() => {
     onTasksChanged: () => {},
     makeCall: async () => {},
     makeSipgateCall: async () => {},
+    makeFreeswitchCall: async () => {},
   };
 });
 
