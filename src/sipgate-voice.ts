@@ -8,6 +8,7 @@ import RtpEngineClient from '@jambonz/rtpengine-utils';
 
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
+import { pendingFSWebhook } from './freeswitch-voice.js';
 
 const env = readEnvFile([
   'SIPGATE_SIP_URI',
@@ -1043,18 +1044,32 @@ function startWebhookServer(): void {
 
       // Check outbound calls waiting for webhook first — accept immediately
       // (OpenAI blocks SIP 200 OK until we call accept via REST API)
+      // Check sipgate pending calls
       for (const [key, pending] of pendingOpenAIWebhook) {
         logger.info(
           { callId: key, openaiCallId },
-          'Matched webhook to pending outbound call — accepting',
+          'Matched webhook to pending sipgate call — accepting',
         );
         pending.state.openaiCallId = openaiCallId;
         pendingOpenAIWebhook.delete(key);
         res.status(200).send('OK');
-        // Accept + connect WS, then resolve the Promise so buildOpenAILeg can continue
         acceptOpenAICall(openaiCallId, pending.state)
           .then(() => pending.resolve())
           .catch((err) => pending.reject(err));
+        return;
+      }
+
+      // Check FreeSWITCH pending calls
+      for (const [key, pending] of pendingFSWebhook) {
+        logger.info(
+          { callId: key, openaiCallId },
+          'Matched webhook to pending FreeSWITCH call — accepting',
+        );
+        (pending.state as any).openaiCallId = openaiCallId;
+        pendingFSWebhook.delete(key);
+        res.status(200).send('OK');
+        // FreeSWITCH calls have their own accept function in the resolve chain
+        pending.resolve();
         return;
       }
 

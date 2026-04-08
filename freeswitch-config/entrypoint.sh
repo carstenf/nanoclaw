@@ -17,6 +17,11 @@ if ! grep -q "vars-override" /etc/freeswitch/vars.xml; then
   cp -f /overlay/vars-override.xml /etc/freeswitch/vars-override.xml
 fi
 
+# Set RTP port range to the firewall-allowed range (60000-61000)
+# Stock config has these commented out — uncomment and set values
+sed -i 's|.*<!-- <param name="rtp-start-port".*|    <param name="rtp-start-port" value="60000"/>|' /etc/freeswitch/autoload_configs/switch.conf.xml
+sed -i 's|.*<!-- <param name="rtp-end-port".*|    <param name="rtp-end-port" value="60100"/>|' /etc/freeswitch/autoload_configs/switch.conf.xml
+
 # Allow ESL connections from WireGuard network (10.0.0.0/24)
 sed -i 's|<!--<param name="apply-inbound-acl" value="loopback.auto"/>-->|<param name="apply-inbound-acl" value="any_v4.auto"/>|' /etc/freeswitch/autoload_configs/event_socket.conf.xml
 

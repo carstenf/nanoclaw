@@ -20,7 +20,11 @@ export interface IpcDeps {
     voiceMode?: string,
   ) => Promise<void>;
   makeSipgateCall: (to: string, goal: string, chatJid: string) => Promise<void>;
-  makeFreeswitchCall: (to: string, goal: string, chatJid: string) => Promise<void>;
+  makeFreeswitchCall: (
+    to: string,
+    goal: string,
+    chatJid: string,
+  ) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;

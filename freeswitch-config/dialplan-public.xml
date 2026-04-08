@@ -12,8 +12,10 @@
   <extension name="openai-bridge">
     <condition field="destination_number" expression="^openai$">
       <action application="set" data="hangup_after_bridge=true"/>
-      <action application="set" data="rtp_secure_media=true"/>
-      <action application="bridge" data="sofia/external/sip:${openai_project_id}@sip.api.openai.com;transport=tls"/>
+      <action application="set" data="suppress_cng=true"/>
+      <action application="set" data="bridge_generate_comfort_noise=false"/>
+      <!-- PCMA + SRTP only on the OpenAI b-leg; Sipgate a-leg keeps G.722 -->
+      <action application="bridge" data="{rtp_secure_media=true,absolute_codec_string=PCMA}sofia/external/sip:${openai_project_id}@sip.api.openai.com;transport=tls"/>
     </condition>
   </extension>
 </include>

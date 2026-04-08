@@ -127,7 +127,10 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
     logger.info({ callId: state.callId }, 'FS: Control WebSocket connected');
     if (state.direction === 'outbound') {
       // Greeting deferred: sent after bridge is established (see makeFreeswitchCall)
-      logger.info({ callId: state.callId }, 'FS: Outbound WS open, greeting deferred');
+      logger.info(
+        { callId: state.callId },
+        'FS: Outbound WS open, greeting deferred',
+      );
     } else {
       // Inbound: greet after 2s silence
       setTimeout(() => {
@@ -140,7 +143,10 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
               },
             }),
           );
-          logger.info({ callId: state.callId }, 'FS: Inbound greeting sent after 2s');
+          logger.info(
+            { callId: state.callId },
+            'FS: Inbound greeting sent after 2s',
+          );
         }
       }, 2000);
     }
@@ -248,7 +254,9 @@ export async function makeFreeswitchCall(
   );
 
   if (voiceDeps && chatJid) {
-    voiceDeps.sendMessage(chatJid, `📞 Rufe ${to} an (FreeSWITCH)...`).catch(() => {});
+    voiceDeps
+      .sendMessage(chatJid, `📞 Rufe ${to} an (FreeSWITCH)...`)
+      .catch(() => {});
   }
 
   const state: FSCallState = {
@@ -272,23 +280,28 @@ export async function makeFreeswitchCall(
         () => reject(new Error('Originate timeout (45s)')),
         45000,
       );
-      eslConn.api(`originate ${originateCmd.replace('originate ', '')}`, (res: any) => {
-        clearTimeout(timeout);
-        const body = res?.body || res?.getBody?.() || '';
-        if (body.startsWith('+OK')) {
-          const channelUuid = body.replace('+OK ', '').trim();
-          resolve(channelUuid);
-        } else {
-          reject(new Error(`Originate failed: ${body}`));
-        }
-      });
+      eslConn.api(
+        `originate ${originateCmd.replace('originate ', '')}`,
+        (res: any) => {
+          clearTimeout(timeout);
+          const body = res?.body || res?.getBody?.() || '';
+          if (body.startsWith('+OK')) {
+            const channelUuid = body.replace('+OK ', '').trim();
+            resolve(channelUuid);
+          } else {
+            reject(new Error(`Originate failed: ${body}`));
+          }
+        },
+      );
     });
 
     state.fsUuid = uuid;
     logger.info({ callId, uuid }, 'FS: Call answered, channel parked');
 
     if (voiceDeps && chatJid) {
-      voiceDeps.sendMessage(chatJid, '📞 Verbunden, bridge zu OpenAI...').catch(() => {});
+      voiceDeps
+        .sendMessage(chatJid, '📞 Verbunden, bridge zu OpenAI...')
+        .catch(() => {});
     }
 
     // Step 2: Register webhook handler for OpenAI
@@ -311,8 +324,11 @@ export async function makeFreeswitchCall(
     });
 
     // Step 3: Set OpenAI project ID on channel, then transfer to openai dialplan
-    eslConn.api(`uuid_setvar ${uuid} openai_project_id ${PROJECT_ID}`, () => {});
-    const transferCmd = `uuid_transfer ${uuid} openai`;
+    eslConn.api(
+      `uuid_setvar ${uuid} openai_project_id ${PROJECT_ID}`,
+      () => {},
+    );
+    const transferCmd = `uuid_transfer ${uuid} openai XML public`;
     logger.info({ callId, transferCmd }, 'FS: Transferring to OpenAI bridge');
 
     eslConn.api(transferCmd, (res: any) => {
@@ -328,7 +344,8 @@ export async function makeFreeswitchCall(
       await acceptOpenAICall(state.openaiCallId, state);
     }
 
-    // Step 5: Send greeting after bridge is established
+    // Step 5: Send greeting after bridge is established.
+    // 1.5s delay lets the media path stabilize before first audio.
     setTimeout(() => {
       if (state.controlWs?.readyState === WebSocket.OPEN) {
         state.controlWs.send(
@@ -339,13 +356,12 @@ export async function makeFreeswitchCall(
             },
           }),
         );
-        logger.info({ callId }, 'FS: Outbound greeting sent');
+        logger.info({ callId }, 'FS: Outbound greeting sent (1.5s delay)');
       }
-    }, 1000);
+    }, 1500);
 
     // Step 6: Subscribe to hangup for this channel
     eslConn.api(`uuid_setvar ${uuid} nanoclaw_call_id ${callId}`, () => {});
-
   } catch (err: any) {
     logger.error({ callId, err: err?.message }, 'FS: Outbound call failed');
     if (voiceDeps && chatJid) {
@@ -360,13 +376,20 @@ export async function makeFreeswitchCall(
 // --- ESL connection and event handling ---
 
 function connectESL(): void {
-  logger.info({ host: ESL_HOST, port: ESL_PORT }, 'FS: Connecting to FreeSWITCH ESL');
+  logger.info(
+    { host: ESL_HOST, port: ESL_PORT },
+    'FS: Connecting to FreeSWITCH ESL',
+  );
 
   eslConn = new esl.Connection(ESL_HOST, ESL_PORT, ESL_PASSWORD, () => {
     logger.info('FS: ESL connected');
 
     // Subscribe to channel events
-    eslConn.subscribe(['CHANNEL_ANSWER', 'CHANNEL_HANGUP_COMPLETE', 'CHANNEL_CREATE']);
+    eslConn.subscribe([
+      'CHANNEL_ANSWER',
+      'CHANNEL_HANGUP_COMPLETE',
+      'CHANNEL_CREATE',
+    ]);
 
     eslConn.on('esl::event::CHANNEL_HANGUP_COMPLETE::*', (event: any) => {
       const uuid = event.getHeader('Unique-ID') || '';
@@ -386,7 +409,8 @@ function connectESL(): void {
     eslConn.on('esl::event::CHANNEL_ANSWER::*', (event: any) => {
       const direction = event.getHeader('Call-Direction') || '';
       const uuid = event.getHeader('Unique-ID') || '';
-      const callerNumber = event.getHeader('Caller-Caller-ID-Number') || 'unknown';
+      const callerNumber =
+        event.getHeader('Caller-Caller-ID-Number') || 'unknown';
       const gateway = event.getHeader('variable_sip_gateway') || '';
 
       // Only handle inbound from Sipgate gateway
@@ -419,7 +443,10 @@ function connectESL(): void {
         if (mainJid) {
           state.chatJid = mainJid;
           voiceDeps
-            .sendMessage(mainJid, `Eingehender Anruf von ${callerNumber} (FreeSWITCH)`)
+            .sendMessage(
+              mainJid,
+              `Eingehender Anruf von ${callerNumber} (FreeSWITCH)`,
+            )
             .catch(() => {});
         }
       }
@@ -446,16 +473,25 @@ function connectESL(): void {
       });
 
       // Bridge to OpenAI via dialplan transfer
-      eslConn.api(`uuid_setvar ${uuid} openai_project_id ${PROJECT_ID}`, () => {});
-      eslConn.api(`uuid_transfer ${uuid} openai`, (res: any) => {
+      eslConn.api(
+        `uuid_setvar ${uuid} openai_project_id ${PROJECT_ID}`,
+        () => {},
+      );
+      eslConn.api(`uuid_transfer ${uuid} openai XML public`, (res: any) => {
         const body = res?.body || res?.getBody?.() || '';
-        logger.info({ callId, result: body.trim() }, 'FS: Inbound transfer result');
+        logger.info(
+          { callId, result: body.trim() },
+          'FS: Inbound transfer result',
+        );
       });
 
       eslConn.api(`uuid_setvar ${uuid} nanoclaw_call_id ${callId}`, () => {});
 
       webhookPromise.catch((err) => {
-        logger.error({ callId, err: err?.message }, 'FS: Inbound webhook failed');
+        logger.error(
+          { callId, err: err?.message },
+          'FS: Inbound webhook failed',
+        );
         cleanupCall(callId);
       });
     });
@@ -491,12 +527,19 @@ function startWebhookServer(): void {
     let event: any;
     try {
       if (WEBHOOK_SECRET) {
-        event = await openai.webhooks.unwrap(rawBody, req.headers, WEBHOOK_SECRET);
+        event = await openai.webhooks.unwrap(
+          rawBody,
+          req.headers,
+          WEBHOOK_SECRET,
+        );
       } else {
         event = JSON.parse(rawBody);
       }
     } catch (err: any) {
-      logger.error({ err: err?.message }, 'FS: Webhook signature failed, accepting anyway');
+      logger.error(
+        { err: err?.message },
+        'FS: Webhook signature failed, accepting anyway',
+      );
       try {
         event = JSON.parse(rawBody);
       } catch {
@@ -510,7 +553,10 @@ function startWebhookServer(): void {
 
       // Check pending outbound calls first
       for (const [key, pending] of pendingFSWebhook) {
-        logger.info({ callId: key, openaiCallId }, 'FS: Matched webhook to call');
+        logger.info(
+          { callId: key, openaiCallId },
+          'FS: Matched webhook to call',
+        );
         pending.state.openaiCallId = openaiCallId;
         pendingFSWebhook.delete(key);
         res.status(200).send('OK');
