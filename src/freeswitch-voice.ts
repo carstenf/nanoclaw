@@ -1,8 +1,6 @@
 import crypto from 'crypto';
 import OpenAI from 'openai';
 import { WebSocket } from 'ws';
-// @ts-ignore — no type declarations for modesl
-import esl from 'modesl';
 
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
@@ -12,21 +10,53 @@ const env = readEnvFile([
   'HINDSIGHT_LLM_API_KEY',
   'OPENAI_REALTIME_VOICE',
   'OPENAI_PROJECT_ID',
-  'FREESWITCH_ESL_HOST',
-  'FREESWITCH_ESL_PORT',
-  'FREESWITCH_ESL_PASSWORD',
+  'VOICE_SIDECAR_URL',
 ]);
 
 const OPENAI_API_KEY =
   env.OPENAI_SIP_API_KEY || env.HINDSIGHT_LLM_API_KEY || '';
 const DEFAULT_VOICE = env.OPENAI_REALTIME_VOICE || 'shimmer';
 const PROJECT_ID = env.OPENAI_PROJECT_ID || '';
-const ESL_HOST = env.FREESWITCH_ESL_HOST || '10.0.0.1';
-const ESL_PORT = parseInt(env.FREESWITCH_ESL_PORT || '8021', 10);
-const ESL_PASSWORD = env.FREESWITCH_ESL_PASSWORD || 'ClueCon';
+const SIDECAR_URL = env.VOICE_SIDECAR_URL || 'http://10.0.0.1:4500';
 
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-let eslConn: any = null;
+let sidecarReady = false;
+
+// --- Sidecar HTTP client ---
+
+async function sidecarApi(cmd: string): Promise<string> {
+  const resp = await fetch(`${SIDECAR_URL}/api`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cmd }),
+  });
+  if (!resp.ok) {
+    throw new Error(`Sidecar API ${resp.status}: ${await resp.text()}`);
+  }
+  const data = (await resp.json()) as { result?: string };
+  return data.result || '';
+}
+
+async function sidecarHangup(uuid: string): Promise<void> {
+  const resp = await fetch(`${SIDECAR_URL}/call/${uuid}/hangup`, {
+    method: 'POST',
+  });
+  if (!resp.ok) {
+    logger.warn({ uuid, status: resp.status }, 'FS: Sidecar hangup failed');
+  }
+}
+
+async function checkSidecarHealth(): Promise<boolean> {
+  try {
+    const resp = await fetch(`${SIDECAR_URL}/health`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    const data = (await resp.json()) as { ok: boolean; esl: string };
+    return data.ok && data.esl === 'ready';
+  } catch {
+    return false;
+  }
+}
 
 /** Cap transcript to prevent memory growth on very long calls */
 const MAX_TRANSCRIPT_TURNS = 200;
@@ -612,12 +642,8 @@ function cleanupCall(callId: string): void {
   }
 
   // Kill the FreeSWITCH channel if still alive
-  if (eslConn && state.fsUuid) {
-    try {
-      eslConn.api(`uuid_kill ${state.fsUuid}`, () => {});
-    } catch {
-      /* ignore */
-    }
+  if (state.fsUuid) {
+    sidecarHangup(state.fsUuid).catch(() => {});
   }
 
   cleanupCallState(callId);
@@ -738,7 +764,7 @@ function buildSummary(state: FSCallState): string {
   return `📞 FreeSWITCH-Anruf abgeschlossen.\nZiel: ${state.goal}\n\n${turns || '(Kein Transkript verfügbar)'}`;
 }
 
-// --- Outbound calls via ESL ---
+// --- Outbound calls via Sidecar ---
 
 export async function makeFreeswitchCall(
   to: string,
@@ -747,14 +773,18 @@ export async function makeFreeswitchCall(
   voice?: string,
 ): Promise<void> {
   const callVoice = voice || DEFAULT_VOICE;
-  if (!eslConn) throw new Error('FreeSWITCH ESL not connected');
+  if (!sidecarReady) throw new Error('Voice sidecar not connected');
   if (!PROJECT_ID) throw new Error('OPENAI_PROJECT_ID not configured');
+
+  // Pre-flight health check
+  const healthy = await checkSidecarHealth();
+  if (!healthy) throw new Error('Voice sidecar not healthy');
 
   const callId = `fs-out-${Date.now()}-${crypto.randomInt(1000, 9999)}`;
 
   logger.info(
     { callId, to, goal },
-    'FS: Initiating outbound call via FreeSWITCH',
+    'FS: Initiating outbound call via sidecar',
   );
 
   if (voiceDeps && chatJid) {
@@ -782,28 +812,17 @@ export async function makeFreeswitchCall(
     // Step 1: Originate call to Sipgate, park the channel
     const originateArgs = `{origination_caller_id_number=+49308687022346,origination_caller_id_name=Andy,hangup_after_bridge=true}sofia/gateway/sipgate/${to} &park()`;
 
-    const uuid = await new Promise<string>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error('Originate timeout (45s)')),
-        45000,
-      );
-      eslConn.api(`originate ${originateArgs}`, (res: any) => {
-        clearTimeout(timeout);
-        const body = res?.body || res?.getBody?.() || '';
-        if (body.startsWith('+OK')) {
-          const channelUuid = body.replace('+OK ', '').trim();
-          resolve(channelUuid);
-        } else {
-          reject(new Error(`Originate failed: ${body}`));
-        }
-      });
-    });
+    const result = await sidecarApi(`originate ${originateArgs}`);
+    if (!result.startsWith('+OK')) {
+      throw new Error(`Originate failed: ${result}`);
+    }
+    const uuid = result.replace('+OK ', '').trim();
 
     state.fsUuid = uuid;
     // Start recording for post-call Whisper transcription
     const recFile = `/recordings/${callId}.wav`;
     state.recordingFile = recFile;
-    eslConn.api(`uuid_record ${uuid} start ${recFile}`, () => {});
+    await sidecarApi(`uuid_record ${uuid} start ${recFile}`);
     logger.info(
       { callId, uuid, recFile },
       'FS: Call answered, recording started',
@@ -835,17 +854,14 @@ export async function makeFreeswitchCall(
     });
 
     // Step 3: Set OpenAI project ID on channel, then transfer to openai dialplan
-    eslConn.api(
-      `uuid_setvar ${uuid} openai_project_id ${PROJECT_ID}`,
-      () => {},
-    );
+    await sidecarApi(`uuid_setvar ${uuid} openai_project_id ${PROJECT_ID}`);
     const transferCmd = `uuid_transfer ${uuid} openai XML public`;
     logger.info({ callId, transferCmd }, 'FS: Transferring to OpenAI bridge');
-
-    eslConn.api(transferCmd, (res: any) => {
-      const body = res?.body || res?.getBody?.() || '';
-      logger.info({ callId, result: body.trim() }, 'FS: Transfer result');
-    });
+    const transferResult = await sidecarApi(transferCmd);
+    logger.info(
+      { callId, result: transferResult.trim() },
+      'FS: Transfer result',
+    );
 
     // Step 4: Wait for OpenAI webhook (resolved by openai-webhook handler)
     await webhookPromise;
@@ -855,11 +871,10 @@ export async function makeFreeswitchCall(
       await acceptOpenAICall(state.openaiCallId, state);
     }
 
-    // Greeting is sent via event-driven state machine in connectControlWs
-    // (session.created → disable VAD → session.updated → conversation.item.create → response.create)
-
-    // Step 6: Subscribe to hangup for this channel
-    eslConn.api(`uuid_setvar ${uuid} nanoclaw_call_id ${callId}`, () => {});
+    // Step 5: Tag channel for hangup tracking
+    await sidecarApi(
+      `uuid_setvar ${uuid} nanoclaw_call_id ${callId}`,
+    );
   } catch (err: any) {
     logger.error({ callId, err: err?.message }, 'FS: Outbound call failed');
     if (voiceDeps && chatJid) {
@@ -913,39 +928,96 @@ export function handleFSInboundWebhook(openaiCallId: string): void {
 // FreeSWITCH dialplan bridges inbound calls directly to OpenAI.
 // No ESL-based inbound detection needed.
 
-// --- ESL connection and event handling ---
+// --- Sidecar SSE connection ---
 
-let eslReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let sseAbort: AbortController | null = null;
+let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-function scheduleESLReconnect(): void {
-  // Prevent duplicate reconnect timers from error + end both firing
-  if (eslReconnectTimer) return;
-  eslConn = null;
-  eslReconnectTimer = setTimeout(() => {
-    eslReconnectTimer = null;
-    connectESL();
+function scheduleSseReconnect(): void {
+  if (sseReconnectTimer) return;
+  sidecarReady = false;
+  sseReconnectTimer = setTimeout(() => {
+    sseReconnectTimer = null;
+    connectSidecarSse();
   }, 5000);
 }
 
-function connectESL(): void {
-  logger.info(
-    { host: ESL_HOST, port: ESL_PORT },
-    'FS: Connecting to FreeSWITCH ESL',
-  );
+async function connectSidecarSse(): Promise<void> {
+  // First verify sidecar is healthy
+  const healthy = await checkSidecarHealth();
+  if (!healthy) {
+    logger.warn({ url: SIDECAR_URL }, 'FS: Sidecar not healthy, retrying in 5s');
+    scheduleSseReconnect();
+    return;
+  }
 
-  eslConn = new esl.Connection(ESL_HOST, ESL_PORT, ESL_PASSWORD, () => {
-    logger.info('FS: ESL connected');
-  });
+  sidecarReady = true;
+  logger.info({ url: SIDECAR_URL }, 'FS: Sidecar healthy, connecting SSE');
 
-  eslConn.on('error', (err: any) => {
-    logger.error({ err: err?.message }, 'FS: ESL connection error');
-    scheduleESLReconnect();
-  });
+  sseAbort = new AbortController();
+  try {
+    const resp = await fetch(`${SIDECAR_URL}/events`, {
+      signal: sseAbort.signal,
+    });
 
-  eslConn.on('esl::end', () => {
-    logger.warn('FS: ESL connection closed, reconnecting in 5s');
-    scheduleESLReconnect();
-  });
+    if (!resp.ok || !resp.body) {
+      logger.warn({ status: resp.status }, 'FS: SSE connection failed');
+      scheduleSseReconnect();
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    logger.info('FS: SSE stream connected');
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6)) as {
+            event: string;
+            uuid: string;
+            caller?: string;
+            destination?: string;
+            hangupCause?: string;
+          };
+
+          if (event.event === 'CHANNEL_HANGUP_COMPLETE') {
+            // Find active call by fsUuid and clean up
+            for (const [callId, state] of activeCalls) {
+              if (state.fsUuid === event.uuid) {
+                logger.info(
+                  { callId, cause: event.hangupCause },
+                  'FS: Channel hangup via SSE',
+                );
+                cleanupCall(callId);
+                break;
+              }
+            }
+          }
+        } catch {
+          /* skip malformed SSE lines */
+        }
+      }
+    }
+
+    // Stream ended normally
+    logger.warn('FS: SSE stream ended, reconnecting in 5s');
+    scheduleSseReconnect();
+  } catch (err: any) {
+    if (err?.name === 'AbortError') return; // intentional close
+    logger.error({ err: err?.message }, 'FS: SSE connection error');
+    scheduleSseReconnect();
+  }
 }
 
 // --- Public API ---
@@ -958,9 +1030,9 @@ export function startFreeswitchVoice(deps: FreeswitchVoiceDeps): void {
     return;
   }
 
-  connectESL();
+  connectSidecarSse();
   logger.info(
-    { eslHost: ESL_HOST, eslPort: ESL_PORT },
-    'FS: FreeSWITCH voice initialized (webhook via openai-webhook on 4402)',
+    { sidecar: SIDECAR_URL },
+    'FS: FreeSWITCH voice initialized via sidecar (webhook via openai-webhook on 4402)',
   );
 }
