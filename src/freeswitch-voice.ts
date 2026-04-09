@@ -272,13 +272,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
 
     const s1 = setTimeout(() => {
       if (ws.readyState !== WebSocket.OPEN) return;
-      // Disable VAD to send silence check prompt
-      ws.send(
-        JSON.stringify({
-          type: 'session.update',
-          session: { turn_detection: null },
-        }),
-      );
+      // No VAD toggle needed — metadata.source identifies our silence checks
       ws.send(
         JSON.stringify({
           type: 'conversation.item.create',
@@ -294,7 +288,12 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
           },
         }),
       );
-      ws.send(JSON.stringify({ type: 'response.create' }));
+      ws.send(
+        JSON.stringify({
+          type: 'response.create',
+          response: { metadata: { source: 'silence_check' } },
+        }),
+      );
       logger.info({ callId: state.callId }, 'FS: Silence check 1 (5s)');
     }, 5000);
 
@@ -302,12 +301,6 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
       if (ws.readyState !== WebSocket.OPEN) return;
       ws.send(
         JSON.stringify({
-          type: 'session.update',
-          session: { turn_detection: null },
-        }),
-      );
-      ws.send(
-        JSON.stringify({
           type: 'conversation.item.create',
           item: {
             type: 'message',
@@ -316,7 +309,12 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
           },
         }),
       );
-      ws.send(JSON.stringify({ type: 'response.create' }));
+      ws.send(
+        JSON.stringify({
+          type: 'response.create',
+          response: { metadata: { source: 'silence_check' } },
+        }),
+      );
       logger.info({ callId: state.callId }, 'FS: Silence check 2 (8s)');
     }, 8000);
 
@@ -324,12 +322,6 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
       if (ws.readyState !== WebSocket.OPEN) return;
       ws.send(
         JSON.stringify({
-          type: 'session.update',
-          session: { turn_detection: null },
-        }),
-      );
-      ws.send(
-        JSON.stringify({
           type: 'conversation.item.create',
           item: {
             type: 'message',
@@ -338,7 +330,12 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
           },
         }),
       );
-      ws.send(JSON.stringify({ type: 'response.create' }));
+      ws.send(
+        JSON.stringify({
+          type: 'response.create',
+          response: { metadata: { source: 'silence_check' } },
+        }),
+      );
       logger.info({ callId: state.callId }, 'FS: Silence check 3 (11s)');
     }, 11000);
 
@@ -381,32 +378,43 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         break;
 
       case 'response.done': {
+        const resp = event.response as Record<string, unknown> | undefined;
+        const isSilenceCheck =
+          (resp?.metadata as Record<string, unknown>)?.source ===
+          'silence_check';
+
         // First response: mark conversation as started, cancel outbound timers
-        if (!conversationStarted) {
+        if (!conversationStarted && !isSilenceCheck) {
           conversationStarted = true;
-          // Cancel outbound greeting timers — callee already responded
           cancelOutboundTimers();
         }
-        // Re-enable VAD after EVERY response (greeting, silence checks, etc.)
-        // This ensures VAD is always active when it's the caller's turn to speak
-        ws.send(
-          JSON.stringify({
-            type: 'session.update',
-            session: {
-              turn_detection: {
-                type: 'server_vad',
-                threshold: 0.5,
-                prefix_padding_ms: 300,
-                silence_duration_ms: 500,
+
+        if (!isSilenceCheck) {
+          // Re-enable VAD after greeting / real responses (was disabled via session.update)
+          ws.send(
+            JSON.stringify({
+              type: 'session.update',
+              session: {
+                turn_detection: {
+                  type: 'server_vad',
+                  threshold: 0.5,
+                  prefix_padding_ms: 300,
+                  silence_duration_ms: 500,
+                },
+                input_audio_transcription: { model: 'whisper-1' },
               },
-              input_audio_transcription: { model: 'whisper-1' },
-            },
-          }),
-        );
-        logger.info(
-          { callId: state.callId },
-          'FS: VAD re-enabled after response',
-        );
+            }),
+          );
+          logger.info(
+            { callId: state.callId },
+            'FS: VAD re-enabled after response',
+          );
+        } else {
+          logger.info(
+            { callId: state.callId },
+            'FS: Silence check response done (no VAD toggle)',
+          );
+        }
         break;
       }
 
@@ -644,9 +652,7 @@ async function transcribeRecording(
       size: number;
     }>;
     const inboundFiles = listing
-      .filter(
-        (f) => f.name.startsWith('inbound-') && f.name.endsWith('.wav'),
-      )
+      .filter((f) => f.name.startsWith('inbound-') && f.name.endsWith('.wav'))
       .sort(
         (a, b) =>
           new Date(b.mod_time).getTime() - new Date(a.mod_time).getTime(),
