@@ -183,7 +183,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
       ws.send(
         JSON.stringify({
           type: 'session.update',
-          session: { turn_detection: null },
+          session: { type: 'realtime', turn_detection: null },
         }),
       );
       ws.send(
@@ -209,11 +209,10 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
       );
     } else {
       // Outbound: wait for callee to speak (VAD enabled).
-      // If silent after 5s → "Hallo? Ist da jemand?" via conversation.item.create
-      // This uses the fast path (conversation.item.create) even with VAD enabled.
+      // If silent after 1s → "Hallo? Ist da jemand?" via conversation.item.create
       logger.info(
         { callId: state.callId },
-        'FS: Outbound — waiting for callee, 5s fallback timer set',
+        'FS: Outbound — waiting for callee, 1s fallback timer set',
       );
 
       const t1 = setTimeout(() => {
@@ -223,7 +222,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         ws.send(
           JSON.stringify({
             type: 'session.update',
-            session: { turn_detection: null },
+            session: { type: 'realtime', turn_detection: null },
           }),
         );
         ws.send(
@@ -242,8 +241,8 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
           }),
         );
         ws.send(JSON.stringify({ type: 'response.create' }));
-        logger.info({ callId: state.callId }, 'FS: Hallo attempt 1 (5s)');
-      }, 5000);
+        logger.info({ callId: state.callId }, 'FS: Hallo attempt 1 (1s)');
+      }, 1000);
 
       const t2 = setTimeout(() => {
         if (ws.readyState !== WebSocket.OPEN || outboundTimersCancelled) return;
@@ -258,8 +257,8 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
           }),
         );
         ws.send(JSON.stringify({ type: 'response.create' }));
-        logger.info({ callId: state.callId }, 'FS: Hallo attempt 2 (8s)');
-      }, 8000);
+        logger.info({ callId: state.callId }, 'FS: Hallo attempt 2 (4s)');
+      }, 4000);
 
       const t3 = setTimeout(() => {
         if (ws.readyState !== WebSocket.OPEN || outboundTimersCancelled) return;
@@ -274,8 +273,8 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
           }),
         );
         ws.send(JSON.stringify({ type: 'response.create' }));
-        logger.info({ callId: state.callId }, 'FS: Hallo attempt 3 (11s)');
-      }, 11000);
+        logger.info({ callId: state.callId }, 'FS: Hallo attempt 3 (7s)');
+      }, 7000);
 
       const tHangup = setTimeout(() => {
         if (outboundTimersCancelled) return;
@@ -284,7 +283,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
           'FS: No response after 3 attempts, hanging up',
         );
         cleanupCall(state.callId);
-      }, 14000);
+      }, 10000);
 
       outboundTimers.push(t1, t2, t3, tHangup);
       state.timers.push(t1, t2, t3, tHangup);
@@ -324,8 +323,8 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
           response: { metadata: { source: 'silence_check' } },
         }),
       );
-      logger.info({ callId: state.callId }, 'FS: Silence check 1 (5s)');
-    }, 5000);
+      logger.info({ callId: state.callId }, 'FS: Silence check 1 (1s)');
+    }, 1000);
 
     const s2 = setTimeout(() => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -345,8 +344,8 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
           response: { metadata: { source: 'silence_check' } },
         }),
       );
-      logger.info({ callId: state.callId }, 'FS: Silence check 2 (8s)');
-    }, 8000);
+      logger.info({ callId: state.callId }, 'FS: Silence check 2 (4s)');
+    }, 4000);
 
     const s3 = setTimeout(() => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -366,8 +365,8 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
           response: { metadata: { source: 'silence_check' } },
         }),
       );
-      logger.info({ callId: state.callId }, 'FS: Silence check 3 (11s)');
-    }, 11000);
+      logger.info({ callId: state.callId }, 'FS: Silence check 3 (7s)');
+    }, 7000);
 
     const sHangup = setTimeout(() => {
       logger.info(
@@ -375,7 +374,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
         'FS: No response after silence checks, hanging up',
       );
       cleanupCall(state.callId);
-    }, 14000);
+    }, 10000);
 
     state.timers.push(s1, s2, s3, sHangup);
   }
@@ -425,6 +424,7 @@ function connectControlWs(openaiCallId: string, state: FSCallState): void {
             JSON.stringify({
               type: 'session.update',
               session: {
+                type: 'realtime',
                 turn_detection: {
                   type: 'server_vad',
                   threshold: 0.5,
@@ -782,10 +782,7 @@ export async function makeFreeswitchCall(
 
   const callId = `fs-out-${Date.now()}-${crypto.randomInt(1000, 9999)}`;
 
-  logger.info(
-    { callId, to, goal },
-    'FS: Initiating outbound call via sidecar',
-  );
+  logger.info({ callId, to, goal }, 'FS: Initiating outbound call via sidecar');
 
   if (voiceDeps && chatJid) {
     voiceDeps
@@ -872,9 +869,7 @@ export async function makeFreeswitchCall(
     }
 
     // Step 5: Tag channel for hangup tracking
-    await sidecarApi(
-      `uuid_setvar ${uuid} nanoclaw_call_id ${callId}`,
-    );
+    await sidecarApi(`uuid_setvar ${uuid} nanoclaw_call_id ${callId}`);
   } catch (err: any) {
     logger.error({ callId, err: err?.message }, 'FS: Outbound call failed');
     if (voiceDeps && chatJid) {
@@ -946,7 +941,10 @@ async function connectSidecarSse(): Promise<void> {
   // First verify sidecar is healthy
   const healthy = await checkSidecarHealth();
   if (!healthy) {
-    logger.warn({ url: SIDECAR_URL }, 'FS: Sidecar not healthy, retrying in 5s');
+    logger.warn(
+      { url: SIDECAR_URL },
+      'FS: Sidecar not healthy, retrying in 5s',
+    );
     scheduleSseReconnect();
     return;
   }
