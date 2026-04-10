@@ -196,58 +196,60 @@ function connectSidecarCallSse(state: FSCallState): void {
   const url = `${SIDECAR_URL}/openai/events/${encodeURIComponent(state.callId)}`;
   logger.info({ callId: state.callId, url }, 'FS: Connecting sidecar call SSE');
 
-  fetch(url).then(async (resp) => {
-    if (!resp.ok || !resp.body) {
-      logger.error(
-        { callId: state.callId, status: resp.status },
-        'FS: Sidecar call SSE failed',
-      );
-      return;
-    }
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    const processChunk = async (): Promise<void> => {
-      const { done, value } = await reader.read();
-      if (done) {
-        logger.info(
-          { callId: state.callId },
-          'FS: Sidecar call SSE stream ended',
+  fetch(url)
+    .then(async (resp) => {
+      if (!resp.ok || !resp.body) {
+        logger.error(
+          { callId: state.callId, status: resp.status },
+          'FS: Sidecar call SSE failed',
         );
         return;
       }
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const evt = JSON.parse(line.slice(6));
-          handleSidecarCallEvent(state, evt);
-        } catch {
-          // skip malformed lines
+      const processChunk = async (): Promise<void> => {
+        const { done, value } = await reader.read();
+        if (done) {
+          logger.info(
+            { callId: state.callId },
+            'FS: Sidecar call SSE stream ended',
+          );
+          return;
         }
-      }
 
-      return processChunk();
-    };
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-    processChunk().catch((err) => {
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            handleSidecarCallEvent(state, evt);
+          } catch {
+            // skip malformed lines
+          }
+        }
+
+        return processChunk();
+      };
+
+      processChunk().catch((err) => {
+        logger.error(
+          { callId: state.callId, err: err?.message },
+          'FS: Sidecar call SSE read error',
+        );
+      });
+    })
+    .catch((err) => {
       logger.error(
         { callId: state.callId, err: err?.message },
-        'FS: Sidecar call SSE read error',
+        'FS: Sidecar call SSE connection error',
       );
     });
-  }).catch((err) => {
-    logger.error(
-      { callId: state.callId, err: err?.message },
-      'FS: Sidecar call SSE connection error',
-    );
-  });
 }
 
 function handleSidecarCallEvent(
@@ -285,6 +287,20 @@ function handleSidecarCallEvent(
       );
       cleanupCallState(state.callId);
       break;
+    case 'whisper_transcript': {
+      const text = (evt.text as string) || '';
+      if (text && voiceDeps) {
+        logger.info(
+          { callId: state.callId, transcriptLen: text.length },
+          'FS: Whisper transcript from sidecar',
+        );
+        const chatJid = state.chatJid || 'dc:1490365616518070407';
+        voiceDeps
+          .sendMessage(chatJid, `📝 Transkript:\n${text}`)
+          .catch(() => {});
+      }
+      break;
+    }
     case 'error':
       logger.error(
         { callId: state.callId, message: evt.message },
@@ -551,14 +567,32 @@ function cleanupCallState(callId: string): void {
   // Post-call Whisper transcription (async, don't block cleanup)
   const chatJid = state.chatJid || 'dc:1490365616518070407';
   if (state.recordingFile) {
-    transcribeRecording(state.recordingFile, state.callId, chatJid).catch(
-      (err) => {
+    if (SIDECAR_OPENAI) {
+      // Delegate to sidecar — reads WAV locally, sends to Whisper, emits
+      // whisper_transcript via SSE (handled in handleSidecarCallEvent).
+      fetch(
+        `${SIDECAR_URL}/openai/transcribe/${encodeURIComponent(callId)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recFile: state.recordingFile }),
+        },
+      ).catch((err) => {
         logger.error(
           { callId, err: err?.message },
-          'FS: Whisper transcription failed',
+          'FS: Sidecar transcribe request failed',
         );
-      },
-    );
+      });
+    } else {
+      transcribeRecording(state.recordingFile, state.callId, chatJid).catch(
+        (err) => {
+          logger.error(
+            { callId, err: err?.message },
+            'FS: Whisper transcription failed',
+          );
+        },
+      );
+    }
   }
 
   logger.info({ callId }, 'FS: Call state cleaned up');
