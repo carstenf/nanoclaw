@@ -114,10 +114,7 @@ function connectCallSse(state: FSCallState, basePath: string): void {
       const processChunk = async (): Promise<void> => {
         const { done, value } = await reader.read();
         if (done) {
-          logger.info(
-            { callId: state.callId },
-            'FS: Call SSE stream ended',
-          );
+          logger.info({ callId: state.callId }, 'FS: Call SSE stream ended');
           return;
         }
 
@@ -175,10 +172,7 @@ function handleCallEvent(
       );
       break;
     case 'hangup_ready':
-      logger.info(
-        { callId: state.callId },
-        'FS: hangup_ready — cleaning up',
-      );
+      logger.info({ callId: state.callId }, 'FS: hangup_ready — cleaning up');
       cleanupCall(state.callId);
       break;
     case 'ws_closed':
@@ -331,19 +325,13 @@ async function registerAudioBridge(state: FSCallState): Promise<void> {
   connectCallSse(state, 'bridge/events');
 }
 
-async function startAudioFork(
-  uuid: string,
-  callId: string,
-): Promise<void> {
+async function startAudioFork(uuid: string, callId: string): Promise<void> {
   // mod_audio_fork: stream audio from this channel to sidecar WS
   const wsUrl = `ws://127.0.0.1:${AUDIO_BRIDGE_PORT}/audio/${callId}`;
   const result = await sidecarApi(
-    `uuid_audio_fork ${uuid} start ${wsUrl} mono 8000`,
+    `uuid_audio_fork ^^|${uuid}|start|${wsUrl}|mono|8000|default|{"callId":"${callId}"}|true|true|8000`,
   );
-  logger.info(
-    { callId, uuid, wsUrl, result },
-    'FS: uuid_audio_fork started',
-  );
+  logger.info({ callId, uuid, wsUrl, result }, 'FS: uuid_audio_fork started');
 }
 
 // --- Outbound calls ---
@@ -368,9 +356,7 @@ export async function makeFreeswitchCall(
   );
 
   if (voiceDeps && chatJid) {
-    voiceDeps
-      .sendMessage(chatJid, `📞 Rufe ${to} an...`)
-      .catch(() => {});
+    voiceDeps.sendMessage(chatJid, `📞 Rufe ${to} an...`).catch(() => {});
   }
 
   const state: FSCallState = {
@@ -422,9 +408,7 @@ async function outboundViaAudioBridge(
     `sofia/gateway/sipgate/${to} &park()`;
 
   if (voiceDeps && chatJid) {
-    voiceDeps
-      .sendMessage(chatJid, `📞 Rufe ${to} an...`)
-      .catch(() => {});
+    voiceDeps.sendMessage(chatJid, `📞 Rufe ${to} an...`).catch(() => {});
   }
 
   const userResult = await sidecarApi(`originate ${userOriginate}`);
@@ -451,10 +435,7 @@ async function outboundViaAudioBridge(
   await sidecarApi(`uuid_setvar ${userUuid} nanoclaw_call_id ${callId}`);
 }
 
-async function outboundViaSip(
-  state: FSCallState,
-  to: string,
-): Promise<void> {
+async function outboundViaSip(state: FSCallState, to: string): Promise<void> {
   const { callId, chatJid } = state;
   const PROJECT_ID = env.OPENAI_PROJECT_ID || '';
   if (!PROJECT_ID) throw new Error('OPENAI_PROJECT_ID not configured');
@@ -502,9 +483,7 @@ async function outboundViaSip(
     `sofia/gateway/sipgate/${to} &park()`;
 
   if (voiceDeps && chatJid) {
-    voiceDeps
-      .sendMessage(chatJid, `📞 Rufe ${to} an...`)
-      .catch(() => {});
+    voiceDeps.sendMessage(chatJid, `📞 Rufe ${to} an...`).catch(() => {});
   }
 
   const userResult = await sidecarApi(`originate ${userOriginate}`);
@@ -535,7 +514,10 @@ async function outboundViaSip(
 export function handleFSInboundWebhook(openaiCallId: string): void {
   // SIP mode: OpenAI webhook triggers inbound accept
   const callId = `fs-in-${Date.now()}-${crypto.randomInt(1000, 9999)}`;
-  logger.info({ callId, openaiCallId }, 'FS: Handling inbound call via webhook');
+  logger.info(
+    { callId, openaiCallId },
+    'FS: Handling inbound call via webhook',
+  );
 
   const state = createInboundState(callId, openaiCallId);
   activeCalls.set(callId, state);
