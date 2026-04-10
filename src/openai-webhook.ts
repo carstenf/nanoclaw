@@ -78,8 +78,12 @@ function extractCallerNumber(event: any): string | null {
     // Match a SIP URI like sip:+491708036426@... or sip:491708036426@...
     const m = h.value.match(/sip:(\+?\d+)@/);
     if (m && m[1]) {
-      // Normalize: ensure leading + for E.164
-      return m[1].startsWith('+') ? m[1] : `+${m[1]}`;
+      let num = m[1].startsWith('+') ? m[1] : `+${m[1]}`;
+      // Sipgate sends national format (01708036426) — normalize to E.164
+      if (num.startsWith('+0')) {
+        num = '+49' + num.slice(2);
+      }
+      return num;
     }
   }
   return null;

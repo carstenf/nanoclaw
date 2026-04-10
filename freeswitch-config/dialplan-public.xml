@@ -33,7 +33,7 @@
       <action application="set" data="openai_project_id=${openai_project_id}"/>
       <!-- 2-3 Klingelzeichen vor Annahme -->
       <action application="ring_ready"/>
-      <action application="sleep" data="6000"/>
+      <action application="sleep" data="8000"/>
       <action application="answer"/>
       <!-- Stereo-Aufnahme fuer Whisper-Transkription -->
       <action application="set" data="RECORD_STEREO=true"/>
