@@ -1,29 +1,44 @@
 <include>
-  <!-- Inbound from Sipgate: bridge directly to OpenAI (no parking needed) -->
-  <extension name="sipgate-inbound">
-    <condition field="destination_number" expression=".*">
+  <!--
+    Outbound-Bridge (via ESL uuid_transfer for outbound calls).
+
+    MUST come BEFORE sipgate-inbound because FreeSWITCH dialplans use
+    first-match: if sipgate-inbound's broader pattern was checked first,
+    it would also match destination "openai" and steal the call (causing
+    a 6-second sleep before bridge — outbound calls would silently fail
+    because the user hangs up before audio reaches them).
+  -->
+  <extension name="openai-bridge">
+    <condition field="destination_number" expression="^openai$">
       <action application="set" data="hangup_after_bridge=true"/>
-      <action application="set" data="suppress_cng=true"/>
-      <action application="set" data="bridge_generate_comfort_noise=false"/>
-      <action application="set" data="openai_project_id=${openai_project_id}"/>
-      <!-- Ring 2-3 times before answering -->
-      <action application="ring_ready"/>
-      <action application="sleep" data="6000"/>
-      <action application="answer"/>
-      <!-- Record both legs for post-call Whisper transcription -->
-      <action application="set" data="RECORD_STEREO=true"/>
-      <action application="record_session" data="/recordings/inbound-${uuid}.wav"/>
-      <!-- Bridge directly to OpenAI — webhook handles acceptance -->
       <action application="bridge" data="{rtp_secure_media=true,absolute_codec_string=PCMA}sofia/external/sip:${openai_project_id}@sip.api.openai.com;transport=tls"/>
     </condition>
   </extension>
 
-  <!-- Bridge to OpenAI (triggered by ESL uuid_transfer for outbound) -->
-  <extension name="openai-bridge">
-    <condition field="destination_number" expression="^openai$">
+  <!--
+    Inbound von Sipgate → direkt zu OpenAI.
+
+    Pattern matches only phone numbers (digits, optional leading "+"),
+    NOT text destinations like "openai". This keeps the openai-bridge
+    extension above reachable for outbound transfers.
+
+    For inbound calls Sipgate forwards the called party number, which is
+    always a phone number, so this is safe.
+  -->
+  <extension name="sipgate-inbound">
+    <condition field="destination_number" expression="^\+?\d+$">
       <action application="set" data="hangup_after_bridge=true"/>
       <action application="set" data="suppress_cng=true"/>
       <action application="set" data="bridge_generate_comfort_noise=false"/>
+      <action application="set" data="openai_project_id=${openai_project_id}"/>
+      <!-- 2-3 Klingelzeichen vor Annahme -->
+      <action application="ring_ready"/>
+      <action application="sleep" data="6000"/>
+      <action application="answer"/>
+      <!-- Stereo-Aufnahme fuer Whisper-Transkription -->
+      <action application="set" data="RECORD_STEREO=true"/>
+      <action application="record_session" data="/recordings/inbound-${uuid}.wav"/>
+      <!-- Bridge zu OpenAI -->
       <action application="bridge" data="{rtp_secure_media=true,absolute_codec_string=PCMA}sofia/external/sip:${openai_project_id}@sip.api.openai.com;transport=tls"/>
     </condition>
   </extension>
