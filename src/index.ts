@@ -68,7 +68,7 @@ import { recallMemory, retainMemory } from './hindsight.js';
 import { makeCall, startVoiceServer } from './voice-server.js';
 import {
   makeFreeswitchCall,
-  startFreeswitchVoice,
+  initFreeswitchVoice,
 } from './freeswitch-voice.js';
 import { startWebhookServer } from './openai-webhook.js';
 
@@ -803,7 +803,7 @@ async function main(): Promise<void> {
     },
   };
   startWebhookServer();
-  startFreeswitchVoice(voiceDeps);
+  initFreeswitchVoice(voiceDeps);
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {
