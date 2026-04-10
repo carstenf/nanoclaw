@@ -12,6 +12,7 @@ const env = readEnvFile([
   'OPENAI_REALTIME_VOICE',
   'OPENAI_PROJECT_ID',
   'VOICE_SIDECAR_URL',
+  'VOICE_SIDECAR_OPENAI',
 ]);
 
 const OPENAI_API_KEY =
@@ -19,6 +20,7 @@ const OPENAI_API_KEY =
 const DEFAULT_VOICE = env.OPENAI_REALTIME_VOICE || 'shimmer';
 const PROJECT_ID = env.OPENAI_PROJECT_ID || '';
 const SIDECAR_URL = env.VOICE_SIDECAR_URL || 'http://10.0.0.1:4500';
+const SIDECAR_OPENAI = env.VOICE_SIDECAR_OPENAI === 'true';
 
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 let sidecarReady = false;
@@ -145,8 +147,178 @@ export async function acceptOpenAICallForOutbound(
   openaiCallId: string,
   state: FSCallState,
 ): Promise<void> {
+  if (SIDECAR_OPENAI) {
+    return acceptViaSidecar(openaiCallId, state);
+  }
   return acceptOpenAICall(openaiCallId, state);
 }
+
+// --- Sidecar-delegated OpenAI session handling ---
+
+async function acceptViaSidecar(
+  openaiCallId: string,
+  state: FSCallState,
+): Promise<void> {
+  const groupName = 'main';
+  const instructions = renderVoiceInstructions({
+    direction: state.direction,
+    group: groupName,
+    goal: state.goal,
+  });
+
+  const resp = await fetch(`${SIDECAR_URL}/openai/accept`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      openaiCallId,
+      callId: state.callId,
+      direction: state.direction,
+      instructions,
+      voice: state.voice,
+    }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`Sidecar accept failed (${resp.status}): ${body}`);
+  }
+
+  logger.info(
+    { callId: state.callId, openaiCallId },
+    'FS: Call accepted via sidecar',
+  );
+
+  // Connect SSE stream to receive transcript + lifecycle events from sidecar
+  connectSidecarCallSse(state);
+}
+
+function connectSidecarCallSse(state: FSCallState): void {
+  const url = `${SIDECAR_URL}/openai/events/${encodeURIComponent(state.callId)}`;
+  logger.info({ callId: state.callId, url }, 'FS: Connecting sidecar call SSE');
+
+  fetch(url).then(async (resp) => {
+    if (!resp.ok || !resp.body) {
+      logger.error(
+        { callId: state.callId, status: resp.status },
+        'FS: Sidecar call SSE failed',
+      );
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    const processChunk = async (): Promise<void> => {
+      const { done, value } = await reader.read();
+      if (done) {
+        logger.info(
+          { callId: state.callId },
+          'FS: Sidecar call SSE stream ended',
+        );
+        return;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const evt = JSON.parse(line.slice(6));
+          handleSidecarCallEvent(state, evt);
+        } catch {
+          // skip malformed lines
+        }
+      }
+
+      return processChunk();
+    };
+
+    processChunk().catch((err) => {
+      logger.error(
+        { callId: state.callId, err: err?.message },
+        'FS: Sidecar call SSE read error',
+      );
+    });
+  }).catch((err) => {
+    logger.error(
+      { callId: state.callId, err: err?.message },
+      'FS: Sidecar call SSE connection error',
+    );
+  });
+}
+
+function handleSidecarCallEvent(
+  state: FSCallState,
+  evt: Record<string, unknown>,
+): void {
+  switch (evt.type) {
+    case 'transcript': {
+      const role = evt.role as 'user' | 'assistant';
+      const text = (evt.text as string) || '';
+      if (text && state.transcript.length < MAX_TRANSCRIPT_TURNS) {
+        state.transcript.push({ role, text });
+        const label = role === 'user' ? 'Caller said' : 'Andy said';
+        logger.info({ callId: state.callId, text }, `FS: ${label}`);
+      }
+      break;
+    }
+    case 'end_call':
+      logger.info(
+        { callId: state.callId, reason: evt.reason },
+        'FS: end_call from sidecar',
+      );
+      break;
+    case 'hangup_ready':
+      logger.info(
+        { callId: state.callId },
+        'FS: hangup_ready from sidecar — cleaning up',
+      );
+      cleanupCall(state.callId);
+      break;
+    case 'ws_closed':
+      logger.info(
+        { callId: state.callId },
+        'FS: Sidecar WS closed — cleaning up state',
+      );
+      cleanupCallState(state.callId);
+      break;
+    case 'error':
+      logger.error(
+        { callId: state.callId, message: evt.message },
+        'FS: Sidecar OpenAI error',
+      );
+      break;
+  }
+}
+
+async function cleanupCallViaSidecar(callId: string): Promise<void> {
+  const state = activeCalls.get(callId);
+  if (!state) return;
+
+  // Tell sidecar to tear down the OpenAI session
+  try {
+    await fetch(`${SIDECAR_URL}/openai/hangup/${encodeURIComponent(callId)}`, {
+      method: 'POST',
+    });
+  } catch (err: any) {
+    logger.warn(
+      { callId, err: err?.message },
+      'FS: Sidecar hangup request failed',
+    );
+  }
+
+  // Kill the FreeSWITCH channel if tracked (outbound)
+  if (state.fsUuid) {
+    sidecarHangup(state.fsUuid).catch(() => {});
+  }
+
+  cleanupCallState(callId);
+}
+
+// --- Local OpenAI session handling (legacy, VOICE_SIDECAR_OPENAI=false) ---
 
 async function acceptOpenAICall(
   openaiCallId: string,
@@ -396,13 +568,14 @@ function cleanupCallState(callId: string): void {
  * Full teardown: close WebSocket, kill FS channel, then clean up state.
  */
 function cleanupCall(callId: string): void {
+  if (SIDECAR_OPENAI) {
+    cleanupCallViaSidecar(callId);
+    return;
+  }
+
   const state = activeCalls.get(callId);
   if (!state) return;
 
-  // Tell OpenAI to end the SIP call. Required for inbound calls where
-  // FreeSWITCH handles the bridge via dialplan and we have no fsUuid to
-  // hang up directly — without this the OpenAI side keeps the call open
-  // even after we close the control WebSocket.
   if (state.openaiCallId) {
     openai.realtime.calls.hangup(state.openaiCallId).catch((err: any) => {
       logger.warn(
@@ -416,7 +589,6 @@ function cleanupCall(callId: string): void {
     state.controlWs.close();
   }
 
-  // Kill the FreeSWITCH channel if we tracked it directly (outbound case).
   if (state.fsUuid) {
     sidecarHangup(state.fsUuid).catch(() => {});
   }
@@ -675,11 +847,10 @@ export async function makeFreeswitchCall(
     );
 
     // Step 3: Wait for the control WebSocket to actually be OPEN before
-    // dialing the user. acceptOpenAICall() spawns connectControlWs which
-    // opens the WS asynchronously — usually within ~500ms after accept
-    // returns. The WS being OPEN is our signal that OpenAI Realtime is
-    // ready to receive audio from the bridge.
-    {
+    // dialing the user. In sidecar mode the WS is managed by the sidecar
+    // and the accept endpoint blocks until the WS is connected, so we can
+    // skip the local polling loop.
+    if (!SIDECAR_OPENAI) {
       const wsDeadline = Date.now() + 5000;
       while (
         (!state.controlWs || state.controlWs.readyState !== WebSocket.OPEN) &&
@@ -802,8 +973,9 @@ export function handleFSInboundWebhook(openaiCallId: string): void {
 
   activeCalls.set(callId, state);
 
-  // Accept + connect control WebSocket
-  acceptOpenAICall(openaiCallId, state).catch((err) => {
+  // Accept + connect control WebSocket (via sidecar or locally)
+  const acceptFn = SIDECAR_OPENAI ? acceptViaSidecar : acceptOpenAICall;
+  acceptFn(openaiCallId, state).catch((err) => {
     logger.error({ callId, err: err?.message }, 'FS: Inbound accept failed');
     cleanupCall(callId);
   });
