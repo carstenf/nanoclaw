@@ -98,7 +98,12 @@ class _FakeUpstreamResponse:
 
 
 class _RecordingHttp:
-    """Captures all calls to .post() so tests can assert call count + args."""
+    """Captures all calls to .post() so tests can assert call count + args.
+
+    Implements the subset of the httpx.AsyncClient surface that main.py uses:
+      - .post(url, content=..., headers=...) (awaitable)
+      - .aclose() (awaitable, called from lifespan shutdown)
+    """
     def __init__(self, response: _FakeUpstreamResponse | None = None):
         self.calls: list[tuple[tuple, dict]] = []
         self.response = response or _FakeUpstreamResponse()
@@ -106,6 +111,10 @@ class _RecordingHttp:
     async def post(self, *args: Any, **kwargs: Any) -> _FakeUpstreamResponse:
         self.calls.append((args, kwargs))
         return self.response
+
+    async def aclose(self) -> None:
+        """No-op; required by FastAPI lifespan shutdown path."""
+        return None
 
 
 # ---------------------------------------------------------------------------

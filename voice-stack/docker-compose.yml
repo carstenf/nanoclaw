@@ -1,0 +1,65 @@
+services:
+  freeswitch:
+    image: nanoclaw-freeswitch:dual
+    container_name: vs-freeswitch
+    restart: unless-stopped
+    network_mode: host
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        rm -f /usr/local/freeswitch/conf/sip_profiles/mrf.xml
+        # Copy our dialplan extensions into the container's public context.
+        # The image's /custom-entrypoint.sh only copies the public.xml wrapper,
+        # not its public/ subdir — we add that step here.
+        mkdir -p /usr/local/freeswitch/conf/dialplan/public
+        cp -f /overlay/dialplan/public/*.xml /usr/local/freeswitch/conf/dialplan/public/
+        # Overlay our loopback-only internal profile. The image's /custom-entrypoint
+        # only copies external-profile.xml, so we copy the internal one here.
+        cp -f /overlay/sip_profiles/internal-profile.xml /usr/local/freeswitch/conf/sip_profiles/internal.xml
+        exec /custom-entrypoint.sh
+    volumes:
+      - ./conf/overlay:/overlay:ro
+      - vs-fs-log:/usr/local/freeswitch/log
+      - vs-fs-db:/usr/local/freeswitch/db
+    stop_grace_period: 10s
+
+  sip-to-ai:
+    image: voice-stack-sip-to-ai:v9-gate-h
+    container_name: vs-sip-to-ai
+    build:
+      context: ./sip-to-ai
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - ./env/ai.env
+    environment:
+      HANDLER: etappe_h_conversation
+      SIP_HOST: 127.0.0.1
+      SIP_PORT: 5080
+      RUNS_DIR: /srv/runs
+      PROMPT_FILE: /srv/prompts/system_friseur.txt
+    volumes:
+      - /tmp/gate-h:/srv/runs
+      - ./prompts:/srv/prompts:ro
+      - ./data:/srv/data
+    depends_on:
+      - freeswitch
+    stop_grace_period: 5s
+
+  webhook-forwarder:
+    image: voice-stack-webhook-forwarder:v1
+    container_name: vs-webhook-forwarder
+    build:
+      context: ./vs-webhook-forwarder
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    network_mode: host          # binds to 0.0.0.0:9876, reachable on 127.0.0.1 (Caddy) and 10.0.0.1 (WG peer)
+    env_file:
+      - ./env/forwarder.env     # OPENAI_WEBHOOK_SECRET, BRIDGE_WEBHOOK_URL
+    stop_grace_period: 5s
+
+volumes:
+  vs-fs-log:
+  vs-fs-db:
