@@ -65,6 +65,7 @@ async def health() -> dict:
 
 
 @app.post("/openai/webhook")
+@app.post("/sipgate-voice/openai-sip")  # legacy spike URL — matches existing OpenAI dashboard registration (Option A, briefing 2026-04-16)
 async def relay(request: Request) -> Response:
     raw = await request.body()  # bytes - DO NOT json.parse before unwrap
     try:
