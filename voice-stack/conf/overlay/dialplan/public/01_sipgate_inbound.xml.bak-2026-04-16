@@ -1,0 +1,17 @@
+<include>
+  <extension name="sipgate_inbound">
+    <condition field="destination_number" expression="^(gw\+sipgate|\+?49308687022345|0308687022345|8702234e5)$">
+      <action application="log" data="INFO Sipgate inbound destnum=${destination_number} sip_to_user=${sip_to_user} sip_req_uri=${sip_req_uri} caller=${caller_id_number}"/>
+      <!-- sip-to-ai's RTP session is hard-coded to payload type 0 (PCMU).
+           Force both legs to PCMU so the SDP offer to sip-to-ai matches
+           what its encoder actually produces, and Sipgate gets PCMU too.
+           A-leg (Sipgate): set via the channel variable.
+           B-leg (sip-to-ai): set via the bridge dial-string prefix `[var=val]`. -->
+      <action application="set" data="absolute_codec_string=PCMU"/>
+      <!-- Bridge via the loopback-only "internal" profile so both SIP and
+           RTP stay on 127.0.0.1. The external profile is reserved for
+           Sipgate on the public IP. -->
+      <action application="bridge" data="[absolute_codec_string=PCMU,codec_string=PCMU]sofia/internal/sip-to-ai@127.0.0.1:5080"/>
+    </condition>
+  </extension>
+</include>

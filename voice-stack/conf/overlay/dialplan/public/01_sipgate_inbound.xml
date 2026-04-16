@@ -1,0 +1,22 @@
+<include>
+  <extension name="sipgate_inbound">
+    <condition field="destination_number" expression="^(gw\+sipgate|\+?49308687022345|0308687022345|8702234e5)$">
+      <action application="log" data="INFO Sipgate inbound destnum=${destination_number} caller=${caller_id_number}"/>
+
+      <!-- A-leg (Sipgate): force PCMU exclusively (REQ-SIP-04, D-20) -->
+      <action application="set" data="absolute_codec_string=PCMU"/>
+      <action application="set" data="codec_string=PCMU"/>
+
+      <!-- B-leg fail-fast: SIP 503 if OpenAI bridge unreachable >3s (REQ-SIP-07) -->
+      <action application="set" data="originate_timeout=3"/>
+      <action application="set" data="hangup_after_bridge=true"/>
+      <action application="set" data="continue_on_fail=NORMAL_TEMPORARY_FAILURE,USER_BUSY,NO_ANSWER,ALLOTTED_TIMEOUT,NO_USER_RESPONSE"/>
+
+      <!-- Bridge directly to OpenAI SIP endpoint (D-19; ARCHITECTURE.md §Critical boundary) -->
+      <action application="bridge" data="[absolute_codec_string=PCMU,codec_string=PCMU]sofia/external/sip:proj_4tEBz3XjO4gwM5hyrvsxLM8E@sip.api.openai.com;transport=tls"/>
+
+      <!-- Failure path: respond SIP 503 to Sipgate (REQ-SIP-07) -->
+      <action application="respond" data="503 Service Unavailable"/>
+    </condition>
+  </extension>
+</include>
