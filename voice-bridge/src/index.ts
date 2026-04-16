@@ -1,0 +1,80 @@
+// voice-bridge/src/index.ts
+// PER PITFALL NEW-4: addContentTypeParser('application/json', ...)
+// REPLACES the global JSON parser. If Phase 2+ adds a route that needs
+// default JSON behavior without rawBody, switch to fastify-raw-body
+// plugin and per-route config.rawBody=true.
+import Fastify from 'fastify'
+import OpenAI from 'openai'
+import { HOST, PORT, getSecret } from './config.js'
+import { buildLogger } from './logger.js'
+import { registerHealthRoute } from './health.js'
+import { registerWebhookRoute } from './webhook.js'
+import { startHeartbeat } from './heartbeat.js'
+
+/**
+ * Build and configure the Fastify app without binding to a port.
+ * Exported for vitest injection (tests use app.inject without binding to 10.0.0.2).
+ */
+export async function buildApp() {
+  const log = buildLogger()
+  const secret = getSecret()
+  const openai = new OpenAI({ apiKey: 'not-used', webhookSecret: secret })
+  const app = Fastify({ logger: false }) // we use pino directly via `log`
+
+  // Capture raw body for HMAC re-verification (Fastify v5 idiom, RESEARCH Pattern 2).
+  // PER PITFALL NEW-4: this parser is global; if a future route needs default JSON behavior,
+  // install fastify-raw-body and switch to per-route rawBody config.
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'buffer' },
+    (_req, body, done) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(_req as any).rawBody = body
+      try {
+        done(null, JSON.parse((body as Buffer).toString('utf8')))
+      } catch (err) {
+        done(err as Error, undefined)
+      }
+    },
+  )
+
+  registerHealthRoute(app)
+  registerWebhookRoute(app, openai, log, secret)
+
+  return app
+}
+
+async function main() {
+  const app = await buildApp()
+
+  // Obtain the logger from the app's built logger (re-build for main lifecycle logs)
+  const log = buildLogger()
+
+  await app.listen({ host: HOST, port: PORT })
+  log.info({ event: 'bridge_listening', host: HOST, port: PORT })
+
+  // Fire-and-forget: heartbeat lives for process lifetime
+  void startHeartbeat(log).catch((err: Error) => {
+    log.error({ event: 'heartbeat_died', err: err?.message })
+  })
+}
+
+// Clean shutdown for systemd
+for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(sig, () => {
+    // Best-effort close; if it hangs exit anyway
+    process.exit(0)
+  })
+}
+
+// Only run main() when executed directly (not imported by tests)
+const isMain =
+  process.argv[1] !== undefined &&
+  (process.argv[1].endsWith('/index.js') || process.argv[1].endsWith('/index.ts'))
+
+if (isMain) {
+  main().catch((err: Error) => {
+    console.error('startup_failed', err?.message)
+    process.exit(1)
+  })
+}
