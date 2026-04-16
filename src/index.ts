@@ -67,7 +67,6 @@ import { logger } from './logger.js';
 import { recallMemory, retainMemory } from './hindsight.js';
 import { makeCall, startVoiceServer } from './voice-server.js';
 import { makeFreeswitchCall, initFreeswitchVoice } from './freeswitch-voice.js';
-import { startWebhookServer } from './openai-webhook.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -809,7 +808,6 @@ async function main(): Promise<void> {
       return entry?.[0];
     },
   };
-  startWebhookServer();
   initFreeswitchVoice(voiceDeps);
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();

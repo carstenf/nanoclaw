@@ -12,8 +12,12 @@
       <action application="set" data="hangup_after_bridge=true"/>
       <action application="set" data="continue_on_fail=NORMAL_TEMPORARY_FAILURE,USER_BUSY,NO_ANSWER,ALLOTTED_TIMEOUT,NO_USER_RESPONSE"/>
 
-      <!-- Bridge directly to OpenAI SIP endpoint (D-19; ARCHITECTURE.md §Critical boundary) -->
-      <action application="bridge" data="[absolute_codec_string=PCMU,codec_string=PCMU]sofia/external/sip:proj_4tEBz3XjO4gwM5hyrvsxLM8E@sip.api.openai.com;transport=tls"/>
+      <!-- Bridge to OpenAI via dedicated `openai` profile (TLS+SRTP+PCMA).
+           REQ-SIP-03 refined 2026-04-16: external profile cannot carry TLS+SRTP
+           without breaking Sipgate plain-RTP leg; openai profile is loopback-bound
+           on 5062/tls with SRTP mandatory. B-leg codec overridden to PCMA via
+           bridge-prefix (REQ-SIP-04 refined: Sipgate=PCMU, OpenAI=PCMA). -->
+      <action application="bridge" data="[absolute_codec_string=PCMA,codec_string=PCMA]sofia/openai/sip:proj_4tEBz3XjO4gwM5hyrvsxLM8E@sip.api.openai.com;transport=tls"/>
 
       <!-- Failure path: respond SIP 503 to Sipgate (REQ-SIP-07) -->
       <action application="respond" data="503 Service Unavailable"/>

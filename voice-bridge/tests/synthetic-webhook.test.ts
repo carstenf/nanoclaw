@@ -13,6 +13,7 @@ describe('webhook signature verification', () => {
   beforeEach(() => {
     logDir = mkdtempSync(join(tmpdir(), 'bridge-test-'))
     process.env.OPENAI_WEBHOOK_SECRET = 'whsec_test_phase1_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    process.env.OPENAI_API_KEY = 'sk-test-dummy'
     process.env.BRIDGE_BIND = '127.0.0.1'
     process.env.BRIDGE_PORT = '0' // ephemeral
     process.env.BRIDGE_LOG_DIR = logDir
@@ -21,6 +22,7 @@ describe('webhook signature verification', () => {
   afterEach(() => {
     rmSync(logDir, { recursive: true, force: true })
     delete process.env.OPENAI_WEBHOOK_SECRET
+    delete process.env.OPENAI_API_KEY
     delete process.env.BRIDGE_BIND
     delete process.env.BRIDGE_PORT
     delete process.env.BRIDGE_LOG_DIR

@@ -5,25 +5,37 @@
 // plugin and per-route config.rawBody=true.
 import Fastify from 'fastify'
 import OpenAI from 'openai'
-import { HOST, PORT, getSecret } from './config.js'
+import { HOST, PORT, getSecret, getApiKey, getWhitelist } from './config.js'
 import { buildLogger } from './logger.js'
 import { registerHealthRoute } from './health.js'
-import { registerWebhookRoute } from './webhook.js'
+import { registerWebhookRoute, registerAcceptRoute } from './webhook.js'
 import { startHeartbeat } from './heartbeat.js'
+
+export interface BuildAppOptions {
+  /** Optional OpenAI client injection for tests (mock). If omitted, real client is constructed. */
+  openaiOverride?: OpenAI
+  /** Optional whitelist override for tests. */
+  whitelistOverride?: Set<string>
+  /** If true, skip OPENAI_API_KEY load (tests that don't touch /accept). */
+  skipApiKey?: boolean
+}
 
 /**
  * Build and configure the Fastify app without binding to a port.
  * Exported for vitest injection (tests use app.inject without binding to 10.0.0.2).
  */
-export async function buildApp() {
+export async function buildApp(opts: BuildAppOptions = {}) {
   const log = buildLogger()
   const secret = getSecret()
-  const openai = new OpenAI({ apiKey: 'not-used', webhookSecret: secret })
-  const app = Fastify({ logger: false }) // we use pino directly via `log`
+  const openai =
+    opts.openaiOverride ??
+    new OpenAI({
+      apiKey: opts.skipApiKey ? 'test-key' : getApiKey(),
+      webhookSecret: secret,
+    })
+  const whitelist = opts.whitelistOverride ?? getWhitelist()
+  const app = Fastify({ logger: false })
 
-  // Capture raw body for HMAC re-verification (Fastify v5 idiom, RESEARCH Pattern 2).
-  // PER PITFALL NEW-4: this parser is global; if a future route needs default JSON behavior,
-  // install fastify-raw-body and switch to per-route rawBody config.
   app.addContentTypeParser(
     'application/json',
     { parseAs: 'buffer' },
@@ -40,6 +52,7 @@ export async function buildApp() {
 
   registerHealthRoute(app)
   registerWebhookRoute(app, openai, log, secret)
+  registerAcceptRoute(app, openai, log, secret, whitelist)
 
   return app
 }
