@@ -1,0 +1,39 @@
+# voice-bridge/systemd/voice-bridge.service
+# Template — copy to ~/.config/systemd/user/voice-bridge.service before enabling.
+# Activation (one-time):
+#   cp ~/nanoclaw/voice-bridge/systemd/voice-bridge.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now voice-bridge
+#
+# NOTE: ExecStart uses the nvm-managed Node path for carsten_bot on Lenovo1.
+# Verify with: command -v node   (expected: ~/.nvm/versions/node/v22.x.x/bin/node)
+# If Node moves (e.g. after nvm use), update ExecStart and run daemon-reload.
+#
+# Per RESEARCH Template 6 + D-09 (systemd user unit, Restart=on-failure).
+# Linger must be enabled for boot-time start: loginctl enable-linger carsten_bot
+# (Already confirmed Linger=yes on Lenovo1 — existing nanoclaw.service implies it.)
+
+[Unit]
+Description=NanoClaw Voice Director Bridge (stub, phase 1)
+Documentation=file:///home/carsten_bot/nanoclaw/voice-bridge/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/nanoclaw/voice-bridge
+EnvironmentFile=%h/nanoclaw/.env
+ExecStart=/home/carsten_bot/.nvm/versions/node/v22.22.2/bin/node %h/nanoclaw/voice-bridge/dist/index.js
+Restart=on-failure
+RestartSec=2s
+StartLimitIntervalSec=60
+StartLimitBurst=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=voice-bridge
+# NoNewPrivileges/ProtectSystem not set — bridge needs write access to
+# ~/nanoclaw/voice-container/runs/ (user-owned). Phase 4 hardening deferred
+# per T-05-07 in threat model.
+
+[Install]
+WantedBy=default.target
