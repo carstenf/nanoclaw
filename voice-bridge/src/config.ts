@@ -3,7 +3,8 @@
 // SECRET is validated lazily via getSecret() so vitest can import heartbeat/alerts
 // modules without triggering process.exit when the env var is set per-test beforeEach.
 
-export const PORT = Number(process.env.BRIDGE_PORT ?? 4401)
+// Port 4402 — 4401 is reserved by NanoClaw Core's Twilio voice-server (src/voice-server.ts)
+export const PORT = Number(process.env.BRIDGE_PORT ?? 4402)
 export const HOST = process.env.BRIDGE_BIND ?? '10.0.0.2'
 
 // Default WG_PEER_URL is the D-16 canonical canary endpoint:

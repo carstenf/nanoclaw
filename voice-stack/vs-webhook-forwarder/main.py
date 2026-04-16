@@ -28,7 +28,7 @@ log = logging.getLogger("forwarder")
 
 # Fail loudly at startup if secret is missing (D-04 failure-mode discipline)
 WEBHOOK_SECRET = os.environ["OPENAI_WEBHOOK_SECRET"]
-BRIDGE_URL = os.environ.get("BRIDGE_WEBHOOK_URL", "http://10.0.0.2:4401/webhook")
+BRIDGE_URL = os.environ.get("BRIDGE_WEBHOOK_URL", "http://10.0.0.2:4402/openai-sip")
 FORWARD_TIMEOUT_S = float(os.environ.get("FORWARD_TIMEOUT_S", "5.0"))
 
 # Single OpenAI client. webhooks.unwrap() uses webhook_secret for HMAC verify
@@ -65,7 +65,8 @@ async def health() -> dict:
 
 
 @app.post("/openai/webhook")
-@app.post("/sipgate-voice/openai-sip")  # legacy spike URL — matches existing OpenAI dashboard registration (Option A, briefing 2026-04-16)
+@app.post("/openai-sip")  # Caddy strips `/sipgate-voice` prefix — post-strip path is `/openai-sip`
+@app.post("/sipgate-voice/openai-sip")  # tolerant alias if Caddy is ever reconfigured to pass full path
 async def relay(request: Request) -> Response:
     raw = await request.body()  # bytes - DO NOT json.parse before unwrap
     try:
