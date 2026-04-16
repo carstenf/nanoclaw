@@ -46,7 +46,12 @@ describe('POST /accept — Phase 1 inbound call handler', () => {
         type: 'realtime.call.incoming',
         data: {
           call_id: 'rtc_test_123',
-          sip_headers: { From: '"Caller" <sip:+491708036426@sipgate.de>' },
+          sip_headers: [
+            {
+              name: 'From',
+              value: '"Caller" <sip:+491708036426@sipgate.de>',
+            },
+          ],
         },
       })
     const openai = {
@@ -83,7 +88,7 @@ describe('POST /accept — Phase 1 inbound call handler', () => {
       expect(acceptSpy).toHaveBeenCalledWith(
         'rtc_test_123',
         expect.objectContaining({
-          model: 'gpt-realtime',
+          model: 'gpt-realtime-mini',
           instructions: expect.stringContaining('NanoClaw'),
         }),
       )

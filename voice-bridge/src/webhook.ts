@@ -49,20 +49,33 @@ export function registerWebhookRoute(
  * Extract caller number from realtime.call.incoming event.
  * OpenAI Realtime SIP puts From-header in data.sip_headers.From; fallback data.from.
  */
+/**
+ * OpenAI Realtime SIP webhook payload: data.sip_headers is an array of
+ * {name, value} objects. Prefer Remote-Party-ID over From (more reliable),
+ * extract the E.164 number from the SIP URI, normalize national format
+ * (+0...) to +49 since Sipgate commonly sends national caller IDs.
+ */
 function extractCaller(
   data: Record<string, unknown> | undefined,
 ): string | undefined {
   if (!data) return undefined
-  const sipHeaders = data.sip_headers as Record<string, unknown> | undefined
-  const fromHeader = (sipHeaders?.From ?? sipHeaders?.from) as
-    | string
-    | undefined
-  if (fromHeader) {
-    const m = fromHeader.match(/sip:([+\d]+)/)
-    if (m) return m[1]
+  const headers =
+    (data.sip_headers as Array<{ name: string; value: string }> | undefined) ??
+    []
+  for (const wantName of ['Remote-Party-ID', 'From']) {
+    const h = headers.find(
+      (x) => x.name?.toLowerCase() === wantName.toLowerCase(),
+    )
+    if (!h) continue
+    const m = h.value.match(/sip:(\+?\d+)@/)
+    if (m && m[1]) {
+      let num = m[1].startsWith('+') ? m[1] : `+${m[1]}`
+      if (num.startsWith('+0')) num = '+49' + num.slice(2)
+      return num
+    }
   }
-  const direct = (data.from ?? data.caller_number) as string | undefined
-  return direct
+  // Fallback for simpler payload shapes (tests, non-SIP events)
+  return (data.from ?? data.caller_number) as string | undefined
 }
 
 export function registerAcceptRoute(
@@ -135,7 +148,7 @@ export function registerAcceptRoute(
     try {
       await openai.realtime.calls.accept(callId, {
         type: 'realtime',
-        model: 'gpt-realtime',
+        model: 'gpt-realtime-mini',
         instructions: PHASE1_PERSONA,
         audio: {
           output: { voice: 'cedar' },
