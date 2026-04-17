@@ -81,6 +81,22 @@ export function getTriggerPattern(trigger?: string): RegExp {
 
 export const TRIGGER_PATTERN = buildTriggerPattern(DEFAULT_TRIGGER);
 
+// Slow-Brain Claude inference settings
+export const SLOW_BRAIN_MODEL =
+  process.env.SLOW_BRAIN_MODEL || 'claude-sonnet-4-5-20241022';
+export const SLOW_BRAIN_MAX_TOKENS_PER_TURN = parseInt(
+  process.env.SLOW_BRAIN_MAX_TOKENS_PER_TURN || '300',
+  10,
+);
+export const SLOW_BRAIN_CLAUDE_TIMEOUT_MS = parseInt(
+  process.env.SLOW_BRAIN_CLAUDE_TIMEOUT_MS || '5000',
+  10,
+);
+export const SLOW_BRAIN_SESSION_IDLE_MS = parseInt(
+  process.env.SLOW_BRAIN_SESSION_IDLE_MS || '1800000',
+  10,
+);
+
 // Timezone for scheduled tasks, message formatting, etc.
 // Validates each candidate is a real IANA identifier before accepting.
 function resolveConfigTimezone(): string {
