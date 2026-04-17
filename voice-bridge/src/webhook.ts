@@ -165,7 +165,6 @@ export function registerAcceptRoute(
         model: SESSION_CONFIG.model,
         instructions: PHASE2_PERSONA,
         tools: toolsPayload,
-        turn_detection: SESSION_CONFIG.turn_detection,
         audio: SESSION_CONFIG.audio,
       } as unknown as Parameters<typeof openai.realtime.calls.accept>[1])
       router.startCall(callId, log)

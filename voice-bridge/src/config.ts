@@ -94,14 +94,14 @@ export const SIDEBAND_WS_URL_TEMPLATE =
   'wss://api.openai.com/v1/realtime?call_id={callId}'
 
 /**
- * Anthropic API key for the Slow-Brain worker. Lazy getter — tests can
- * override via env in beforeEach without tripping exit at module load.
+ * Anthropic API key for the Slow-Brain worker. Lazy getter — throws (does
+ * NOT process.exit) when unset so slow-brain can fall back to no-op mode
+ * without killing the voice-bridge hot-path mid-call (D-27 graceful degrade).
  */
 export function getAnthropicKey(): string {
   const k = process.env.ANTHROPIC_API_KEY
   if (!k) {
-    console.error('ANTHROPIC_API_KEY not set; refusing to start Slow-Brain')
-    process.exit(1)
+    throw new Error('ANTHROPIC_API_KEY not set')
   }
   return k
 }
@@ -113,15 +113,22 @@ export function getAnthropicKey(): string {
 // The Bridge does NOT implement cancellation logic; its obligation is to set
 // this config at /accept. See PRD AC-04 and 01-05b-SUMMARY.md sideband-ws-spike
 // evidence (PSTN bidi RTP, 2026-04-16).
+//
+// IMPORTANT: turn_detection lives under `audio.input.turn_detection` per the
+// current openai@6 SDK shape (RealtimeAudioConfigInput, realtime.d.ts:1040).
+// Passing it as a top-level session field yields a 400 "Unknown parameter:
+// session.turn_detection" at realtime.calls.accept().
 export const SESSION_CONFIG = {
   model: 'gpt-realtime-mini' as const,
-  turn_detection: {
-    type: 'server_vad' as const,
-    threshold: 0.55,
-    silence_duration_ms: 700,
-    create_response: true,
-  },
   audio: {
+    input: {
+      turn_detection: {
+        type: 'server_vad' as const,
+        threshold: 0.55,
+        silence_duration_ms: 700,
+        create_response: true,
+      },
+    },
     output: { voice: 'cedar' as const },
   },
 }

@@ -57,7 +57,28 @@ export function startSlowBrain(
   const timeoutMs = opts.timeoutMs ?? SLOW_BRAIN_TIMEOUT_MS
   const queueMax = opts.queueMax ?? SLOW_BRAIN_QUEUE_MAX
   const pollInterval = opts.pollIntervalMs ?? 10
-  const anthropic = opts.anthropicClient ?? createDefaultClient()
+
+  let anthropic: AnthropicClient
+  try {
+    anthropic = opts.anthropicClient ?? createDefaultClient()
+  } catch (e: unknown) {
+    const err = e as Error
+    log.warn({
+      event: 'slow_brain_disabled',
+      reason: err?.message ?? 'client_unavailable',
+    })
+    // Return a no-op worker so the hot-path keeps running. push() discards
+    // deltas silently; stop() resolves immediately. Floor persona (set at
+    // /accept) governs the whole call.
+    return {
+      push: (_d: TranscriptDelta) => {
+        /* no-op */
+      },
+      stop: async () => {
+        /* no-op */
+      },
+    }
+  }
 
   const queue: TranscriptDelta[] = []
   let turnsSinceUpdate = 0
