@@ -84,27 +84,25 @@ export const SLOW_BRAIN_QUEUE_MAX = Number(
   process.env.SLOW_BRAIN_QUEUE_MAX ?? 5,
 )
 
-// Claude model used by Slow-Brain (overridable for tests).
-export const SLOW_BRAIN_MODEL =
-  process.env.SLOW_BRAIN_MODEL ?? 'claude-sonnet-4-5-20241022'
-
 // Sideband WS URL template — callers substitute {callId}.
 export const SIDEBAND_WS_URL_TEMPLATE =
   process.env.SIDEBAND_WS_URL_TEMPLATE ??
   'wss://api.openai.com/v1/realtime?call_id={callId}'
 
-/**
- * Anthropic API key for the Slow-Brain worker. Lazy getter — throws (does
- * NOT process.exit) when unset so slow-brain can fall back to no-op mode
- * without killing the voice-bridge hot-path mid-call (D-27 graceful degrade).
- */
-export function getAnthropicKey(): string {
-  const k = process.env.ANTHROPIC_API_KEY
-  if (!k) {
-    throw new Error('ANTHROPIC_API_KEY not set')
-  }
-  return k
-}
+// ----- Plan 02-09: NanoClaw-Core MCP endpoint (Slow-Brain Retrofit) -----
+// Slow-Brain-Inference lebt in NanoClaw-Core (Plan 03-02). voice-bridge ruft
+// per Turn voice.on_transcript_turn via HTTP-MCP ueber WireGuard. Unset =
+// slow-brain no-op mode (wie alter getAnthropicKey-Fallback).
+export const CORE_MCP_URL = process.env.CORE_MCP_URL
+
+// D-27 retention: Slow-Brain via Core hat selben Timeout-Envelope wie direkt-
+// Anthropic-Calls vor 02-09.
+export const CORE_MCP_TIMEOUT_MS = Number(
+  process.env.CORE_MCP_TIMEOUT_MS ?? 8000,
+)
+
+// Optional Bearer-Token fuer Core-MCP-Auth. Unset = WG-only auth (aktuell v0).
+export const CORE_MCP_TOKEN = process.env.CORE_MCP_TOKEN
 
 // Phase-2 /accept session knobs. Single source of truth for turn-detection
 // config — tests grep on SESSION_CONFIG for VOICE-04 / VOICE-05 assertions.

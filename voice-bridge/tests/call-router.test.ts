@@ -174,3 +174,20 @@ describe('createCallRouter — lifecycle', () => {
     expect(r._size()).toBe(0)
   })
 })
+
+describe('createCallRouter — 02-09 Slow-Brain retrofit', () => {
+  it('slowBrain factory receives the sideband state and the startCall log (no anthropicClient in signature)', async () => {
+    const { factories, spies } = fakeFactories()
+    const r = createCallRouter(factories as never)
+    const log = mockLog()
+    r.startCall('rtc-09', log)
+    // Retrofit: slowBrain factory is called with exactly (log, sideband.state)
+    // — the 02-05 anthropicClient opt is gone (TypeScript enforces this).
+    expect(spies.slowFactory).toHaveBeenCalledTimes(1)
+    expect(spies.slowFactory.mock.calls[0][0]).toBe(log)
+    expect(spies.slowFactory.mock.calls[0][1]).toMatchObject({
+      callId: 'rtc-09',
+    })
+    r.endCall('rtc-09', log)
+  })
+})

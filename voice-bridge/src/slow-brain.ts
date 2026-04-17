@@ -1,17 +1,21 @@
 // voice-bridge/src/slow-brain.ts
-// D-24..D-28 + DIR-06, DIR-11:
-// Event-driven Claude Sonnet worker. Consumes transcript deltas, coalesces
-// per cadence cap, pushes instructions-only session.update via sideband.
-// Graceful degrade — hot-path NEVER blocks or throws because of this module.
-import { createRequire } from 'node:module'
+// Plan 02-09: Slow-Brain via NanoClaw-Core-MCP (Retrofit auf Original-
+// Architektur 2026-04-13). voice-bridge enthaelt KEINE LLM-Inference mehr —
+// der Turn-Transcript geht per MCP-Call an Core, wo der Claude-Agent die
+// Entscheidung trifft, ob ein mid-call session.update gepushed werden soll.
+//
+// Cadence-Cap (D-25), Back-pressure (D-28), Timeout (D-27) und
+// Graceful-Degrade (REQ-DIR-12) bleiben verhaltensidentisch zu Plan 02-05.
+// Einzige Aenderung: Ort der Inference (Core statt Bridge).
 import type { Logger } from 'pino'
+
 import {
   SLOW_BRAIN_CADENCE_CAP,
-  SLOW_BRAIN_TIMEOUT_MS,
   SLOW_BRAIN_QUEUE_MAX,
-  SLOW_BRAIN_MODEL,
-  getAnthropicKey,
+  CORE_MCP_URL,
+  CORE_MCP_TIMEOUT_MS,
 } from './config.js'
+import { callCoreTool } from './core-mcp-client.js'
 import type { SidebandState } from './sideband.js'
 import { updateInstructions } from './sideband.js'
 
@@ -21,31 +25,51 @@ export interface TranscriptDelta {
   toolResults?: unknown
 }
 
+export interface CoreTurnResponse {
+  ok: boolean
+  result?: { ok?: boolean; instructions_update?: string | null }
+  instructions_update?: string | null
+}
+
+export interface CoreClientLike {
+  callTool: (
+    name: string,
+    args: unknown,
+    opts?: { timeoutMs?: number; signal?: AbortSignal },
+  ) => Promise<CoreTurnResponse>
+}
+
+export interface StartSlowBrainOpts {
+  coreClient?: CoreClientLike
+  cadenceCap?: number
+  timeoutMs?: number
+  queueMax?: number
+  pollIntervalMs?: number
+}
+
 export interface SlowBrainWorker {
   push: (delta: TranscriptDelta) => void
   stop: () => Promise<void>
 }
 
-// Minimal shape of Anthropic Messages response we care about.
-export interface AnthropicClient {
-  messages: {
-    create: (
-      params: {
-        model: string
-        max_tokens: number
-        messages: Array<{ role: 'user'; content: string }>
-      },
-      opts?: { signal?: AbortSignal },
-    ) => Promise<{ content: Array<{ type: string; text?: string }> }>
+function extractInstructionsUpdate(res: CoreTurnResponse): string | null {
+  // Two response shapes supported: raw tool response {ok, instructions_update}
+  // or wrapped MCP-server response {ok, result: {ok, instructions_update}}.
+  if (res && typeof res === 'object') {
+    if ('result' in res && res.result && typeof res.result === 'object') {
+      const r = res.result
+      if (r.ok !== false && typeof r.instructions_update === 'string') {
+        return r.instructions_update
+      }
+      if (r.instructions_update === null) return null
+    }
+    if ('instructions_update' in res) {
+      if (typeof res.instructions_update === 'string') return res.instructions_update
+      if (res.instructions_update === null) return null
+    }
   }
-}
-
-export interface StartSlowBrainOpts {
-  anthropicClient?: AnthropicClient
-  cadenceCap?: number
-  timeoutMs?: number
-  queueMax?: number
-  pollIntervalMs?: number
+  // Unexpected shape — caller logs bad_response.
+  throw new Error('bad_response')
 }
 
 export function startSlowBrain(
@@ -54,22 +78,17 @@ export function startSlowBrain(
   opts: StartSlowBrainOpts = {},
 ): SlowBrainWorker {
   const cadenceCap = opts.cadenceCap ?? SLOW_BRAIN_CADENCE_CAP
-  const timeoutMs = opts.timeoutMs ?? SLOW_BRAIN_TIMEOUT_MS
+  const timeoutMs = opts.timeoutMs ?? CORE_MCP_TIMEOUT_MS
   const queueMax = opts.queueMax ?? SLOW_BRAIN_QUEUE_MAX
   const pollInterval = opts.pollIntervalMs ?? 10
 
-  let anthropic: AnthropicClient
-  try {
-    anthropic = opts.anthropicClient ?? createDefaultClient()
-  } catch (e: unknown) {
-    const err = e as Error
-    log.warn({
+  const disabled = !opts.coreClient && !CORE_MCP_URL
+  if (disabled) {
+    log.info({
       event: 'slow_brain_disabled',
-      reason: err?.message ?? 'client_unavailable',
+      reason: 'core_mcp_url_unset',
+      call_id: sideband.callId,
     })
-    // Return a no-op worker so the hot-path keeps running. push() discards
-    // deltas silently; stop() resolves immediately. Floor persona (set at
-    // /accept) governs the whole call.
     return {
       push: (_d: TranscriptDelta) => {
         /* no-op */
@@ -79,6 +98,16 @@ export function startSlowBrain(
       },
     }
   }
+
+  const coreClient: CoreClientLike =
+    opts.coreClient ??
+    {
+      callTool: async (name, args, o) =>
+        (await callCoreTool(name, args, {
+          timeoutMs: o?.timeoutMs,
+          signal: o?.signal,
+        })) as CoreTurnResponse,
+    }
 
   const queue: TranscriptDelta[] = []
   let turnsSinceUpdate = 0
@@ -94,33 +123,34 @@ export function startSlowBrain(
       }
       turnsSinceUpdate++
       if (cadenceCap > 0 && turnsSinceUpdate < cadenceCap) {
-        // Coalesce this turn — skip Claude call, wait for the next one.
         continue
       }
       try {
         const ctrl = new AbortController()
         currentAbort = ctrl
-        const timer = setTimeout(() => ctrl.abort(), timeoutMs)
-        const res = await anthropic.messages.create(
+        const res = await coreClient.callTool(
+          'voice.on_transcript_turn',
           {
-            model: SLOW_BRAIN_MODEL,
-            max_tokens: 500,
-            messages: [
-              {
-                role: 'user',
-                content: `Transcript delta:\n${delta.transcript}\n\nTool results: ${JSON.stringify(
-                  delta.toolResults ?? null,
-                )}`,
-              },
-            ],
+            call_id: sideband.callId,
+            turn_id: delta.turnId,
+            transcript: delta.transcript,
+            tool_results: delta.toolResults ?? null,
           },
-          { signal: ctrl.signal },
+          { timeoutMs, signal: ctrl.signal },
         )
-        clearTimeout(timer)
         currentAbort = null
-        const text = res.content.find((c) => c.type === 'text')?.text ?? ''
-        if (text) {
-          updateInstructions(sideband, text, log)
+        let instructions: string | null
+        try {
+          instructions = extractInstructionsUpdate(res)
+        } catch {
+          log.warn({
+            event: 'slow_brain_bad_response',
+            call_id: sideband.callId,
+          })
+          continue
+        }
+        if (instructions) {
+          updateInstructions(sideband, instructions, log)
           turnsSinceUpdate = 0
         }
       } catch (e: unknown) {
@@ -131,12 +161,11 @@ export function startSlowBrain(
           call_id: sideband.callId,
           reason: err?.message ?? 'unknown',
         })
-        // Continue loop — hot-path unaffected.
+        // Hot-path unaffected.
       }
     }
   }
 
-  // Fire-and-forget.
   void runLoop()
 
   return {
@@ -157,22 +186,6 @@ export function startSlowBrain(
       currentAbort?.abort()
     },
   }
-}
-
-// Lazy import via createRequire so @anthropic-ai/sdk is only loaded when the
-// default client path is used. Tests inject opts.anthropicClient and never hit
-// this branch.
-function createDefaultClient(): AnthropicClient {
-  const req = createRequire(import.meta.url)
-  const mod = req('@anthropic-ai/sdk') as {
-    default?: new (args: { apiKey: string }) => AnthropicClient
-    Anthropic?: new (args: { apiKey: string }) => AnthropicClient
-  }
-  const Ctor = mod.default ?? mod.Anthropic
-  if (!Ctor) {
-    throw new Error('slow-brain: @anthropic-ai/sdk missing default / Anthropic export')
-  }
-  return new Ctor({ apiKey: getAnthropicKey() })
 }
 
 function sleep(ms: number): Promise<void> {
