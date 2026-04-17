@@ -1,8 +1,32 @@
-import { DATA_DIR } from '../config.js';
+import fs from 'fs';
+
+import { OneCLI } from '@onecli-sh/sdk';
+
+import { DATA_DIR, ONECLI_URL } from '../config.js';
 import { logger } from '../logger.js';
 
 import { SlowBrainSessionManager } from './slow-brain-session.js';
 import { makeVoiceOnTranscriptTurn } from './voice-on-transcript-turn.js';
+
+/**
+ * Fetch OneCLI CA certificate and write it to the path set in NODE_EXTRA_CA_CERTS.
+ * Must be called before the first TLS connection through the OneCLI proxy.
+ * Fails silently — if OneCLI is unreachable, inference will fail at call time.
+ */
+export async function ensureOneCLICaCert(): Promise<void> {
+  const caPath = process.env.NODE_EXTRA_CA_CERTS;
+  if (!caPath) return;
+  // If file already exists, no need to re-fetch
+  if (fs.existsSync(caPath)) return;
+  try {
+    const onecli = new OneCLI({ url: ONECLI_URL });
+    const config = await onecli.getContainerConfig();
+    fs.writeFileSync(caPath, config.caCertificate);
+    logger.info({ event: 'onecli_ca_cert_written', path: caPath });
+  } catch (err) {
+    logger.warn({ event: 'onecli_ca_cert_write_failed', err });
+  }
+}
 
 export type ToolHandler = (args: unknown) => Promise<unknown>;
 
@@ -57,6 +81,13 @@ export interface RegistryHandle {
  */
 export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   const registry = new ToolRegistry();
+
+  // Ensure the OneCLI CA cert is written before the first inference call.
+  // Fire-and-forget: if OneCLI is unreachable at startup, inference will
+  // log a warning at call time.
+  if (!deps.sessionManager) {
+    void ensureOneCLICaCert();
+  }
 
   const sessionManager = deps.sessionManager ?? new SlowBrainSessionManager();
 

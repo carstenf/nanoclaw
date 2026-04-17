@@ -83,7 +83,11 @@ export const TRIGGER_PATTERN = buildTriggerPattern(DEFAULT_TRIGGER);
 
 // Slow-Brain Claude inference settings
 export const SLOW_BRAIN_MODEL =
-  process.env.SLOW_BRAIN_MODEL || 'claude-sonnet-4-5-20241022';
+  process.env.SLOW_BRAIN_MODEL || 'claude-sonnet-4-5';
+// SLOW_BRAIN_PROXY_URL: authenticated OneCLI proxy URL for host-process inference.
+// Format: http://x:<access-token>@localhost:10255
+// Set via systemd Environment= — never put access tokens in .env or code.
+export const SLOW_BRAIN_PROXY_URL = process.env.SLOW_BRAIN_PROXY_URL || '';
 export const SLOW_BRAIN_MAX_TOKENS_PER_TURN = parseInt(
   process.env.SLOW_BRAIN_MAX_TOKENS_PER_TURN || '300',
   10,

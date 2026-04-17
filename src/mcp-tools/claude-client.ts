@@ -8,7 +8,7 @@
 import { ProxyAgent } from 'undici';
 
 import {
-  ONECLI_URL,
+  SLOW_BRAIN_PROXY_URL,
   SLOW_BRAIN_MODEL,
   SLOW_BRAIN_MAX_TOKENS_PER_TURN,
   SLOW_BRAIN_CLAUDE_TIMEOUT_MS,
@@ -56,11 +56,16 @@ export async function callClaudeViaOneCli(
   const timer = setTimeout(() => abortCtrl.abort(), timeoutMs);
 
   // Use injected dispatcher for tests, or create a ProxyAgent to route via OneCLI.
-  // ProxyAgent is typed as `object` in undici but used as RequestInit dispatcher.
+  // SLOW_BRAIN_PROXY_URL is the authenticated proxy URL (port 10255, token in URL).
+  // Set via systemd Environment= in nanoclaw.service — never hardcoded here.
+  // If not set (e.g. local dev without OneCLI), dispatcher is undefined and
+  // fetch falls back to the default Node.js network path (will fail without creds).
   const dispatcher =
     opts.dispatcher !== undefined
       ? opts.dispatcher
-      : new ProxyAgent(ONECLI_URL);
+      : SLOW_BRAIN_PROXY_URL
+        ? new ProxyAgent(SLOW_BRAIN_PROXY_URL)
+        : undefined;
 
   const fetchFn = opts.fetch ?? globalThis.fetch;
 
@@ -95,9 +100,7 @@ export async function callClaudeViaOneCli(
 
     const textBlock = data.content?.find((c) => c.type === 'text' && c.text);
     if (!textBlock || !textBlock.text) {
-      throw new Error(
-        'Claude API error: no text content in response',
-      );
+      throw new Error('Claude API error: no text content in response');
     }
 
     return textBlock.text;
