@@ -61,3 +61,47 @@ export function getWhitelist(): Set<string> {
 
 export const PHASE1_PERSONA =
   'Du bist NanoClaw, ein freundlicher deutscher Sprach-Assistent. Antworte kurz und auf Deutsch.'
+
+// ----- Phase 2 additions -----
+
+// D-43: Sideband WS connect-within-1500ms SLA (measured from /accept 200 to sideband_ready).
+export const SIDEBAND_CONNECT_TIMEOUT_MS = Number(
+  process.env.SIDEBAND_CONNECT_TIMEOUT_MS ?? 1500,
+)
+
+// D-25: max 1 session.update per N turns (default 2). 0 disables cap.
+export const SLOW_BRAIN_CADENCE_CAP = Number(
+  process.env.SLOW_BRAIN_CADENCE_CAP ?? 2,
+)
+
+// D-27: Claude Sonnet async worker HTTP timeout (ms). Exceeding = graceful degrade.
+export const SLOW_BRAIN_TIMEOUT_MS = Number(
+  process.env.SLOW_BRAIN_TIMEOUT_MS ?? 8000,
+)
+
+// D-28: max transcript queue depth before oldest-shift back-pressure kicks in.
+export const SLOW_BRAIN_QUEUE_MAX = Number(
+  process.env.SLOW_BRAIN_QUEUE_MAX ?? 5,
+)
+
+// Claude model used by Slow-Brain (overridable for tests).
+export const SLOW_BRAIN_MODEL =
+  process.env.SLOW_BRAIN_MODEL ?? 'claude-sonnet-4-5-20241022'
+
+// Sideband WS URL template — callers substitute {callId}.
+export const SIDEBAND_WS_URL_TEMPLATE =
+  process.env.SIDEBAND_WS_URL_TEMPLATE ??
+  'wss://api.openai.com/v1/realtime?call_id={callId}'
+
+/**
+ * Anthropic API key for the Slow-Brain worker. Lazy getter — tests can
+ * override via env in beforeEach without tripping exit at module load.
+ */
+export function getAnthropicKey(): string {
+  const k = process.env.ANTHROPIC_API_KEY
+  if (!k) {
+    console.error('ANTHROPIC_API_KEY not set; refusing to start Slow-Brain')
+    process.exit(1)
+  }
+  return k
+}
