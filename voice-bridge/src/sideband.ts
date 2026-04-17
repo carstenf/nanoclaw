@@ -36,6 +36,13 @@ export interface SidebandOpenOpts {
    * with 02-06 startTeardown's 5s timer as the belt-and-suspenders fallback.
    */
   onClose?: (callId: string) => void
+  /**
+   * Plan 02-10: Invoked per user-utterance-turn-end, i.e. when an OpenAI
+   * Realtime `conversation.item.input_audio_transcription.completed` event
+   * arrives on the sideband WS. Carries the stable item_id as turnId and the
+   * final transcript text. Callers wire this to `slowBrain.push({...})`.
+   */
+  onTranscriptTurn?: (turnId: string, transcript: string) => void
 }
 
 export function openSidebandSession(
@@ -93,6 +100,45 @@ export function openSidebandSession(
       call_id: callId,
       err: err.message,
     })
+  })
+
+  ws.on('message', (raw: unknown) => {
+    // Plan 02-10: parse OpenAI Realtime events, filter user-transcript-
+    // completed, dispatch to onTranscriptTurn. Any JSON-parse failure or
+    // unexpected shape is swallowed with a WARN — message-loop must never
+    // crash the WS (REQ-DIR-02 hot-path-continuity).
+    if (!opts.onTranscriptTurn) return
+    try {
+      const text =
+        typeof raw === 'string'
+          ? raw
+          : Buffer.isBuffer(raw)
+            ? raw.toString('utf-8')
+            : String(raw)
+      const parsed = JSON.parse(text) as {
+        type?: unknown
+        item_id?: unknown
+        transcript?: unknown
+      }
+      if (
+        parsed?.type === 'conversation.item.input_audio_transcription.completed' &&
+        typeof parsed.transcript === 'string'
+      ) {
+        const turnId =
+          typeof parsed.item_id === 'string' && parsed.item_id.length > 0
+            ? parsed.item_id
+            : 'unknown'
+        opts.onTranscriptTurn(turnId, parsed.transcript)
+      }
+      // delta, response.done, and every other event type: silent ignore.
+    } catch (e: unknown) {
+      const err = e as Error
+      log.warn({
+        event: 'sideband_message_parse_failed',
+        call_id: callId,
+        err: err.message,
+      })
+    }
   })
 
   ws.on('close', () => {

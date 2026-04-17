@@ -66,6 +66,21 @@ export function createCallRouter(
           const closeLog = logs.get(id) ?? log
           router.endCall(id, closeLog)
         },
+        // Plan 02-10: Wire Sideband user-transcript-completed events into the
+        // Slow-Brain worker. Lookup via router.getCall so the closure doesn't
+        // capture a stale ctx before it's been registered in `map`.
+        onTranscriptTurn: (turnId, transcript) => {
+          const existing = router.getCall(callId)
+          if (!existing) {
+            log.warn({
+              event: 'transcript_turn_dropped_no_ctx',
+              call_id: callId,
+              turn_id: turnId,
+            })
+            return
+          }
+          existing.slowBrain.push({ turnId, transcript })
+        },
       })
       logs.set(callId, log)
       const slowBrain = fSlow(log, sideband.state)

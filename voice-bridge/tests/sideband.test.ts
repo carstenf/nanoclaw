@@ -171,3 +171,135 @@ describe('updateInstructions — D-26 tools-strip guard', () => {
     expect(mock.sent).toHaveLength(0)
   })
 })
+
+describe('openSidebandSession — onTranscriptTurn (02-10)', () => {
+  beforeEach(() => {
+    process.env.OPENAI_SIP_API_KEY = 'sk-test-sideband'
+  })
+  afterEach(() => {
+    delete process.env.OPENAI_SIP_API_KEY
+  })
+
+  it('user-transcription-completed event triggers onTranscriptTurn with item_id + transcript', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const onTranscriptTurn = vi.fn()
+    openSidebandSession('rtc-10', log, {
+      wsFactory: () => ws as unknown as WSType,
+      onTranscriptTurn,
+    })
+    ws.simulateOpen()
+    ws.emit(
+      'message',
+      JSON.stringify({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id: 'item_abc',
+        content_index: 0,
+        transcript: 'hallo ich moechte einen termin',
+      }),
+    )
+    expect(onTranscriptTurn).toHaveBeenCalledTimes(1)
+    expect(onTranscriptTurn).toHaveBeenCalledWith(
+      'item_abc',
+      'hallo ich moechte einen termin',
+    )
+  })
+
+  it('transcription.delta event does NOT trigger onTranscriptTurn', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const onTranscriptTurn = vi.fn()
+    openSidebandSession('rtc-11', log, {
+      wsFactory: () => ws as unknown as WSType,
+      onTranscriptTurn,
+    })
+    ws.simulateOpen()
+    ws.emit(
+      'message',
+      JSON.stringify({
+        type: 'conversation.item.input_audio_transcription.delta',
+        item_id: 'item_abc',
+        delta: 'hal',
+      }),
+    )
+    expect(onTranscriptTurn).not.toHaveBeenCalled()
+  })
+
+  it('other event types (response.done, session.created, ...) are silently ignored', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const onTranscriptTurn = vi.fn()
+    openSidebandSession('rtc-12', log, {
+      wsFactory: () => ws as unknown as WSType,
+      onTranscriptTurn,
+    })
+    ws.simulateOpen()
+    ws.emit('message', JSON.stringify({ type: 'response.done' }))
+    ws.emit('message', JSON.stringify({ type: 'session.created' }))
+    ws.emit('message', JSON.stringify({ type: 'error', error: { code: 'x' } }))
+    expect(onTranscriptTurn).not.toHaveBeenCalled()
+    // No parse-warn either — those are valid JSON and known non-triggers.
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+
+  it('broken JSON message logs sideband_message_parse_failed and does not throw', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const onTranscriptTurn = vi.fn()
+    openSidebandSession('rtc-13', log, {
+      wsFactory: () => ws as unknown as WSType,
+      onTranscriptTurn,
+    })
+    ws.simulateOpen()
+    // Should NOT throw — the test framework would catch an unhandled throw
+    ws.emit('message', '{not valid json')
+    expect(onTranscriptTurn).not.toHaveBeenCalled()
+    const warn = log.warn as ReturnType<typeof vi.fn>
+    expect(
+      warn.mock.calls.some(
+        (c) => c[0]?.event === 'sideband_message_parse_failed',
+      ),
+    ).toBe(true)
+  })
+
+  it('Buffer-typed message is decoded to utf-8 before parsing', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const onTranscriptTurn = vi.fn()
+    openSidebandSession('rtc-14', log, {
+      wsFactory: () => ws as unknown as WSType,
+      onTranscriptTurn,
+    })
+    ws.simulateOpen()
+    const buf = Buffer.from(
+      JSON.stringify({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id: 'item_utf8',
+        transcript: 'gruess gott',
+      }),
+      'utf-8',
+    )
+    ws.emit('message', buf)
+    expect(onTranscriptTurn).toHaveBeenCalledWith('item_utf8', 'gruess gott')
+  })
+
+  it('missing onTranscriptTurn opt is a clean no-op (no throw)', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    openSidebandSession('rtc-15', log, {
+      wsFactory: () => ws as unknown as WSType,
+      // No onTranscriptTurn
+    })
+    ws.simulateOpen()
+    ws.emit(
+      'message',
+      JSON.stringify({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id: 'item_none',
+        transcript: 'hi',
+      }),
+    )
+    // Just verify no throw — covered by test not failing.
+    expect(true).toBe(true)
+  })
+})

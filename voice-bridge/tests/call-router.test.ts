@@ -54,6 +54,7 @@ function fakeFactories() {
       turnClose,
       sidebandClose,
       slowBrainStop,
+      slowBrainPush,
       scan,
       clear,
       sidebandFactory,
@@ -189,5 +190,51 @@ describe('createCallRouter — 02-09 Slow-Brain retrofit', () => {
       callId: 'rtc-09',
     })
     r.endCall('rtc-09', log)
+  })
+})
+
+describe('createCallRouter — 02-10 onTranscriptTurn wiring', () => {
+  it('onTranscriptTurn from sideband-opts pushes to slowBrain worker of that call', () => {
+    const { factories, spies } = fakeFactories()
+    const r = createCallRouter(factories as never)
+    const log = mockLog()
+    r.startCall('rtc-10', log)
+
+    // Capture the onTranscriptTurn callback the router passed to the sideband
+    // factory on startCall.
+    const sideOpts = spies.sidebandFactory.mock.calls[0][2] as {
+      onTranscriptTurn?: (turnId: string, transcript: string) => void
+    }
+    expect(typeof sideOpts.onTranscriptTurn).toBe('function')
+
+    // Invoke it as if a sideband message arrived — should route into
+    // slowBrain.push of the current ctx.
+    sideOpts.onTranscriptTurn!('item_1', 'hallo claude')
+    expect(spies.slowBrainPush).toHaveBeenCalledTimes(1)
+    expect(spies.slowBrainPush).toHaveBeenCalledWith({
+      turnId: 'item_1',
+      transcript: 'hallo claude',
+    })
+    r.endCall('rtc-10', log)
+  })
+
+  it('onTranscriptTurn after endCall drops the push and WARN-logs', () => {
+    const { factories, spies } = fakeFactories()
+    const r = createCallRouter(factories as never)
+    const log = mockLog()
+    r.startCall('rtc-11', log)
+    const sideOpts = spies.sidebandFactory.mock.calls[0][2] as {
+      onTranscriptTurn?: (turnId: string, transcript: string) => void
+    }
+    r.endCall('rtc-11', log)
+    sideOpts.onTranscriptTurn!('item_late', 'too late')
+    // Post-endCall push must NOT reach worker (worker is stopped)
+    expect(spies.slowBrainPush).not.toHaveBeenCalled()
+    const warn = log.warn as ReturnType<typeof vi.fn>
+    expect(
+      warn.mock.calls.some(
+        (c) => c[0]?.event === 'transcript_turn_dropped_no_ctx',
+      ),
+    ).toBe(true)
   })
 })
