@@ -1,16 +1,19 @@
-// src/webhook.ts — POST /webhook (stub) + POST /accept (Phase 1 accept handler)
+// src/webhook.ts — POST /webhook (stub) + POST /accept (Phase 2 full wiring)
 // Owns HMAC re-verification (defense-in-depth per D-18 / T-05-01).
 // Per T-05-04: only event_type + call_id + size logged at INFO; full payload at DEBUG.
 // /accept owns openai.realtime.calls.accept() per REQ-DIR-01, AC-07.
 import type { FastifyInstance } from 'fastify'
 import OpenAI from 'openai'
-import type pino from 'pino'
-import { PHASE1_PERSONA } from './config.js'
+import type { Logger } from 'pino'
+import { SESSION_CONFIG } from './config.js'
+import { PHASE2_PERSONA } from './persona.js'
+import { getAllowlist, type ToolEntry } from './tools/allowlist.js'
+import type { CallRouter } from './call-router.js'
 
 export function registerWebhookRoute(
   app: FastifyInstance,
   openai: OpenAI,
-  log: pino.Logger,
+  log: Logger,
   secret: string,
 ): void {
   app.post('/webhook', async (request, reply) => {
@@ -81,9 +84,10 @@ function extractCaller(
 export function registerAcceptRoute(
   app: FastifyInstance,
   openai: OpenAI,
-  log: pino.Logger,
+  log: Logger,
   secret: string,
   whitelist: Set<string>,
+  router: CallRouter,
 ): void {
   app.post('/accept', async (request, reply) => {
     const t0 = Date.now()
@@ -106,6 +110,17 @@ export function registerAcceptRoute(
       const err = e as Error
       log.warn({ event: 'accept_signature_invalid', err: err?.message })
       return reply.code(401).send({ error: 'invalid signature' })
+    }
+
+    // Call-end webhook (event-type verified against Phase-1 test fixture
+    // tests/accept.test.ts lines 167/186) — triggers router teardown.
+    if (eventType === 'realtime.call.completed') {
+      if (!callId) {
+        log.warn({ event: 'call_completed_missing_call_id' })
+        return reply.code(200).send({ ok: true })
+      }
+      router.endCall(callId, log)
+      return reply.code(200).send({ ok: true })
     }
 
     // Only handle realtime.call.incoming; other event types ack-only.
@@ -144,23 +159,33 @@ export function registerAcceptRoute(
       return reply.code(200).send({ ok: true })
     }
 
-    // Accept — minimal session config for Phase 1 (empty tools per AC-04).
+    // Accept — Phase 2 full session config (D-39..D-43):
+    // allowlist tools, PHASE2_PERSONA, server_vad + create_response, de-DE.
+    const allowlist = getAllowlist()
+    const toolsPayload = allowlist.map((e: ToolEntry) => ({
+      type: 'function' as const,
+      name: e.name,
+      parameters: e.schema,
+    }))
     try {
       await openai.realtime.calls.accept(callId, {
         type: 'realtime',
-        model: 'gpt-realtime-mini',
-        instructions: PHASE1_PERSONA,
-        audio: {
-          output: { voice: 'cedar' },
-        },
-      } as unknown as Parameters<
-        typeof openai.realtime.calls.accept
-      >[1])
+        model: SESSION_CONFIG.model,
+        instructions: PHASE2_PERSONA,
+        tools: toolsPayload,
+        turn_detection: SESSION_CONFIG.turn_detection,
+        audio: SESSION_CONFIG.audio,
+      } as unknown as Parameters<typeof openai.realtime.calls.accept>[1])
+      router.startCall(callId, log)
       log.info({
         event: 'call_accepted',
         call_id: callId,
         caller_number: callerNumber,
+        model: SESSION_CONFIG.model,
         latency_ms: Date.now() - t0,
+        tools_count: toolsPayload.length,
+        schema_compile_ok: true,
+        sideband_opened: true,
       })
     } catch (e: unknown) {
       const err = e as Error

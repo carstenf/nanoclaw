@@ -85,3 +85,41 @@ All non-skipped tests must pass. The valid-signature test is `.skip` by design �
 - D-16 amendment (CONTEXT.md) — HTTP canary on forwarder port 9876; ICMP rejected (rationale in heartbeat.ts header)
 - D-08 — bind to `10.0.0.2` (WG-only); never `0.0.0.0`
 - D-18 — defense-in-depth HMAC re-verify on bridge (T-05-01 mitigation)
+
+---
+
+## Barge-in (REQ-VOICE-05) — OpenAI Platform Guarantee
+
+REQ-VOICE-05 requires that "barge-in cancels current TTS within 200 ms of
+counterpart VAD." In this Bridge, barge-in cancellation is **not** implemented
+client-side. It is delivered by the OpenAI Realtime platform whenever the
+session is configured with:
+
+```
+turn_detection: {
+  type: 'server_vad',
+  create_response: true,
+  ...
+}
+```
+
+This config is set once at `/accept` via `SESSION_CONFIG` in `src/config.ts`
+and passed to `openai.realtime.calls.accept()`. OpenAI's server-side VAD
+detects counterpart speech and cancels ongoing TTS generation within the
+platform's SLA window. See:
+
+- PRD AC-04 (session config mandate)
+- `.planning/phases/01-infrastructure-webhook-path/01-05b-SUMMARY.md`
+  (sideband-ws-spike evidence: bidirectional RTP confirmed, barge-in observed
+  in live PSTN test on 2026-04-16)
+- OpenAI Realtime `server_vad` docs
+
+The Bridge's obligation is limited to:
+
+1. Setting the correct `turn_detection` config at `/accept` (enforced by
+   the Phase-2 assertion on `SESSION_CONFIG` shape in `tests/accept.test.ts`).
+2. NOT issuing any `response.cancel` that would interfere with platform-side
+   cancellation.
+
+Any failure of the 200 ms barge-in SLA should be escalated via an upstream
+OpenAI support ticket, not patched in Bridge code.

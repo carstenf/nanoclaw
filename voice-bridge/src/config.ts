@@ -105,3 +105,23 @@ export function getAnthropicKey(): string {
   }
   return k
 }
+
+// Phase-2 /accept session knobs. Single source of truth for turn-detection
+// config — tests grep on SESSION_CONFIG for VOICE-04 / VOICE-05 assertions.
+// REQ-VOICE-05 (barge-in cancellation within 200 ms of counterpart VAD) is an
+// OpenAI Realtime platform guarantee delivered by server_vad + create_response.
+// The Bridge does NOT implement cancellation logic; its obligation is to set
+// this config at /accept. See PRD AC-04 and 01-05b-SUMMARY.md sideband-ws-spike
+// evidence (PSTN bidi RTP, 2026-04-16).
+export const SESSION_CONFIG = {
+  model: 'gpt-realtime-mini' as const,
+  turn_detection: {
+    type: 'server_vad' as const,
+    threshold: 0.55,
+    silence_duration_ms: 700,
+    create_response: true,
+  },
+  audio: {
+    output: { voice: 'cedar' as const },
+  },
+}

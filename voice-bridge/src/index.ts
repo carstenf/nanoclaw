@@ -10,6 +10,7 @@ import { buildLogger } from './logger.js'
 import { registerHealthRoute } from './health.js'
 import { registerWebhookRoute, registerAcceptRoute } from './webhook.js'
 import { startHeartbeat } from './heartbeat.js'
+import { createCallRouter, type CallRouter } from './call-router.js'
 
 export interface BuildAppOptions {
   /** Optional OpenAI client injection for tests (mock). If omitted, real client is constructed. */
@@ -18,6 +19,8 @@ export interface BuildAppOptions {
   whitelistOverride?: Set<string>
   /** If true, skip OPENAI_API_KEY load (tests that don't touch /accept). */
   skipApiKey?: boolean
+  /** Optional CallRouter injection for tests — mock the Phase-2 per-call lifecycle. */
+  routerOverride?: CallRouter
 }
 
 /**
@@ -50,9 +53,11 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     },
   )
 
+  const router = opts.routerOverride ?? createCallRouter()
+
   registerHealthRoute(app)
   registerWebhookRoute(app, openai, log, secret)
-  registerAcceptRoute(app, openai, log, secret, whitelist)
+  registerAcceptRoute(app, openai, log, secret, whitelist, router)
 
   return app
 }
