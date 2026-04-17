@@ -15,7 +15,11 @@ import { BadRequestError } from './mcp-tools/voice-on-transcript-turn.js';
 
 const DEFAULT_PORT = 3200;
 const DEFAULT_BIND = '10.0.0.2';
-const DEFAULT_ALLOWLIST = ['10.0.0.1', '10.0.0.4', '10.0.0.5'];
+// 10.0.0.1 = Hetzner (Bridge-Migration Option C reserved)
+// 10.0.0.2 = Lenovo1 self (current voice-bridge deployment host)
+// 10.0.0.4 = iPhone Chat debug
+// 10.0.0.5 = iPad Chat debug
+const DEFAULT_ALLOWLIST = ['10.0.0.1', '10.0.0.2', '10.0.0.4', '10.0.0.5'];
 
 export interface McpDeps {
   registry: ToolRegistry;
@@ -64,13 +68,11 @@ export function buildMcpApp(deps: McpDeps): express.Application {
         return;
       }
       if (err instanceof BadRequestError) {
-        res
-          .status(400)
-          .json({
-            error: 'bad_request',
-            field: err.field,
-            expected: err.expected,
-          });
+        res.status(400).json({
+          error: 'bad_request',
+          field: err.field,
+          expected: err.expected,
+        });
         return;
       }
       const refId = `${started}-${Math.random().toString(36).slice(2, 8)}`;
