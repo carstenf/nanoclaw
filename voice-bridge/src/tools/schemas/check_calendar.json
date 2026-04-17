@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "check_calendar",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["date", "duration_minutes"],
+  "properties": {
+    "date": { "type": "string", "format": "date" },
+    "duration_minutes": { "type": "integer", "minimum": 1 }
+  }
+}

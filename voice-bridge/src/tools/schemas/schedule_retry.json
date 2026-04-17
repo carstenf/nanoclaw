@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "schedule_retry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["case_type", "target_phone", "not_before_ts"],
+  "properties": {
+    "case_type":     { "type": "string", "minLength": 1 },
+    "target_phone":  { "type": "string", "pattern": "^\\+[1-9]\\d{1,14}$" },
+    "not_before_ts": { "type": "string", "format": "date-time" }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "create_calendar_entry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "date", "time", "duration"],
+  "properties": {
+    "title":    { "type": "string", "minLength": 1 },
+    "date":     { "type": "string", "format": "date" },
+    "time":     { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+    "duration": { "type": "integer", "minimum": 1 },
+    "location": { "type": "string" },
+    "travel_buffer_before_min": { "type": "integer", "minimum": 0 },
+    "travel_buffer_after_min":  { "type": "integer", "minimum": 0 }
+  }
+}

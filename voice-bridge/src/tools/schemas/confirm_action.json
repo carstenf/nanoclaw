@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "confirm_action",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["action_id", "confirmed"],
+  "properties": {
+    "action_id": { "type": "string", "minLength": 1 },
+    "confirmed": { "type": "boolean" }
+  }
+}
