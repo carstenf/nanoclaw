@@ -67,6 +67,7 @@ import { logger } from './logger.js';
 import { recallMemory, retainMemory } from './hindsight.js';
 import { makeCall, startVoiceServer } from './voice-server.js';
 import { makeFreeswitchCall, initFreeswitchVoice } from './freeswitch-voice.js';
+import { startMcpServer } from './mcp-server.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -809,6 +810,7 @@ async function main(): Promise<void> {
     },
   };
   initFreeswitchVoice(voiceDeps);
+  startMcpServer();
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {
