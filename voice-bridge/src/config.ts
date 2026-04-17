@@ -126,6 +126,10 @@ export const SESSION_CONFIG = {
         silence_duration_ms: 700,
         create_response: true,
       },
+      // Plan 02-10: enable user-transcription so OpenAI emits
+      // `conversation.item.input_audio_transcription.completed` events on the
+      // sideband WS — required for the Slow-Brain push path.
+      transcription: { model: 'whisper-1' as const },
     },
     output: { voice: 'cedar' as const },
   },
