@@ -101,6 +101,27 @@ export const SLOW_BRAIN_SESSION_IDLE_MS = parseInt(
   10,
 );
 
+// Google Calendar MCP tool settings
+export const GCALENDAR_CREDS_PATH =
+  process.env.GCALENDAR_CREDS_PATH ??
+  path.join(HOME_DIR, '.gcalendar-mcp', 'gcp-oauth.keys.json');
+export const GCALENDAR_TOKENS_PATH =
+  process.env.GCALENDAR_TOKENS_PATH ??
+  path.join(
+    HOME_DIR,
+    '.gcalendar-mcp',
+    'google-calendar-mcp',
+    'tokens.json',
+  );
+export const GCALENDAR_DEFAULT_TZ =
+  process.env.GCALENDAR_DEFAULT_TZ ?? 'Europe/Berlin';
+export const GCALENDAR_DEFAULT_CAL_ID =
+  process.env.GCALENDAR_DEFAULT_CAL_ID ?? 'primary';
+export const GCALENDAR_TIMEOUT_MS = parseInt(
+  process.env.GCALENDAR_TIMEOUT_MS ?? '10000',
+  10,
+);
+
 // Timezone for scheduled tasks, message formatting, etc.
 // Validates each candidate is a real IANA identifier before accepting.
 function resolveConfigTimezone(): string {

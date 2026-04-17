@@ -65,26 +65,51 @@ export async function getCalendarClient(
   try {
     keysRaw = await fs.readFile(credsPath, 'utf8');
   } catch {
-    throw new CalendarClientError('creds_missing', `Cannot read creds: ${credsPath}`);
+    throw new CalendarClientError(
+      'creds_missing',
+      `Cannot read creds: ${credsPath}`,
+    );
   }
   try {
     tokensRaw = await fs.readFile(tokensPath, 'utf8');
   } catch {
-    throw new CalendarClientError('creds_missing', `Cannot read tokens: ${tokensPath}`);
+    throw new CalendarClientError(
+      'creds_missing',
+      `Cannot read tokens: ${tokensPath}`,
+    );
   }
 
-  let keysJson: { installed?: { client_id: string; client_secret: string; redirect_uris: string[] } };
-  let tokensJson: { default?: { access_token?: string; refresh_token?: string; expiry_date?: number; token_type?: string } };
+  let keysJson: {
+    installed?: {
+      client_id: string;
+      client_secret: string;
+      redirect_uris: string[];
+    };
+  };
+  let tokensJson: {
+    default?: {
+      access_token?: string;
+      refresh_token?: string;
+      expiry_date?: number;
+      token_type?: string;
+    };
+  };
   try {
     keysJson = JSON.parse(keysRaw);
     tokensJson = JSON.parse(tokensRaw);
   } catch {
-    throw new CalendarClientError('creds_invalid', 'Credential file JSON parse error');
+    throw new CalendarClientError(
+      'creds_invalid',
+      'Credential file JSON parse error',
+    );
   }
 
   const installed = keysJson.installed;
   if (!installed) {
-    throw new CalendarClientError('creds_invalid', 'Missing "installed" key in gcp-oauth.keys.json');
+    throw new CalendarClientError(
+      'creds_invalid',
+      'Missing "installed" key in gcp-oauth.keys.json',
+    );
   }
 
   const defaultToken = tokensJson.default ?? {};
@@ -109,7 +134,13 @@ export async function getCalendarClient(
       // Re-read to get latest (another process may have updated)
       const latestRaw = await fs.readFile(tokensPath, 'utf8');
       const latestJson = JSON.parse(latestRaw) as typeof tokensJson;
-      latestJson.default = { ...(latestJson.default ?? {}), ...updatedTokens };
+      const safeTokens = {
+        access_token: updatedTokens.access_token ?? undefined,
+        refresh_token: updatedTokens.refresh_token ?? undefined,
+        expiry_date: updatedTokens.expiry_date ?? undefined,
+        token_type: updatedTokens.token_type ?? undefined,
+      };
+      latestJson.default = { ...(latestJson.default ?? {}), ...safeTokens };
       const tmp = tokensPath + '.tmp';
       // atomic: write to .tmp then rename (Linux: same-fs rename is atomic)
       await fs.writeFile(tmp, JSON.stringify(latestJson, null, 2));

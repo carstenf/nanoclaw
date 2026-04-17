@@ -39,8 +39,7 @@ export interface CheckCalendarDeps {
 }
 
 export function makeVoiceCheckCalendar(deps: CheckCalendarDeps = {}) {
-  const calendarClientFn =
-    deps.calendarClient ?? (() => getCalendarClient());
+  const calendarClientFn = deps.calendarClient ?? (() => getCalendarClient());
   const jsonlPath =
     deps.jsonlPath ?? path.join(DATA_DIR, 'voice-calendar.jsonl');
   const now = deps.now ?? (() => Date.now());
@@ -52,7 +51,7 @@ export function makeVoiceCheckCalendar(deps: CheckCalendarDeps = {}) {
     // Zod parse
     const parseResult = CheckCalendarSchema.safeParse(args);
     if (!parseResult.success) {
-      const firstError = parseResult.error.errors[0];
+      const firstError = parseResult.error.issues[0];
       throw new BadRequestError(
         String(firstError?.path?.[0] ?? 'input'),
         firstError?.message ?? 'invalid',

@@ -42,7 +42,10 @@ function validateAttendees(attendees?: string[]): void {
   if (!attendees) return;
   for (const email of attendees) {
     if (!EMAIL_RE.test(email)) {
-      throw new BadRequestError('attendees', `valid email address (got: ${email})`);
+      throw new BadRequestError(
+        'attendees',
+        `valid email address (got: ${email})`,
+      );
     }
   }
 }
@@ -55,9 +58,10 @@ export interface CreateCalendarEntryDeps {
   defaultTz?: string;
 }
 
-export function makeVoiceCreateCalendarEntry(deps: CreateCalendarEntryDeps = {}) {
-  const calendarClientFn =
-    deps.calendarClient ?? (() => getCalendarClient());
+export function makeVoiceCreateCalendarEntry(
+  deps: CreateCalendarEntryDeps = {},
+) {
+  const calendarClientFn = deps.calendarClient ?? (() => getCalendarClient());
   const jsonlPath =
     deps.jsonlPath ?? path.join(DATA_DIR, 'voice-calendar.jsonl');
   const now = deps.now ?? (() => Date.now());
@@ -72,7 +76,7 @@ export function makeVoiceCreateCalendarEntry(deps: CreateCalendarEntryDeps = {})
     // Zod parse
     const parseResult = CreateEntrySchema.safeParse(args);
     if (!parseResult.success) {
-      const firstError = parseResult.error.errors[0];
+      const firstError = parseResult.error.issues[0];
       throw new BadRequestError(
         String(firstError?.path?.[0] ?? 'input'),
         firstError?.message ?? 'invalid',

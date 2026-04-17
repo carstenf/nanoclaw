@@ -7,6 +7,9 @@ import { logger } from '../logger.js';
 
 import { SlowBrainSessionManager } from './slow-brain-session.js';
 import { makeVoiceOnTranscriptTurn } from './voice-on-transcript-turn.js';
+import { makeVoiceCheckCalendar } from './voice-check-calendar.js';
+import { makeVoiceCreateCalendarEntry } from './voice-create-calendar-entry.js';
+import { getCalendarClient } from './calendar-client.js';
 
 /**
  * Fetch OneCLI CA certificate and write it to the path set in NODE_EXTRA_CA_CERTS.
@@ -107,6 +110,26 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       dataDir: deps.dataDir ?? DATA_DIR,
       log: deps.log ?? logger,
       sessionManager,
+    }),
+  );
+
+  registry.register(
+    'voice.check_calendar',
+    makeVoiceCheckCalendar({
+      calendarClient: () => getCalendarClient(),
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-calendar.jsonl`
+        : undefined,
+    }),
+  );
+
+  registry.register(
+    'voice.create_calendar_entry',
+    makeVoiceCreateCalendarEntry({
+      calendarClient: () => getCalendarClient(),
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-calendar.jsonl`
+        : undefined,
     }),
   );
 
