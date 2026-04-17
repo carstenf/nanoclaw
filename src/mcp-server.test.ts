@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { buildMcpApp } from './mcp-server.js';
 import { buildDefaultRegistry } from './mcp-tools/index.js';
+import { SlowBrainSessionManager } from './mcp-tools/slow-brain-session.js';
 
 let tmpDir: string;
 let server: http.Server;
@@ -20,7 +21,16 @@ async function startApp(allowlist: string[]): Promise<void> {
     error: vi.fn(),
     fatal: vi.fn(),
   };
-  const registry = buildDefaultRegistry({ dataDir: tmpDir, log });
+  // Use a no-op session manager to avoid real OneCLI calls in tests
+  const mockSessionManager = new SlowBrainSessionManager({
+    claudeClient: async () => 'null',
+  });
+  const registry = buildDefaultRegistry({
+    dataDir: tmpDir,
+    log,
+    sessionManager: mockSessionManager,
+    sweepIntervalMs: 0,
+  });
   const app = buildMcpApp({
     registry,
     log,

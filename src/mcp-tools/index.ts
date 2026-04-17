@@ -1,6 +1,7 @@
 import { DATA_DIR } from '../config.js';
 import { logger } from '../logger.js';
 
+import { SlowBrainSessionManager } from './slow-brain-session.js';
 import { makeVoiceOnTranscriptTurn } from './voice-on-transcript-turn.js';
 
 export type ToolHandler = (args: unknown) => Promise<unknown>;
@@ -38,16 +39,45 @@ export class ToolRegistry {
 export interface RegistryDeps {
   dataDir?: string;
   log?: Pick<typeof logger, 'info' | 'warn'>;
+  /** Idle sweep interval in ms. Default: 60000. Pass 0 to disable (useful in tests). */
+  sweepIntervalMs?: number;
+  /** Inject a session manager (useful in tests to avoid real OneCLI calls). */
+  sessionManager?: SlowBrainSessionManager;
 }
 
+export interface RegistryHandle {
+  registry: ToolRegistry;
+  /** Call to stop the background idle-sweep timer. */
+  stop: () => void;
+}
+
+/**
+ * Build the default MCP tool registry with Slow-Brain session manager wired in.
+ * Returns registry + stop() to clean up the setInterval when process exits.
+ */
 export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   const registry = new ToolRegistry();
+
+  const sessionManager = deps.sessionManager ?? new SlowBrainSessionManager();
+
+  // Start idle-sweep on a 60s interval (clearable via handle.stop)
+  const sweepMs = deps.sweepIntervalMs ?? 60000;
+  if (sweepMs > 0) {
+    const interval = setInterval(() => {
+      sessionManager.idleSweep();
+    }, sweepMs);
+    // Allow Node process to exit even if timer is still active
+    if (interval.unref) interval.unref();
+  }
+
   registry.register(
     'voice.on_transcript_turn',
     makeVoiceOnTranscriptTurn({
       dataDir: deps.dataDir ?? DATA_DIR,
       log: deps.log ?? logger,
+      sessionManager,
     }),
   );
+
   return registry;
 }
