@@ -23,3 +23,6 @@ jobs:
 
       - name: Tests
         run: npx vitest run
+
+      - name: Audio write guard (§201 StGB — D-23)
+        run: bash voice-bridge/scripts/audio-guard.sh
