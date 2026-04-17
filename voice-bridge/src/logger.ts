@@ -35,3 +35,25 @@ export function buildLogger(): pino.Logger {
   })
   return pino({ base: { svc: 'voice-bridge' } }, transport)
 }
+
+// --- Phase 2 JSONL event field taxonomy (additive — no transport change) ---
+// idempotency_hit:                     { event, call_id, turn_id, tool_name, key_hash }
+// invalid_tool_call:                   { event, call_id, turn_id, tool_name, reason, ajv_errors? }
+// readback_mismatch:                   { event, call_id, turn_id, tool_name, expected, observed, tolerance_dim }
+// sideband_ready:                      { event, call_id, latency_ms }
+// sideband_timeout:                    { event, call_id, elapsed_ms }
+// sideband_error:                      { event, call_id, err }
+// sideband_closed:                     { event, call_id }
+// sideband_update_skipped:             { event, call_id, reason }
+// slow_brain_degraded:                 { event, call_id, reason }
+// slow_brain_backpressure:             { event, call_id, queue_depth, dropped_turn_id }
+// slow_brain_tools_field_stripped_BUG: { event, call_id }
+// turn_timing:                         written to turns-{call_id}.jsonl (see turn-timing.ts), NOT bridge log
+// ghost_scan_hit:                      { event, call_id, path }   — warn-level
+// ghost_scan_clean:                    { event, call_id }         — info-level
+// mem_delta_mb:                        { event, call_id, delta_mb } — observability only (D-19)
+// teardown_started:                    { event, call_id, trigger }
+// teardown_kill_pending:               { event, call_id, elapsed_ms }
+// teardown_closed_normally:            { event, call_id, elapsed_ms }
+// teardown_force_closed:               { event, call_id, elapsed_ms }
+// allowlist_compiled:                  { event, tool_count, mutating_count }
