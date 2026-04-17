@@ -127,7 +127,8 @@ export async function getCalendarClient(
     token_type: defaultToken.token_type,
   });
 
-  // Atomic token persistence on auto-refresh
+  // Atomic token persistence on auto-refresh.
+  // Register BEFORE any refreshAccessToken() call so the event is captured.
   oauth.on('tokens', async (updatedTokens) => {
     if (!updatedTokens.refresh_token && !updatedTokens.access_token) return;
     try {
@@ -149,6 +150,20 @@ export async function getCalendarClient(
       // Non-fatal: next call will refresh again
     }
   });
+
+  // If access_token is missing or clearly stale (expiry_date=0), force a refresh
+  // before the caller uses the client. This avoids invalid_grant on the first call
+  // when the token file only contains a refresh_token (common after initial auth).
+  const needsRefresh =
+    !defaultToken.access_token || defaultToken.expiry_date === 0;
+  if (needsRefresh && defaultToken.refresh_token) {
+    try {
+      await oauth.refreshAccessToken();
+      // 'tokens' event fires during refreshAccessToken and persists atomically.
+    } catch {
+      // Non-fatal — API call will fail and surface the error if truly invalid.
+    }
+  }
 
   return google.calendar({ version: 'v3', auth: oauth });
 }
