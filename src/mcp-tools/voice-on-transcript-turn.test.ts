@@ -9,7 +9,11 @@ import {
   makeVoiceOnTranscriptTurn,
   validateVoiceTurnArgs,
 } from './voice-on-transcript-turn.js';
-import { ToolRegistry, UnknownToolError, buildDefaultRegistry } from './index.js';
+import {
+  ToolRegistry,
+  UnknownToolError,
+  buildDefaultRegistry,
+} from './index.js';
 
 let tmpDir: string;
 

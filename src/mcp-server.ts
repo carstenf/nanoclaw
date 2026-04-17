@@ -45,7 +45,8 @@ export function buildMcpApp(deps: McpDeps): express.Application {
   app.post('/mcp/:tool_name', async (req: Request, res: Response) => {
     const rawName = req.params.tool_name;
     const toolName = Array.isArray(rawName) ? rawName[0] : rawName;
-    const args = (req.body && (req.body as Record<string, unknown>).arguments) ?? {};
+    const args =
+      (req.body && (req.body as Record<string, unknown>).arguments) ?? {};
     const started = Date.now();
     try {
       const result = await deps.registry.invoke(toolName, args);
@@ -65,7 +66,11 @@ export function buildMcpApp(deps: McpDeps): express.Application {
       if (err instanceof BadRequestError) {
         res
           .status(400)
-          .json({ error: 'bad_request', field: err.field, expected: err.expected });
+          .json({
+            error: 'bad_request',
+            field: err.field,
+            expected: err.expected,
+          });
         return;
       }
       const refId = `${started}-${Math.random().toString(36).slice(2, 8)}`;

@@ -37,9 +37,7 @@ async function startApp(allowlist: string[]): Promise<void> {
 
 async function stopApp(): Promise<void> {
   if (server) {
-    await new Promise<void>((resolve) =>
-      server.close(() => resolve()),
-    );
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
 

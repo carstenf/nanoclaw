@@ -68,7 +68,10 @@ describe('peerAllowlistMiddleware', () => {
     mw(req as any, res as any, next);
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(403);
-    expect(res.body).toEqual({ error: 'peer_not_allowed', peer_ip: '10.0.0.99' });
+    expect(res.body).toEqual({
+      error: 'peer_not_allowed',
+      peer_ip: '10.0.0.99',
+    });
     expect(log.warn.mock.calls[0][0]).toMatchObject({
       event: 'mcp_peer_blocked',
       peer_ip: '10.0.0.99',
