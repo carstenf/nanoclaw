@@ -30,7 +30,7 @@ function tokens(s: string): string[] {
     .filter((t) => t.length > 0)
 }
 
-function diceCoefficient(a: string, b: string): number {
+export function diceCoefficient(a: string, b: string): number {
   const ta = new Set(tokens(a))
   const tb = new Set(tokens(b))
   if (ta.size === 0 && tb.size === 0) return 1

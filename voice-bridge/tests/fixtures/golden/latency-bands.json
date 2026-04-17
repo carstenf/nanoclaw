@@ -1,0 +1,1461 @@
+{
+  "turns-1776242557.jsonl": {
+    "turns": [
+      {
+        "turn_idx": 0,
+        "t_first_audio_ms": 642,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Yeah."
+      },
+      {
+        "turn_idx": 1,
+        "t_first_audio_ms": 629,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Nein."
+      },
+      {
+        "turn_idx": 2,
+        "t_first_audio_ms": 634.7,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Genau."
+      },
+      {
+        "turn_idx": 3,
+        "t_first_audio_ms": 655.5,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Hymn, Verstehe"
+      },
+      {
+        "turn_idx": 4,
+        "t_first_audio_ms": 649.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 5,
+        "t_first_audio_ms": 702.7,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 6,
+        "t_first_audio_ms": 677.1,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 7,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Super!"
+      },
+      {
+        "turn_idx": 8,
+        "t_first_audio_ms": 624.5,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 9,
+        "t_first_audio_ms": 632.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 10,
+        "t_first_audio_ms": 629.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 11,
+        "t_first_audio_ms": 633.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 12,
+        "t_first_audio_ms": 630.8,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 13,
+        "t_first_audio_ms": 628.2,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 14,
+        "t_first_audio_ms": 629.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 15,
+        "t_first_audio_ms": 632.8,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 16,
+        "t_first_audio_ms": 628.2,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Ich bin noch da."
+      },
+      {
+        "turn_idx": 17,
+        "t_first_audio_ms": 632.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 18,
+        "t_first_audio_ms": 630.5,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 19,
+        "t_first_audio_ms": 629.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Einen Augenblick."
+      },
+      {
+        "turn_idx": 100,
+        "t_first_audio_ms": 633.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 101,
+        "t_first_audio_ms": 632.2,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 102,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 103,
+        "t_first_audio_ms": 631.2,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Haben Sie am Samstag noch einen Platz frei?"
+      },
+      {
+        "turn_idx": 104,
+        "t_first_audio_ms": 935.7,
+        "tool_name": null,
+        "tool_args_str": "{  \n  \"date_hint\": \"Samstag\",  \n  \"barber\": \"Tobias\" \n}  \n",
+        "transcription": "Welche Termine haben Sie nächste Woche?"
+      },
+      {
+        "turn_idx": 105,
+        "t_first_audio_ms": 1882.8,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"nächste Woche Freitag Nachmittag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Meine Präferenz wäre Freitagnachmittag."
+      },
+      {
+        "turn_idx": 106,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 107,
+        "t_first_audio_ms": 1046.7,
+        "tool_name": null,
+        "tool_args_str": "{  \n  \"date_hint\": \"nächsten Montag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Wie sieht der Kalender für nächsten Freitag aus?"
+      },
+      {
+        "turn_idx": 108,
+        "t_first_audio_ms": 717.8,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Ich hätte gerne einen Termin bei Tobias."
+      },
+      {
+        "turn_idx": 109,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 110,
+        "t_first_audio_ms": 946.5,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Samstag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Kann ich meinen Freitagstermin auf Samstag verschieben?"
+      },
+      {
+        "turn_idx": 111,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Welcher Termin passt am besten für einen Herrenschnitt?"
+      },
+      {
+        "turn_idx": 112,
+        "t_first_audio_ms": 631.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 113,
+        "t_first_audio_ms": 630.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 114,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"nächsten Donnerstag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Ist mein Termin bei Tobias am Freitag noch gebucht?"
+      }
+    ],
+    "tolerance_ms": 100
+  },
+  "turns-1776242907.jsonl": {
+    "turns": [
+      {
+        "turn_idx": 0,
+        "t_first_audio_ms": 630.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 1,
+        "t_first_audio_ms": 1027.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Nein."
+      },
+      {
+        "turn_idx": 2,
+        "t_first_audio_ms": 1231.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Genau."
+      },
+      {
+        "turn_idx": 3,
+        "t_first_audio_ms": 744,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Hymn, Verstehe"
+      },
+      {
+        "turn_idx": 4,
+        "t_first_audio_ms": 761.7,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 5,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Das hort sich gut an."
+      },
+      {
+        "turn_idx": 6,
+        "t_first_audio_ms": 630.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 7,
+        "t_first_audio_ms": 631.2,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 8,
+        "t_first_audio_ms": 630.8,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 9,
+        "t_first_audio_ms": 632.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 10,
+        "t_first_audio_ms": 628.1,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 11,
+        "t_first_audio_ms": 631.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 12,
+        "t_first_audio_ms": 631.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 13,
+        "t_first_audio_ms": 630.5,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 14,
+        "t_first_audio_ms": 630.7,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 15,
+        "t_first_audio_ms": 628.2,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 16,
+        "t_first_audio_ms": 631.8,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 17,
+        "t_first_audio_ms": 628.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 18,
+        "t_first_audio_ms": 633.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 19,
+        "t_first_audio_ms": 629.7,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 0,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Freitag 15 Uhr\",\"barber\":\"Tobias\"}",
+        "transcription": "Ich brauche einen Termin."
+      },
+      {
+        "turn_idx": 1,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Freitag 14 Uhr oder 15 Uhr oder 17 Uhr\",\"barber\":\"Tobias\"}",
+        "transcription": "Kann ich einen Termin für Freitag buchen?"
+      },
+      {
+        "turn_idx": 2,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Samstag 9:30, 11:00 oder 13:00\",\"barber\":\"Tobias\"}",
+        "transcription": "Haben Sie am Samstag noch einen Platz frei?"
+      },
+      {
+        "turn_idx": 3,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Freitag 15 Uhr\",\"barber\":\"Tobias\"}",
+        "transcription": "Ich möchte meinen Termin verschieben."
+      },
+      {
+        "turn_idx": 4,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Freitag 24. April 2026\",\"barber\":\"Tobias\"}",
+        "transcription": "Welche Termine haben Sie nächste Woche?"
+      },
+      {
+        "turn_idx": 5,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Freitag 14:00 oder später\",\"barber\":\"Tobias\"}",
+        "transcription": "Meine Präferenz wäre Freitagnachmittag."
+      },
+      {
+        "turn_idx": 6,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Montag 20. April 2026\",\"barber\":\"Tobias\"}",
+        "transcription": "Können Sie den Termin für Montag buchen?"
+      },
+      {
+        "turn_idx": 7,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Freitag 17. April 2026 15:00 oder später\",\"barber\":\"Tobias\"}",
+        "transcription": "Wie sieht der Kalender für nächsten Freitag aus?"
+      },
+      {
+        "turn_idx": 8,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Freitag 15:00\",\"barber\":\"Tobias\"}",
+        "transcription": "Ich hätte gerne einen Termin bei Tobias."
+      },
+      {
+        "turn_idx": 9,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Samstag 10:00 bis 14:00\",\"barber\":\"Tobias\"}",
+        "transcription": "Kann ich meinen Freitagstermin auf Samstag verschieben?"
+      },
+      {
+        "turn_idx": 10,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Samstag\",\"barber\":\"Tobias\"}",
+        "transcription": "Welcher Termin passt am besten für einen Herrenschnitt?"
+      },
+      {
+        "turn_idx": 11,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Samstag 9:00 bis 14:00\",\"barber\":\"Tobias\"}",
+        "transcription": "Können Sie den Termin im Kalender vormerken?"
+      },
+      {
+        "turn_idx": 12,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Freitag Nachmittag nächste Woche\",\"barber\":\"Tobias\"}",
+        "transcription": "Ich brauche eine Buchung für nächste Woche."
+      },
+      {
+        "turn_idx": 13,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Donnerstag 16. April 2026 ab 15:00\",\"barber\":\"Tobias\"}",
+        "transcription": "Gibt es noch einen freien Termin am Donnerstag?"
+      },
+      {
+        "turn_idx": 14,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Freitag 14:00\",\"barber\":\"Tobias\"}",
+        "transcription": "Ist mein Termin bei Tobias am Freitag noch gebucht?"
+      }
+    ],
+    "tolerance_ms": 100
+  },
+  "turns-1776243549.jsonl": {
+    "turns": [
+      {
+        "turn_idx": 0,
+        "t_first_audio_ms": 631,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Yeah."
+      },
+      {
+        "turn_idx": 1,
+        "t_first_audio_ms": 629.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 2,
+        "t_first_audio_ms": 952.6,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 3,
+        "t_first_audio_ms": 683.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Hymn, Verstehe"
+      },
+      {
+        "turn_idx": 4,
+        "t_first_audio_ms": 631.1,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Das hort sich gut an."
+      },
+      {
+        "turn_idx": 5,
+        "t_first_audio_ms": 740.2,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Vielen Dank."
+      },
+      {
+        "turn_idx": 6,
+        "t_first_audio_ms": 681.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Super!"
+      },
+      {
+        "turn_idx": 7,
+        "t_first_audio_ms": 709.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 8,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 9,
+        "t_first_audio_ms": 628.7,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 10,
+        "t_first_audio_ms": 627.1,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 11,
+        "t_first_audio_ms": 629.5,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 12,
+        "t_first_audio_ms": 630.8,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 13,
+        "t_first_audio_ms": 627.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Hallo."
+      },
+      {
+        "turn_idx": 14,
+        "t_first_audio_ms": 631.7,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 15,
+        "t_first_audio_ms": 629.8,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 16,
+        "t_first_audio_ms": 630.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 17,
+        "t_first_audio_ms": 628.5,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 18,
+        "t_first_audio_ms": 630.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 19,
+        "t_first_audio_ms": 629.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 0
+      },
+      {
+        "turn_idx": 1
+      },
+      {
+        "turn_idx": 2
+      },
+      {
+        "turn_idx": 3
+      },
+      {
+        "turn_idx": 4,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"nächste Woche\",\"barber\":\"Tobias\"}",
+        "transcription": "Welche Termine haben Sie nächste Woche?"
+      },
+      {
+        "turn_idx": 5
+      },
+      {
+        "turn_idx": 6,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Montag\",\"barber\":\"Tobias\"}",
+        "transcription": "Können Sie den Termin für Montag buchen?"
+      },
+      {
+        "turn_idx": 7
+      },
+      {
+        "turn_idx": 8,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Freitag 17. April\",\"barber\":\"Tobias\"}",
+        "transcription": "Ich hätte gerne einen Termin bei Tobias."
+      },
+      {
+        "turn_idx": 9
+      },
+      {
+        "turn_idx": 10,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"demnächst\",\"barber\":\"Tobias\"}",
+        "transcription": "Welcher Termin passt am besten für einen Herrenschnitt?"
+      },
+      {
+        "turn_idx": 11
+      },
+      {
+        "turn_idx": 12,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"nächsten Freitag nachmittag\",\"barber\":\"Tobias\"}",
+        "transcription": "Ich brauche eine Buchung für nächste Woche."
+      },
+      {
+        "turn_idx": 13
+      },
+      {
+        "turn_idx": 14,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      }
+    ],
+    "tolerance_ms": 100
+  },
+  "turns-1776243763.jsonl": {
+    "turns": [
+      {
+        "turn_idx": 0,
+        "t_first_audio_ms": 634.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Yeah."
+      },
+      {
+        "turn_idx": 1,
+        "t_first_audio_ms": 633.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 2,
+        "t_first_audio_ms": 636.1,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 3,
+        "t_first_audio_ms": 776.5,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 4,
+        "t_first_audio_ms": 706.7,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Das hort sich gut an."
+      },
+      {
+        "turn_idx": 5,
+        "t_first_audio_ms": 716.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Vielen Dank."
+      },
+      {
+        "turn_idx": 6,
+        "t_first_audio_ms": 701.8,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Super!"
+      },
+      {
+        "turn_idx": 7,
+        "t_first_audio_ms": 1006.7,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Okay, alles klar."
+      },
+      {
+        "turn_idx": 8,
+        "t_first_audio_ms": 745.6,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Ja, das wäre gut."
+      },
+      {
+        "turn_idx": 9,
+        "t_first_audio_ms": 789.5,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Perfekt!"
+      },
+      {
+        "turn_idx": 10,
+        "t_first_audio_ms": 814.6,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 11,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 12,
+        "t_first_audio_ms": 631.5,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 13,
+        "t_first_audio_ms": 633.6,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 14,
+        "t_first_audio_ms": 631.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 15,
+        "t_first_audio_ms": 629.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 16,
+        "t_first_audio_ms": 635.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 17,
+        "t_first_audio_ms": 630.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 18,
+        "t_first_audio_ms": 632,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 19,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 0,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Freitag nachmittag\",  \n  \"barber\": \"Tobias\" \n} \n",
+        "transcription": "Ich brauche einen Termin."
+      },
+      {
+        "turn_idx": 1,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Freitag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Kann ich einen Termin für Freitag buchen?"
+      },
+      {
+        "turn_idx": 2,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Samstag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Haben Sie am Samstag noch einen Platz frei?"
+      },
+      {
+        "turn_idx": 3,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Freitag nachmittag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Ich möchte meinen Termin verschieben."
+      },
+      {
+        "turn_idx": 4,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"nächste Woche\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Welche Termine haben Sie nächste Woche?"
+      },
+      {
+        "turn_idx": 5,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"nächsten Freitag nachmittag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Meine Präferenz wäre Freitagnachmittag."
+      },
+      {
+        "turn_idx": 6,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Montag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Können Sie den Termin für Montag buchen?"
+      },
+      {
+        "turn_idx": 7,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"nächsten Freitag\",\"barber\":\"Tobias\"}",
+        "transcription": "Wie sieht der Kalender für nächsten Freitag aus?"
+      },
+      {
+        "turn_idx": 8,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Freitag nachmittag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Ich hätte gerne einen Termin bei Tobias."
+      },
+      {
+        "turn_idx": 9,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 10,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Samstag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Welcher Termin passt am besten für einen Herrenschnitt?"
+      },
+      {
+        "turn_idx": 11,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 12,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 13,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Donnerstag\",\"barber\":\"Tobias\"}",
+        "transcription": "Gibt es noch einen freien Termin am Donnerstag?"
+      },
+      {
+        "turn_idx": 14,
+        "t_first_audio_ms": 629.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      }
+    ],
+    "tolerance_ms": 100
+  },
+  "turns-1776243957.jsonl": {
+    "turns": [
+      {
+        "turn_idx": 0,
+        "t_first_audio_ms": 620.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Yeah."
+      },
+      {
+        "turn_idx": 1,
+        "t_first_audio_ms": 636.8,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Nein."
+      },
+      {
+        "turn_idx": 2,
+        "t_first_audio_ms": 631,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Genau."
+      },
+      {
+        "turn_idx": 3,
+        "t_first_audio_ms": 1755.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Hymn, Verstehe"
+      },
+      {
+        "turn_idx": 4,
+        "t_first_audio_ms": 642.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Das hort sich gut an."
+      },
+      {
+        "turn_idx": 5,
+        "t_first_audio_ms": 634.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 6,
+        "t_first_audio_ms": 633.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Vielen Dank."
+      },
+      {
+        "turn_idx": 7,
+        "t_first_audio_ms": 702.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Super!"
+      },
+      {
+        "turn_idx": 8,
+        "t_first_audio_ms": 816,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Ja, das wäre gut."
+      },
+      {
+        "turn_idx": 9,
+        "t_first_audio_ms": 819.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Perfekt!"
+      },
+      {
+        "turn_idx": 10,
+        "t_first_audio_ms": 830.1,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Klingt gut."
+      },
+      {
+        "turn_idx": 11,
+        "t_first_audio_ms": 1408,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Ach so, ja."
+      },
+      {
+        "turn_idx": 12,
+        "t_first_audio_ms": 820.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Hallo."
+      },
+      {
+        "turn_idx": 13,
+        "t_first_audio_ms": 719.8,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Guten Morgen."
+      },
+      {
+        "turn_idx": 14,
+        "t_first_audio_ms": 776.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Jetzt gerade nicht."
+      },
+      {
+        "turn_idx": 15,
+        "t_first_audio_ms": 670.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 16,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Ich bin noch da."
+      },
+      {
+        "turn_idx": 17,
+        "t_first_audio_ms": 631.5,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 18,
+        "t_first_audio_ms": 631.7,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 19,
+        "t_first_audio_ms": 632.7,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 0,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Freitag nachmittag\",  \n  \"barber\": \"Tobias\" \n}  \n",
+        "transcription": "Ich brauche einen Termin."
+      },
+      {
+        "turn_idx": 1,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Freitag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Kann ich einen Termin für Freitag buchen?"
+      },
+      {
+        "turn_idx": 2,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Samstag\",  \n  \"barber\": \"Tobias\" \n}  \n",
+        "transcription": "Haben Sie am Samstag noch einen Platz frei?"
+      },
+      {
+        "turn_idx": 3,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Freitag nachmittag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Ich möchte meinen Termin verschieben."
+      },
+      {
+        "turn_idx": 4,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"nächste Woche\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Welche Termine haben Sie nächste Woche?"
+      },
+      {
+        "turn_idx": 5,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"nächsten Freitag nachmittag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Meine Präferenz wäre Freitagnachmittag."
+      },
+      {
+        "turn_idx": 6,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Montag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Können Sie den Termin für Montag buchen?"
+      },
+      {
+        "turn_idx": 7,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"nächsten Freitag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Wie sieht der Kalender für nächsten Freitag aus?"
+      },
+      {
+        "turn_idx": 8,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"Freitag nachmittag\",\"barber\":\"Tobias\"}",
+        "transcription": "Ich hätte gerne einen Termin bei Tobias."
+      },
+      {
+        "turn_idx": 9,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Samstag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Kann ich meinen Freitagstermin auf Samstag verschieben?"
+      },
+      {
+        "turn_idx": 10,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Freitag nachmittag\",  \n  \"barber\": \"Tobias\" \n}",
+        "transcription": "Welcher Termin passt am besten für einen Herrenschnitt?"
+      },
+      {
+        "turn_idx": 11,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 12,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"nächste Woche\",\"barber\":\"Tobias\"}",
+        "transcription": "Ich brauche eine Buchung für nächste Woche."
+      },
+      {
+        "turn_idx": 13,
+        "t_first_audio_ms": 633.9,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 14,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 0,
+        "t_first_audio_ms": 656.7,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Yeah."
+      },
+      {
+        "turn_idx": 1,
+        "t_first_audio_ms": 631.6,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 2,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Nein."
+      },
+      {
+        "turn_idx": 3,
+        "t_first_audio_ms": 624.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 4,
+        "t_first_audio_ms": 671,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Hymn, Verstehe"
+      },
+      {
+        "turn_idx": 5,
+        "t_first_audio_ms": 677,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Das hort sich gut an."
+      },
+      {
+        "turn_idx": 6,
+        "t_first_audio_ms": 637.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Super!"
+      },
+      {
+        "turn_idx": 7,
+        "t_first_audio_ms": 632.1,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 8,
+        "t_first_audio_ms": 739,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 9,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Ja, das wäre gut."
+      },
+      {
+        "turn_idx": 10,
+        "t_first_audio_ms": 1283.2,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 11,
+        "t_first_audio_ms": 700.1,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 12,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Ach so, ja."
+      },
+      {
+        "turn_idx": 13,
+        "t_first_audio_ms": 635.5,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 14,
+        "t_first_audio_ms": 631,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 15,
+        "t_first_audio_ms": 629,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 16,
+        "t_first_audio_ms": 632.4,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": "Ich bin noch da."
+      },
+      {
+        "turn_idx": 17,
+        "t_first_audio_ms": 631.3,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 18,
+        "t_first_audio_ms": 635.2,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 19,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 0,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Freitag nachmittag\",\n  \"barber\": \"Tobias\"\n}",
+        "transcription": "Ich brauche einen Termin."
+      },
+      {
+        "turn_idx": 1,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Freitag nachmittag\",\n  \"barber\": \"Tobias\"\n}",
+        "transcription": "Kann ich einen Termin für Freitag buchen?"
+      },
+      {
+        "turn_idx": 2,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Samstag\",\n  \"barber\": \"Tobias\"\n}",
+        "transcription": "Haben Sie am Samstag noch einen Platz frei?"
+      },
+      {
+        "turn_idx": 3,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Freitag nachmittag\",\n  \"barber\": \"Tobias\"\n}",
+        "transcription": "Ich möchte meinen Termin verschieben."
+      },
+      {
+        "turn_idx": 4,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"nächste Woche\",\n  \"barber\": \"Tobias\"\n}",
+        "transcription": "Welche Termine haben Sie nächste Woche?"
+      },
+      {
+        "turn_idx": 5,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Freitag nachmittag\",\n  \"barber\": \"Tobias\"\n}",
+        "transcription": "Meine Präferenz wäre Freitagnachmittag."
+      },
+      {
+        "turn_idx": 6,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"nächsten Montag\",\"barber\":\"Tobias\"}",
+        "transcription": "Können Sie den Termin für Montag buchen?"
+      },
+      {
+        "turn_idx": 7,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"nächsten Freitag\",\"barber\":\"Tobias\"}",
+        "transcription": "Wie sieht der Kalender für nächsten Freitag aus?"
+      },
+      {
+        "turn_idx": 8,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Freitag nachmittag\",\n  \"barber\": \"Tobias\"\n}",
+        "transcription": "Ich hätte gerne einen Termin bei Tobias."
+      },
+      {
+        "turn_idx": 9,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Samstag\",\n  \"barber\": \"Tobias\"\n}",
+        "transcription": "Kann ich meinen Freitagstermin auf Samstag verschieben?"
+      },
+      {
+        "turn_idx": 10,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{  \n  \"date_hint\": \"Samstag\",\n  \"barber\": \"Tobias\"\n}",
+        "transcription": "Welcher Termin passt am besten für einen Herrenschnitt?"
+      },
+      {
+        "turn_idx": 11,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 12,
+        "t_first_audio_ms": null,
+        "tool_name": "check_availability",
+        "tool_args_str": "{\"date_hint\":\"nächste Woche\",\"barber\":\"Tobias\"}",
+        "transcription": "Ich brauche eine Buchung für nächste Woche."
+      },
+      {
+        "turn_idx": 13,
+        "t_first_audio_ms": 630.2,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      },
+      {
+        "turn_idx": 14,
+        "t_first_audio_ms": null,
+        "tool_name": null,
+        "tool_args_str": null,
+        "transcription": null
+      }
+    ],
+    "tolerance_ms": 100
+  }
+}
