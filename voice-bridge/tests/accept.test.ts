@@ -340,41 +340,7 @@ describe('POST /accept — Phase 2 full-wiring', () => {
     expect(router.startCall).not.toHaveBeenCalled()
   })
 
-  it('realtime.call.completed → router.endCall + 200', async () => {
-    const { buildApp } = await import('../src/index.js')
-    const router = makeRouter()
-    const unwrap = vi.fn().mockResolvedValue({
-      type: 'realtime.call.completed',
-      data: { call_id: 'rtc_end' },
-    })
-    const { openai, acceptSpy, rejectSpy } = makeMockOpenAIv2({ unwrap })
-    const app = await buildApp({
-      openaiOverride: openai,
-      whitelistOverride: new Set(['+491708036426']),
-      routerOverride: router as never,
-    })
-    const res = await app.inject({
-      method: 'POST',
-      url: '/accept',
-      headers: {
-        'content-type': 'application/json',
-        'webhook-id': 'p2-end',
-        'webhook-timestamp': String(Math.floor(Date.now() / 1000)),
-        'webhook-signature': 'v1,xxx',
-      },
-      payload: JSON.stringify({
-        type: 'realtime.call.completed',
-        data: { call_id: 'rtc_end' },
-      }),
-    })
-    await app.close()
-    expect(res.statusCode).toBe(200)
-    expect(router.endCall).toHaveBeenCalledWith('rtc_end', expect.anything())
-    expect(acceptSpy).not.toHaveBeenCalled()
-    expect(rejectSpy).not.toHaveBeenCalled()
-  })
-
-  it('non-incoming + non-completed event → accept_skipped, router not called', async () => {
+  it('non-incoming event → accept_skipped, router not called (OpenAI only emits realtime.call.incoming)', async () => {
     const { buildApp } = await import('../src/index.js')
     const router = makeRouter()
     const unwrap = vi.fn().mockResolvedValue({

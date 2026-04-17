@@ -112,18 +112,10 @@ export function registerAcceptRoute(
       return reply.code(401).send({ error: 'invalid signature' })
     }
 
-    // Call-end webhook (event-type verified against Phase-1 test fixture
-    // tests/accept.test.ts lines 167/186) — triggers router teardown.
-    if (eventType === 'realtime.call.completed') {
-      if (!callId) {
-        log.warn({ event: 'call_completed_missing_call_id' })
-        return reply.code(200).send({ ok: true })
-      }
-      router.endCall(callId, log)
-      return reply.code(200).send({ ok: true })
-    }
-
-    // Only handle realtime.call.incoming; other event types ack-only.
+    // Only `realtime.call.incoming` exists as an OpenAI webhook event (see
+    // openai/resources/webhooks/webhooks.ts RealtimeCallIncomingWebhookEvent).
+    // Call-end is signalled by the sideband WS close, wired via call-router's
+    // onClose callback to router.endCall. Any non-incoming event is ack-only.
     if (eventType !== 'realtime.call.incoming') {
       log.info({
         event: 'accept_skipped',

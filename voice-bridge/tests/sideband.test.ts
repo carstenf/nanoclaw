@@ -83,6 +83,41 @@ describe('openSidebandSession — connect SLA + degrade', () => {
     expect(seen.Authorization).toBe('Bearer sk-test-sideband')
     expect(seen['OpenAI-Beta']).toBe('realtime=v1')
   })
+
+  it('invokes onClose with callId when the WS closes (authoritative call-end)', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const onClose = vi.fn()
+    const handle = openSidebandSession('rtc-close', log, {
+      wsFactory: () => ws as unknown as WSType,
+      onClose,
+    })
+    ws.simulateOpen()
+    ws.close() // triggers 'close' event
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledWith('rtc-close')
+    expect(handle.state.ready).toBe(false)
+  })
+
+  it('swallows onClose handler errors (hot-path continuity)', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const onClose = vi.fn().mockImplementation(() => {
+      throw new Error('handler boom')
+    })
+    openSidebandSession('rtc-x', log, {
+      wsFactory: () => ws as unknown as WSType,
+      onClose,
+    })
+    ws.close()
+    expect(onClose).toHaveBeenCalled()
+    const warnCalls = (log.warn as ReturnType<typeof vi.fn>).mock.calls
+    expect(
+      warnCalls.some(
+        (c) => c[0]?.event === 'sideband_onclose_handler_failed',
+      ),
+    ).toBe(true)
+  })
 })
 
 describe('updateInstructions — D-26 tools-strip guard', () => {

@@ -72,7 +72,11 @@ describe('createCallRouter — lifecycle', () => {
     expect(r._size()).toBe(1)
     expect(r.getCall('rtc-1')?.callId).toBe('rtc-1')
     expect(spies.turnFactory).toHaveBeenCalledWith('rtc-1')
-    expect(spies.sidebandFactory).toHaveBeenCalledWith('rtc-1', log)
+    expect(spies.sidebandFactory).toHaveBeenCalledWith(
+      'rtc-1',
+      log,
+      expect.objectContaining({ onClose: expect.any(Function) }),
+    )
     expect(spies.slowFactory).toHaveBeenCalledTimes(1)
   })
 
@@ -119,5 +123,54 @@ describe('createCallRouter — lifecycle', () => {
     const ctx = r.startCall('rtc-mb', mockLog())
     expect(typeof ctx.memBaselineMB).toBe('number')
     expect(ctx.memBaselineMB).toBeGreaterThan(0)
+  })
+
+  it('sideband WS close triggers router.endCall (authoritative call-end signal)', async () => {
+    // OpenAI has NO realtime.call.completed webhook and NO session.closed
+    // server-event — the WS close is the authoritative call-end signal.
+    let captured: ((id: string) => void) | undefined
+    const sidebandClose = vi.fn()
+    const turnClose = vi.fn().mockResolvedValue(undefined)
+    const slowBrainStop = vi.fn().mockResolvedValue(undefined)
+    const scan = vi.fn().mockResolvedValue([])
+    const clear = vi.fn()
+    const factories = {
+      openTurnLog: () => ({
+        append: vi.fn(),
+        close: turnClose,
+        path: '/tmp/turns-x.jsonl',
+      }),
+      openSidebandSession: (
+        callId: string,
+        _log: Logger,
+        opts?: { onClose?: (id: string) => void },
+      ) => {
+        captured = opts?.onClose
+        return {
+          state: {
+            callId,
+            ready: false,
+            ws: null,
+            openedAt: 0,
+            lastUpdateAt: 0,
+          },
+          close: sidebandClose,
+        }
+      },
+      startSlowBrain: () => ({ push: vi.fn(), stop: slowBrainStop }),
+      runGhostScan: scan,
+      clearIdempotencyCache: clear,
+    }
+    const r = createCallRouter(factories as never)
+    r.startCall('rtc-ws', mockLog())
+    expect(captured).toBeTypeOf('function')
+    expect(r._size()).toBe(1)
+    // Simulate WS close — router should tear down end-to-end.
+    captured?.('rtc-ws')
+    await new Promise((r) => setTimeout(r, 20))
+    expect(sidebandClose).toHaveBeenCalled()
+    expect(clear).toHaveBeenCalledWith('rtc-ws')
+    expect(slowBrainStop).toHaveBeenCalled()
+    expect(r._size()).toBe(0)
   })
 })

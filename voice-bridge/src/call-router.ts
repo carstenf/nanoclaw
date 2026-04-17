@@ -45,8 +45,12 @@ export function createCallRouter(
   const fScan = factories.runGhostScan ?? runGhostScan
   const fClear = factories.clearIdempotencyCache ?? clearIdempotencyCache
   const map = new Map<string, CallContext>()
+  // Tracks per-call log for the sideband onClose callback — WS close fires
+  // asynchronously after startCall returns, and we need the original caller's
+  // logger for teardown JSONL, not a freshly-built one.
+  const logs = new Map<string, Logger>()
 
-  return {
+  const router: CallRouter = {
     startCall(callId: string, log: Logger): CallContext {
       const existing = map.get(callId)
       if (existing) {
@@ -55,7 +59,15 @@ export function createCallRouter(
       }
       const memBaselineMB = process.memoryUsage().heapUsed / 1e6
       const turnLog = fTurn(callId)
-      const sideband = fSide(callId, log)
+      // WS-close is the authoritative call-end signal (no OpenAI webhook for
+      // this). 02-06 startTeardown's 5s force-close stays as the fallback.
+      const sideband = fSide(callId, log, {
+        onClose: (id) => {
+          const closeLog = logs.get(id) ?? log
+          router.endCall(id, closeLog)
+        },
+      })
+      logs.set(callId, log)
       const slowBrain = fSlow(log, sideband.state)
       const ctx: CallContext = {
         callId,
@@ -98,6 +110,7 @@ export function createCallRouter(
         })
       })
       map.delete(callId)
+      logs.delete(callId)
     },
     getCall(callId: string): CallContext | undefined {
       return map.get(callId)
@@ -106,4 +119,5 @@ export function createCallRouter(
       return map.size
     },
   }
+  return router
 }

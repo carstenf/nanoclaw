@@ -28,6 +28,14 @@ export interface SidebandOpenOpts {
   wsFactory?: (url: string, headers: Record<string, string>) => WSType
   urlTemplate?: string
   apiKey?: string
+  /**
+   * Invoked when the sideband WS closes. This is the authoritative call-end
+   * signal: OpenAI's Realtime API does NOT emit a `realtime.call.completed`
+   * webhook (only `realtime.call.incoming`), and there is no
+   * `session.closed` server-event. Teardown is triggered by the WS close,
+   * with 02-06 startTeardown's 5s timer as the belt-and-suspenders fallback.
+   */
+  onClose?: (callId: string) => void
 }
 
 export function openSidebandSession(
@@ -91,6 +99,18 @@ export function openSidebandSession(
     state.ready = false
     clearTimeout(timer)
     log.info({ event: 'sideband_closed', call_id: callId })
+    if (opts.onClose) {
+      try {
+        opts.onClose(callId)
+      } catch (e: unknown) {
+        const err = e as Error
+        log.warn({
+          event: 'sideband_onclose_handler_failed',
+          call_id: callId,
+          err: err.message,
+        })
+      }
+    }
   })
 
   return {
