@@ -15,6 +15,15 @@ const FILLER_MESSAGES: Map<string, string> = new Map([
 ])
 
 /**
+ * Per-call filler-emit dedup (Plan 02-15 fix): OpenAI sometimes retries the
+ * same function_call_arguments.done event, causing the filler to play twice
+ * in quick succession ("Moment... Moment..."). We skip re-emission within
+ * FILLER_COOLDOWN_MS of the last emission for the same call+tool pair.
+ */
+const FILLER_COOLDOWN_MS = 30_000
+const lastEmitAt: Map<string, number> = new Map()
+
+/**
  * Emit a synthetic assistant filler phrase to the OpenAI Realtime sideband WS.
  *
  * Sends two messages in sequence:
@@ -39,6 +48,21 @@ export async function emitFillerPhrase(
   if (!msg) {
     return false
   }
+
+  // Dedup: skip if same call+tool fired filler within cooldown window.
+  const dedupKey = `${callId}:${toolName}`
+  const last = lastEmitAt.get(dedupKey)
+  const now = Date.now()
+  if (last !== undefined && now - last < FILLER_COOLDOWN_MS) {
+    log.info({
+      event: 'filler_phrase_deduplicated',
+      call_id: callId,
+      tool_name: toolName,
+      since_last_ms: now - last,
+    })
+    return false
+  }
+  lastEmitAt.set(dedupKey, now)
 
   try {
     ws.send(
