@@ -27,20 +27,14 @@ function makeCalendarClient(items: object[] = []) {
   return { client, listMock };
 }
 
-describe('makeVoiceCheckCalendar', () => {
-  it('happy path: returns busy array from calendar events', async () => {
+describe('makeVoiceCheckCalendar (REQ-TOOLS-01)', () => {
+  it('happy path available=true: day with < duration_minutes busy → available', async () => {
     const { client, listMock } = makeCalendarClient([
       {
         id: 'evt-1',
         summary: 'Team Meeting',
-        start: { dateTime: '2026-04-17T10:00:00+02:00' },
-        end: { dateTime: '2026-04-17T11:00:00+02:00' },
-      },
-      {
-        id: 'evt-2',
-        summary: 'Lunch',
-        start: { dateTime: '2026-04-17T12:00:00+02:00' },
-        end: { dateTime: '2026-04-17T13:00:00+02:00' },
+        start: { dateTime: '2026-04-20T10:00:00+02:00' },
+        end: { dateTime: '2026-04-20T11:00:00+02:00' }, // 60 min busy
       },
     ]);
 
@@ -51,26 +45,28 @@ describe('makeVoiceCheckCalendar', () => {
 
     const result = await handler({
       call_id: 'smoke-1',
-      timeMin: '2026-04-17T00:00:00Z',
-      timeMax: '2026-04-18T00:00:00Z',
+      date: '2026-04-20',
+      duration_minutes: 90, // need 90 min free, only 60 busy → 1380 free → available
     });
 
     expect(result).toMatchObject({
       ok: true,
       result: {
-        busy: [
-          expect.objectContaining({ eventId: 'evt-1', summary: 'Team Meeting' }),
-          expect.objectContaining({ eventId: 'evt-2', summary: 'Lunch' }),
+        available: true,
+        conflicts: [
+          expect.objectContaining({
+            start: '2026-04-20T10:00:00+02:00',
+            end: '2026-04-20T11:00:00+02:00',
+            summary: 'Team Meeting',
+          }),
         ],
       },
     });
 
-    // calendar.events.list called with correct params
+    // calendar.events.list called with date-window args
     expect(listMock).toHaveBeenCalledWith(
       expect.objectContaining({
         calendarId: 'primary',
-        timeMin: '2026-04-17T00:00:00Z',
-        timeMax: '2026-04-18T00:00:00Z',
         singleEvents: true,
         orderBy: 'startTime',
       }),
@@ -78,70 +74,103 @@ describe('makeVoiceCheckCalendar', () => {
     );
   });
 
-  it('invalid date strings throw BadRequestError', async () => {
-    const { client } = makeCalendarClient();
+  it('happy path available=false: day fully booked → not available', async () => {
+    // 1440 min total day, fill with events totalling >= 1440 - duration
+    const events = Array.from({ length: 24 }, (_, i) => ({
+      id: `evt-${i}`,
+      summary: `Block ${i}`,
+      start: { dateTime: `2026-04-20T${String(i).padStart(2, '0')}:00:00+02:00` },
+      end: { dateTime: `2026-04-20T${String(i).padStart(2, '0')}:59:00+02:00` },
+    }));
+
+    const { client } = makeCalendarClient(events);
     const handler = makeVoiceCheckCalendar({
       calendarClient: vi.fn().mockResolvedValue(client),
       jsonlPath: JSONL_PATH(),
     });
 
-    await expect(
-      handler({
-        call_id: 'smoke-2',
-        timeMin: 'not-a-date',
-        timeMax: '2026-04-18T00:00:00Z',
-      }),
-    ).rejects.toThrow(BadRequestError);
+    const result = (await handler({
+      call_id: 'smoke-full',
+      date: '2026-04-20',
+      duration_minutes: 60,
+    })) as { ok: true; result: { available: boolean; conflicts: unknown[] } };
+
+    expect(result.ok).toBe(true);
+    // 24 events × 59 min = 1416 min busy; 1440 - 1416 = 24 min free < 60 min needed
+    expect(result.result.available).toBe(false);
   });
 
-  it('end <= start throws BadRequestError', async () => {
-    const { client } = makeCalendarClient();
+  it('empty day → available=true, conflicts=[]', async () => {
+    const { client } = makeCalendarClient([]);
     const handler = makeVoiceCheckCalendar({
       calendarClient: vi.fn().mockResolvedValue(client),
       jsonlPath: JSONL_PATH(),
-    });
-
-    await expect(
-      handler({
-        call_id: 'smoke-3',
-        timeMin: '2026-04-18T00:00:00Z',
-        timeMax: '2026-04-17T00:00:00Z', // end < start
-      }),
-    ).rejects.toThrow(BadRequestError);
-  });
-
-  it('timeout returns ok:false with error gcal_timeout', async () => {
-    const listMock = vi.fn().mockImplementation(
-      () =>
-        new Promise((_resolve, reject) => {
-          // never resolves — will be aborted
-          setTimeout(() => reject(new Error('The operation was aborted')), 50);
-        }),
-    );
-    const client = { events: { list: listMock } };
-
-    const handler = makeVoiceCheckCalendar({
-      calendarClient: vi.fn().mockResolvedValue(client),
-      jsonlPath: JSONL_PATH(),
-      timeoutMs: 10, // very short timeout to trigger abort
     });
 
     const result = await handler({
-      call_id: 'smoke-timeout',
-      timeMin: '2026-04-17T00:00:00Z',
-      timeMax: '2026-04-18T00:00:00Z',
+      date: '2026-04-20',
+      duration_minutes: 60,
     });
 
-    expect(result).toMatchObject({ ok: false, error: 'gcal_timeout' });
+    expect(result).toMatchObject({
+      ok: true,
+      result: { available: true, conflicts: [] },
+    });
   });
 
-  it('appends calendar_check_done event to JSONL on success', async () => {
+  it('invalid date format → throws BadRequestError', async () => {
+    const { client } = makeCalendarClient();
+    const handler = makeVoiceCheckCalendar({
+      calendarClient: vi.fn().mockResolvedValue(client),
+      jsonlPath: JSONL_PATH(),
+    });
+
+    await expect(
+      handler({ date: 'not-a-date', duration_minutes: 60 }),
+    ).rejects.toThrow(BadRequestError);
+  });
+
+  it('duration_minutes=0 → throws BadRequestError (zod min 1)', async () => {
+    const { client } = makeCalendarClient();
+    const handler = makeVoiceCheckCalendar({
+      calendarClient: vi.fn().mockResolvedValue(client),
+      jsonlPath: JSONL_PATH(),
+    });
+
+    await expect(
+      handler({ date: '2026-04-20', duration_minutes: 0 }),
+    ).rejects.toThrow(BadRequestError);
+  });
+
+  it('duration_minutes=1441 → throws BadRequestError (zod max 1440)', async () => {
+    const { client } = makeCalendarClient();
+    const handler = makeVoiceCheckCalendar({
+      calendarClient: vi.fn().mockResolvedValue(client),
+      jsonlPath: JSONL_PATH(),
+    });
+
+    await expect(
+      handler({ date: '2026-04-20', duration_minutes: 1441 }),
+    ).rejects.toThrow(BadRequestError);
+  });
+
+  it('zod rejects empty args (missing date + duration_minutes)', async () => {
+    const { client } = makeCalendarClient();
+    const handler = makeVoiceCheckCalendar({
+      calendarClient: vi.fn().mockResolvedValue(client),
+      jsonlPath: JSONL_PATH(),
+    });
+
+    await expect(handler({})).rejects.toThrow(BadRequestError);
+  });
+
+  it('JSONL: calendar_check_done written with available flag, no PII', async () => {
     const { client } = makeCalendarClient([
       {
-        id: 'evt-3',
-        summary: 'Test',
-        start: { dateTime: '2026-04-17T09:00:00Z' },
-        end: { dateTime: '2026-04-17T10:00:00Z' },
+        id: 'evt-pii',
+        summary: 'Secret Meeting',
+        start: { dateTime: '2026-04-20T09:00:00+02:00' },
+        end: { dateTime: '2026-04-20T10:00:00+02:00' },
       },
     ]);
 
@@ -151,41 +180,42 @@ describe('makeVoiceCheckCalendar', () => {
       jsonlPath,
     });
 
-    await handler({
-      call_id: 'smoke-jsonl',
-      timeMin: '2026-04-17T00:00:00Z',
-      timeMax: '2026-04-18T00:00:00Z',
-    });
+    await handler({ call_id: 'pii-test', date: '2026-04-20', duration_minutes: 30 });
 
     const logContent = fs.readFileSync(jsonlPath, 'utf8').trim();
-    const logEntry = JSON.parse(logContent);
+    const entry = JSON.parse(logContent);
 
-    expect(logEntry.event).toBe('calendar_check_done');
-    expect(logEntry.call_id).toBe('smoke-jsonl');
-    expect(logEntry.tool).toBe('voice.check_calendar');
-    expect(typeof logEntry.latency_ms).toBe('number');
-    expect(logEntry.result_count).toBe(1);
-    expect(logEntry.calendar_id).toBe('primary');
-
-    // PII check: no summary text in JSONL
-    expect(logContent).not.toContain('Test');
+    expect(entry.event).toBe('calendar_check_done');
+    expect(entry.call_id).toBe('pii-test');
+    expect(entry.tool).toBe('voice.check_calendar');
+    expect(typeof entry.available).toBe('boolean');
+    expect(typeof entry.conflicts_count).toBe('number');
+    expect(typeof entry.latency_ms).toBe('number');
+    // PII: no summary text in JSONL
+    expect(logContent).not.toContain('Secret Meeting');
   });
 
-  it('missing call_id still writes JSONL with call_id:null', async () => {
-    const { client } = makeCalendarClient([]);
-    const jsonlPath = JSONL_PATH();
+  it('timeout returns ok:false with error gcal_timeout', async () => {
+    const listMock = vi.fn().mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          setTimeout(() => reject(new Error('The operation was aborted')), 50);
+        }),
+    );
+    const client = { events: { list: listMock } };
 
     const handler = makeVoiceCheckCalendar({
       calendarClient: vi.fn().mockResolvedValue(client),
-      jsonlPath,
+      jsonlPath: JSONL_PATH(),
+      timeoutMs: 10,
     });
 
-    await handler({
-      timeMin: '2026-04-17T00:00:00Z',
-      timeMax: '2026-04-18T00:00:00Z',
+    const result = await handler({
+      call_id: 'smoke-timeout',
+      date: '2026-04-20',
+      duration_minutes: 60,
     });
 
-    const logEntry = JSON.parse(fs.readFileSync(jsonlPath, 'utf8').trim());
-    expect(logEntry.call_id).toBeNull();
+    expect(result).toMatchObject({ ok: false, error: 'gcal_timeout' });
   });
 });
