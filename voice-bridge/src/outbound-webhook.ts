@@ -34,7 +34,8 @@ function getPeerIp(request: {
   return request.ip
 }
 
-const DEFAULT_PEER_ALLOWLIST = new Set(['10.0.0.1', '10.0.0.4', '10.0.0.5'])
+// 10.0.0.2 = bridge's own WireGuard address (Core lives on same host, connects via local bind)
+const DEFAULT_PEER_ALLOWLIST = new Set(['10.0.0.1', '10.0.0.2', '10.0.0.4', '10.0.0.5'])
 
 // ---- Route registration ----
 
