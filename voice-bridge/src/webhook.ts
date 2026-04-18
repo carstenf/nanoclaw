@@ -5,8 +5,8 @@
 import type { FastifyInstance } from 'fastify'
 import OpenAI from 'openai'
 import type { Logger } from 'pino'
-import { SESSION_CONFIG } from './config.js'
-import { PHASE2_PERSONA } from './persona.js'
+import { CARSTEN_CLI_NUMBER, SESSION_CONFIG } from './config.js'
+import { CASE6B_PERSONA, PHASE2_PERSONA } from './persona.js'
 import { getAllowlist, type ToolEntry } from './tools/allowlist.js'
 import type { CallRouter } from './call-router.js'
 
@@ -152,7 +152,13 @@ export function registerAcceptRoute(
     }
 
     // Accept — Phase 2 full session config (D-39..D-43):
-    // allowlist tools, PHASE2_PERSONA, server_vad + create_response, de-DE.
+    // allowlist tools, persona (case6b or phase2), server_vad + create_response, de-DE.
+    // Plan 02-14: select persona based on caller number.
+    const personaLabel =
+      callerNumber === CARSTEN_CLI_NUMBER ? 'case6b' : 'phase2'
+    const instructions =
+      callerNumber === CARSTEN_CLI_NUMBER ? CASE6B_PERSONA : PHASE2_PERSONA
+
     const allowlist = getAllowlist()
     const toolsPayload = allowlist.map((e: ToolEntry) => {
       const desc = (e.schema as { description?: unknown }).description
@@ -167,7 +173,7 @@ export function registerAcceptRoute(
       await openai.realtime.calls.accept(callId, {
         type: 'realtime',
         model: SESSION_CONFIG.model,
-        instructions: PHASE2_PERSONA,
+        instructions,
         tools: toolsPayload,
         audio: SESSION_CONFIG.audio,
       } as unknown as Parameters<typeof openai.realtime.calls.accept>[1])
@@ -181,6 +187,7 @@ export function registerAcceptRoute(
         tools_count: toolsPayload.length,
         schema_compile_ok: true,
         sideband_opened: true,
+        persona_selected: personaLabel,
       })
     } catch (e: unknown) {
       const err = e as Error

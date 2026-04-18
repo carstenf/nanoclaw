@@ -282,7 +282,7 @@ describe('POST /accept — Phase 2 full-wiring', () => {
     return { res, acceptSpy, rejectSpy }
   }
 
-  it('passes full SESSION_CONFIG + PHASE2_PERSONA + tools list to accept()', async () => {
+  it('passes full SESSION_CONFIG + persona + tools list to accept() — case6b for Carsten CLI', async () => {
     const router = makeRouter()
     const { res, acceptSpy } = await acceptIncoming(
       new Set(['+491708036426']),
@@ -293,7 +293,9 @@ describe('POST /accept — Phase 2 full-wiring', () => {
     const [calledCallId, session] = acceptSpy.mock.calls[0]
     expect(calledCallId).toBe('rtc_p2')
     expect(session.model).toBe('gpt-realtime-mini')
-    expect(session.instructions).toContain('aus dem Gedächtnis')
+    // Caller is Carsten CLI (+491708036426) → CASE6B_PERSONA (02-14)
+    expect(session.instructions).toContain('Carsten')
+    expect(session.instructions).toContain('ask_core')
     expect(session.audio.input.turn_detection.type).toBe('server_vad')
     expect(session.audio.input.turn_detection.create_response).toBe(true)
     expect(Array.isArray(session.tools)).toBe(true)

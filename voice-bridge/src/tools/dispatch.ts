@@ -18,7 +18,12 @@ import {
   emitFunctionCallOutput as _emitFunctionCallOutput,
   emitResponseCreate as _emitResponseCreate,
 } from './tool-output-emitter.js'
-import { DISPATCH_TOOL_TIMEOUT_MS, TOOL_DISPATCH_JSONL_PATH } from '../config.js'
+import { emitFillerPhrase as _emitFillerPhrase } from './filler-inject.js'
+import {
+  DISPATCH_TOOL_TIMEOUT_MS,
+  FILLER_PHRASE_TOOLS,
+  TOOL_DISPATCH_JSONL_PATH,
+} from '../config.js'
 
 // Tool-name mapping: bridge tool name → Core MCP tool name.
 // null  = not implemented (03-08 skipped or bridge-internal, stub path).
@@ -54,6 +59,13 @@ export interface DispatchOpts {
   ) => boolean
   /** DI: override emitResponseCreate for tests */
   emitResponseCreate?: (ws: WSType, log: Logger) => boolean
+  /** DI: override emitFillerPhrase for tests (fire-and-forget filler injection) */
+  emitFiller?: (
+    ws: WSType,
+    toolName: string,
+    callId: string,
+    log: Logger,
+  ) => Promise<boolean>
   /** timeout override (default DISPATCH_TOOL_TIMEOUT_MS from config) */
   dispatchTimeoutMs?: number
   /** JSONL path override (default from config) */
@@ -88,6 +100,7 @@ export async function dispatchTool(
   const callCore = opts.callCoreTool ?? _callCoreTool
   const emitOutput = opts.emitFunctionCallOutput ?? _emitFunctionCallOutput
   const emitCreate = opts.emitResponseCreate ?? _emitResponseCreate
+  const emitFiller = opts.emitFiller ?? _emitFillerPhrase
   const timeoutMs = opts.dispatchTimeoutMs ?? DISPATCH_TOOL_TIMEOUT_MS
   const jsonlPath = opts.jsonlPath ?? TOOL_DISPATCH_JSONL_PATH
 
@@ -144,6 +157,19 @@ export async function dispatchTool(
       bytes_out: 0,
     })
     return
+  }
+
+  // 3b. Filler-phrase injection for long-latency tools (Plan 02-14, REQ-C6B-02).
+  // Fire-and-forget from caller's perspective but awaited here so filler is sent
+  // before the slow MCP call begins. Never blocks dispatch on failure.
+  if (FILLER_PHRASE_TOOLS.includes(toolName)) {
+    await emitFiller(ws, toolName, callId, log).catch((err: Error) =>
+      log.warn({
+        event: 'filler_emit_failed',
+        tool_name: toolName,
+        err: err.message,
+      }),
+    )
   }
 
   // 4. Call Core MCP with timeout

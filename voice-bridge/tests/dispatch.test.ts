@@ -326,4 +326,71 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
 
     await fs.unlink(tmpPath)
   })
+
+  // --- Plan 02-14: filler-inject DI tests ---
+
+  it('ask_core dispatch: emitFiller called BEFORE callCoreTool (fire-and-forget)', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const callOrder: string[] = []
+    const callCoreTool = vi.fn().mockImplementation(async () => {
+      callOrder.push('callCoreTool')
+      return { answer: 'test' }
+    })
+    const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
+    const emitResponseCreate = vi.fn().mockReturnValue(true)
+    const emitFiller = vi.fn().mockImplementation(async () => {
+      callOrder.push('emitFiller')
+      return true
+    })
+    const opts = {
+      ...makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate }),
+      emitFiller,
+    }
+
+    await dispatchTool(
+      ws,
+      'call_f1',
+      'turn_f1',
+      'fc_f1',
+      'ask_core',
+      { topic: 'andy', request: 'Was ist 2+2?' },
+      log,
+      opts,
+    )
+
+    expect(emitFiller).toHaveBeenCalledTimes(1)
+    expect(emitFiller).toHaveBeenCalledWith(ws, 'ask_core', 'call_f1', log)
+    expect(callCoreTool).toHaveBeenCalled()
+    // emitFiller was awaited before callCoreTool
+    expect(callOrder[0]).toBe('emitFiller')
+    expect(callOrder[1]).toBe('callCoreTool')
+  })
+
+  it('check_calendar dispatch: emitFiller NOT called for non-filler tool', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const callCoreTool = vi.fn().mockResolvedValue({ slots: [] })
+    const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
+    const emitResponseCreate = vi.fn().mockReturnValue(true)
+    const emitFiller = vi.fn().mockResolvedValue(true)
+    const opts = {
+      ...makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate }),
+      emitFiller,
+    }
+
+    await dispatchTool(
+      ws,
+      'call_f2',
+      'turn_f2',
+      'fc_f2',
+      'check_calendar',
+      { date: '2026-05-01', duration_minutes: 30 },
+      log,
+      opts,
+    )
+
+    expect(emitFiller).not.toHaveBeenCalled()
+    expect(callCoreTool).toHaveBeenCalled()
+  })
 })
