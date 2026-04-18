@@ -24,7 +24,10 @@ const CheckCalendarSchema = z.object({
 });
 
 /** Build Berlin-TZ day window for a YYYY-MM-DD date string. */
-function buildDayWindow(date: string, tz: string): { timeMin: string; timeMax: string } {
+function buildDayWindow(
+  date: string,
+  tz: string,
+): { timeMin: string; timeMax: string } {
   // Parse as local date in Berlin TZ by getting the UTC offset
   // We use a fixed offset approach: +02:00 in summer, +01:00 in winter
   // Simplest robust approach: build ISO string with 00:00 and 23:59 using
@@ -37,7 +40,10 @@ function buildDayWindow(date: string, tz: string): { timeMin: string; timeMax: s
   const offsetSign = offsetMs >= 0 ? '+' : '-';
   const absOffset = Math.abs(offsetMs);
   const offsetHH = String(Math.floor(absOffset / 3600000)).padStart(2, '0');
-  const offsetMM = String(Math.floor((absOffset % 3600000) / 60000)).padStart(2, '0');
+  const offsetMM = String(Math.floor((absOffset % 3600000) / 60000)).padStart(
+    2,
+    '0',
+  );
   const offsetStr = `${offsetSign}${offsetHH}:${offsetMM}`;
 
   return {
@@ -66,7 +72,14 @@ function getUTCOffsetMs(localDate: Date, tz: string): number {
     const get = (type: string) =>
       parseInt(parts.find((p) => p.type === type)?.value ?? '0', 10);
 
-    const localMs = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
+    const localMs = Date.UTC(
+      get('year'),
+      get('month') - 1,
+      get('day'),
+      get('hour'),
+      get('minute'),
+      get('second'),
+    );
     return Math.round((utcMs - localMs) / 60000) * 60000; // round to minute
   } catch {
     // Fallback to +02:00 (CEST)
@@ -109,7 +122,33 @@ export function makeVoiceCheckCalendar(deps: CheckCalendarDeps = {}) {
     const { timeMin, timeMax } = buildDayWindow(date, timezone);
 
     let available = false;
-    let conflicts: Array<{ start: string | null; end: string | null; summary: string | null }> = [];
+    let conflicts: Array<{
+      start: string | null;
+      end: string | null;
+      start_local: string | null;
+      end_local: string | null;
+      summary: string | null;
+    }> = [];
+
+    // Format an ISO timestamp as HH:mm in the configured timezone.
+    // Fix for PSTN-test 20:23: bot was verbatim-reading UTC strings
+    // (13:00Z) and saying "13 Uhr" instead of the Berlin-local 15:00.
+    const fmtLocal = (iso: string | null | undefined): string | null => {
+      if (!iso) return null;
+      try {
+        const parts = new Intl.DateTimeFormat('de-DE', {
+          timeZone: timezone,
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }).formatToParts(new Date(iso));
+        const h = parts.find((p) => p.type === 'hour')?.value ?? '';
+        const m = parts.find((p) => p.type === 'minute')?.value ?? '';
+        return `${h}:${m}`;
+      } catch {
+        return null;
+      }
+    };
 
     try {
       const calendar = await calendarClientFn();
@@ -167,11 +206,17 @@ export function makeVoiceCheckCalendar(deps: CheckCalendarDeps = {}) {
       const freeMinutes = 1440 - busyMinutes;
       available = freeMinutes >= duration_minutes;
 
-      conflicts = items.map((e) => ({
-        start: e.start?.dateTime ?? e.start?.date ?? null,
-        end: e.end?.dateTime ?? e.end?.date ?? null,
-        summary: e.summary ?? null,
-      }));
+      conflicts = items.map((e) => {
+        const s = e.start?.dateTime ?? e.start?.date ?? null;
+        const en = e.end?.dateTime ?? e.end?.date ?? null;
+        return {
+          start: s,
+          end: en,
+          start_local: fmtLocal(s),
+          end_local: fmtLocal(en),
+          summary: e.summary ?? null,
+        };
+      });
 
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
