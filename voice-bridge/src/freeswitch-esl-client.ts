@@ -99,7 +99,12 @@ export function buildOriginateCommand(opts: {
   const aLeg = `{${aLegVars}}sofia/gateway/${opts.gatewayName}/${opts.targetPhone}`
   const bLegPrefix = '[absolute_codec_string=PCMA,codec_string=PCMA]'
   const bLegUri = `sofia/${opts.openaiProfile}/sip:${opts.projectId}@sip.api.openai.com;transport=tls`
-  return `api originate ${aLeg} &bridge(${bLegPrefix}${bLegUri})`
+  // bgapi (NOT api): returns Job-UUID immediately, real call setup runs in
+  // background. `api originate` would block until ANSWER (up to 60s default
+  // originate_timeout) which exceeds our ESL_TIMEOUT_MS — caused first PSTN
+  // attempt to silently timeout at the bridge before the call ever reached
+  // sipgate.
+  return `bgapi originate ${aLeg} &bridge(${bLegPrefix}${bLegUri})`
 }
 
 /**
@@ -239,6 +244,23 @@ export async function eslOriginate(
         }
 
         if (phase === 'await_api_response') {
+          // bgapi originate returns command/reply with "+OK Job-UUID: <uuid>"
+          // immediately. The actual call setup runs in background — we don't
+          // wait for it here. Job-UUID is logged for traceability but the
+          // task's openai_call_id is bound later via webhook /accept.
+          if (headers['Content-Type'] === 'command/reply') {
+            const reply = headers['Reply-Text'] ?? ''
+            if (reply.startsWith('+OK')) {
+              // Reply-Text format: "+OK Job-UUID: <uuid>"
+              const jobUuid = headers['Job-UUID'] ?? reply.replace(/^\+OK\s*Job-UUID:\s*/, '').trim()
+              clearTimeout(timer)
+              finish(null, { fsUuid: jobUuid, raw: reply }, )
+              return
+            }
+            clearTimeout(timer)
+            finish(new EslError('api_failed', reply), null)
+            return
+          }
           if (headers['Content-Type'] === 'api/response') {
             const len = parseInt(headers['Content-Length'] ?? '0', 10)
             apiBodyExpected = isNaN(len) ? 0 : len
