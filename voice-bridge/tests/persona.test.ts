@@ -50,3 +50,54 @@ describe('CASE6B_PERSONA — Case-6b persona for Carsten CLI calls', () => {
     expect(CASE6B_PERSONA).not.toBe(PHASE2_PERSONA)
   })
 })
+
+// --- OUTBOUND_PERSONA_TEMPLATE + buildOutboundPersona tests (03-11) ---
+import { OUTBOUND_PERSONA_TEMPLATE, buildOutboundPersona } from '../src/persona.js'
+
+describe('OUTBOUND_PERSONA_TEMPLATE + buildOutboundPersona — Plan 03-11', () => {
+  it('template is a non-empty string with both placeholders', () => {
+    expect(typeof OUTBOUND_PERSONA_TEMPLATE).toBe('string')
+    expect(OUTBOUND_PERSONA_TEMPLATE).toContain('{{goal}}')
+    expect(OUTBOUND_PERSONA_TEMPLATE).toContain('{{context}}')
+  })
+
+  it('template contains Werkzeug-zuerst directive', () => {
+    expect(OUTBOUND_PERSONA_TEMPLATE).toContain('WERKZEUG-ZUERST')
+  })
+
+  it('template contains passive-disclosure directive', () => {
+    expect(OUTBOUND_PERSONA_TEMPLATE).toContain('Passive Disclosure')
+  })
+
+  it('template contains NanoClaw im Auftrag von Carsten branding', () => {
+    expect(OUTBOUND_PERSONA_TEMPLATE).toContain('NanoClaw')
+    expect(OUTBOUND_PERSONA_TEMPLATE).toContain('Carsten')
+  })
+
+  it('buildOutboundPersona substitutes {{goal}} placeholder', () => {
+    const result = buildOutboundPersona('Arzttermin vereinbaren', '')
+    expect(result).toContain('Arzttermin vereinbaren')
+    expect(result).not.toContain('{{goal}}')
+  })
+
+  it('buildOutboundPersona substitutes {{context}} placeholder', () => {
+    const result = buildOutboundPersona('Test goal', 'Extra context info')
+    expect(result).toContain('Extra context info')
+    expect(result).not.toContain('{{context}}')
+  })
+
+  it('buildOutboundPersona with empty context replaces placeholder with empty string', () => {
+    const result = buildOutboundPersona('Some goal', '')
+    expect(result).not.toContain('{{context}}')
+    // Should not have the placeholder, empty replacement is fine
+    expect(typeof result).toBe('string')
+    expect(result.length).toBeGreaterThan(50)
+  })
+
+  it('buildOutboundPersona does not use eval or template engine (plain string)', () => {
+    // Dangerous input should be returned verbatim, not executed
+    const dangerous = '${process.exit(1)}'
+    const result = buildOutboundPersona(dangerous, '')
+    expect(result).toContain(dangerous)
+  })
+})
