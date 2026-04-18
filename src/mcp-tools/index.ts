@@ -5,11 +5,13 @@ import { OneCLI } from '@onecli-sh/sdk';
 import { DATA_DIR, ONECLI_URL } from '../config.js';
 import { logger } from '../logger.js';
 
+import { VOICE_DISCORD_ALLOWED_CHANNELS, VOICE_DISCORD_TIMEOUT_MS } from '../config.js';
 import { SlowBrainSessionManager } from './slow-brain-session.js';
 import { makeVoiceOnTranscriptTurn } from './voice-on-transcript-turn.js';
 import { makeVoiceCheckCalendar } from './voice-check-calendar.js';
 import { makeVoiceCreateCalendarEntry } from './voice-create-calendar-entry.js';
 import { getCalendarClient } from './calendar-client.js';
+import { makeVoiceSendDiscordMessage } from './voice-send-discord-message.js';
 
 /**
  * Fetch OneCLI CA certificate and write it to the path set in NODE_EXTRA_CA_CERTS.
@@ -70,6 +72,8 @@ export interface RegistryDeps {
   sweepIntervalMs?: number;
   /** Inject a session manager (useful in tests to avoid real OneCLI calls). */
   sessionManager?: SlowBrainSessionManager;
+  /** Discord send callback — injected from index.ts to reuse existing DiscordChannel gateway. */
+  sendDiscordMessage?: (channelId: string, text: string) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 export interface RegistryHandle {
@@ -132,6 +136,32 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
         : undefined,
     }),
   );
+
+  // voice.send_discord_message — only register when callback is provided AND allowlist is non-empty
+  if (deps.sendDiscordMessage && VOICE_DISCORD_ALLOWED_CHANNELS.size > 0) {
+    const log = deps.log ?? logger;
+    log.info(
+      { event: 'mcp_tool_registering', tool: 'voice.send_discord_message', allowlist_size: VOICE_DISCORD_ALLOWED_CHANNELS.size },
+      'registered tool voice.send_discord_message',
+    );
+    registry.register(
+      'voice.send_discord_message',
+      makeVoiceSendDiscordMessage({
+        sendDiscordMessage: deps.sendDiscordMessage,
+        allowedChannels: VOICE_DISCORD_ALLOWED_CHANNELS,
+        jsonlPath: deps.dataDir
+          ? `${deps.dataDir}/voice-discord.jsonl`
+          : undefined,
+        timeoutMs: VOICE_DISCORD_TIMEOUT_MS,
+      }),
+    );
+  } else {
+    const log = deps.log ?? logger;
+    log.warn(
+      { event: 'mcp_tool_skipped', tool: 'voice.send_discord_message', has_callback: !!deps.sendDiscordMessage, allowlist_size: VOICE_DISCORD_ALLOWED_CHANNELS.size },
+      'skipping voice.send_discord_message — no callback or empty allowlist',
+    );
+  }
 
   return registry;
 }

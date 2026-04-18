@@ -810,7 +810,24 @@ async function main(): Promise<void> {
     },
   };
   initFreeswitchVoice(voiceDeps);
-  startMcpServer();
+  const sendDiscordMessage = async (
+    channelId: string,
+    text: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const jid = `dc:${channelId}`;
+    const ch = findChannel(channels, jid);
+    if (!ch || ch.name !== 'discord') {
+      logger.warn({ event: 'discord_send_no_channel', channelId }, 'Discord channel not found or not connected');
+      return { ok: false, error: 'discord_not_configured' };
+    }
+    try {
+      await ch.sendMessage(jid, text);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err instanceof Error ? err.message : 'send_failed') };
+    }
+  };
+  startMcpServer({ deps: { sendDiscordMessage } });
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {

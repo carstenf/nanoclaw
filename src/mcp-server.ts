@@ -106,6 +106,9 @@ export function buildMcpApp(deps: McpDeps): express.Application {
 export interface StartMcpServerOpts {
   registry?: ToolRegistry;
   log?: Pick<typeof logger, 'info' | 'warn' | 'error' | 'fatal'>;
+  deps?: {
+    sendDiscordMessage?: (channelId: string, text: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  };
 }
 
 export function startMcpServer(opts: StartMcpServerOpts = {}): http.Server {
@@ -130,7 +133,7 @@ export function startMcpServer(opts: StartMcpServerOpts = {}): http.Server {
     .filter((s) => s.length > 0);
 
   const log = opts.log ?? logger;
-  const registry = opts.registry ?? buildDefaultRegistry({ log });
+  const registry = opts.registry ?? buildDefaultRegistry({ log, sendDiscordMessage: opts.deps?.sendDiscordMessage });
   const app = buildMcpApp({
     registry,
     log,

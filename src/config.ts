@@ -101,18 +101,29 @@ export const SLOW_BRAIN_SESSION_IDLE_MS = parseInt(
   10,
 );
 
+// Discord MCP tool settings
+const envDiscord = readEnvFile(['VOICE_DISCORD_ALLOWED_CHANNELS', 'VOICE_DISCORD_TIMEOUT_MS']);
+export const VOICE_DISCORD_ALLOWED_CHANNELS_RAW =
+  process.env.VOICE_DISCORD_ALLOWED_CHANNELS ??
+  envDiscord.VOICE_DISCORD_ALLOWED_CHANNELS ??
+  '';
+export const VOICE_DISCORD_ALLOWED_CHANNELS: Set<string> = new Set(
+  VOICE_DISCORD_ALLOWED_CHANNELS_RAW.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
+export const VOICE_DISCORD_TIMEOUT_MS = parseInt(
+  process.env.VOICE_DISCORD_TIMEOUT_MS ?? envDiscord.VOICE_DISCORD_TIMEOUT_MS ?? '8000',
+  10,
+);
+
 // Google Calendar MCP tool settings
 export const GCALENDAR_CREDS_PATH =
   process.env.GCALENDAR_CREDS_PATH ??
   path.join(HOME_DIR, '.gcalendar-mcp', 'gcp-oauth.keys.json');
 export const GCALENDAR_TOKENS_PATH =
   process.env.GCALENDAR_TOKENS_PATH ??
-  path.join(
-    HOME_DIR,
-    '.gcalendar-mcp',
-    'google-calendar-mcp',
-    'tokens.json',
-  );
+  path.join(HOME_DIR, '.gcalendar-mcp', 'google-calendar-mcp', 'tokens.json');
 export const GCALENDAR_DEFAULT_TZ =
   process.env.GCALENDAR_DEFAULT_TZ ?? 'Europe/Berlin';
 export const GCALENDAR_DEFAULT_CAL_ID =
