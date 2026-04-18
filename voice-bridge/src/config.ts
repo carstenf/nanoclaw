@@ -148,6 +148,21 @@ export const DISPATCH_TOOL_TIMEOUT_MS = Number(
   process.env.DISPATCH_TOOL_TIMEOUT_MS ?? 3000,
 )
 
+// Per-tool timeout overrides. Long-latency tools (container-spawn, Andy-Agent)
+// need much more than the 3s hot-path budget. Filler-phrase bridges the UX gap.
+// Format env override: "ask_core=45000,other_tool=20000".
+const TOOL_TIMEOUT_OVERRIDES_ENV =
+  process.env.DISPATCH_TOOL_TIMEOUT_OVERRIDES ?? 'ask_core=45000'
+export const DISPATCH_TOOL_TIMEOUT_OVERRIDES: Record<string, number> = (() => {
+  const out: Record<string, number> = {}
+  for (const pair of TOOL_TIMEOUT_OVERRIDES_ENV.split(',').map((s) => s.trim()).filter(Boolean)) {
+    const [name, ms] = pair.split('=')
+    const n = Number(ms)
+    if (name && Number.isFinite(n) && n > 0) out[name] = n
+  }
+  return out
+})()
+
 // JSONL path for tool_dispatch_done entries (PII-free: tool_name + latency + status).
 // Follows DATA_DIR convention: BRIDGE_LOG_DIR env or ~/nanoclaw/voice-container/runs.
 import { join } from 'node:path'

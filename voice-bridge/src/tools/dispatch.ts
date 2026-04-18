@@ -21,6 +21,7 @@ import {
 import { emitFillerPhrase as _emitFillerPhrase } from './filler-inject.js'
 import {
   DISPATCH_TOOL_TIMEOUT_MS,
+  DISPATCH_TOOL_TIMEOUT_OVERRIDES,
   FILLER_PHRASE_TOOLS,
   TOOL_DISPATCH_JSONL_PATH,
 } from '../config.js'
@@ -101,7 +102,10 @@ export async function dispatchTool(
   const emitOutput = opts.emitFunctionCallOutput ?? _emitFunctionCallOutput
   const emitCreate = opts.emitResponseCreate ?? _emitResponseCreate
   const emitFiller = opts.emitFiller ?? _emitFillerPhrase
-  const timeoutMs = opts.dispatchTimeoutMs ?? DISPATCH_TOOL_TIMEOUT_MS
+  const timeoutMs =
+    opts.dispatchTimeoutMs ??
+    DISPATCH_TOOL_TIMEOUT_OVERRIDES[toolName] ??
+    DISPATCH_TOOL_TIMEOUT_MS
   const jsonlPath = opts.jsonlPath ?? TOOL_DISPATCH_JSONL_PATH
 
   // 1. Validate tool name against allowlist
