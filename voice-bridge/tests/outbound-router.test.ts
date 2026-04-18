@@ -134,14 +134,19 @@ describe('OutboundRouter', () => {
   })
 
   it('max-duration-end-fires: max-duration timer calls openai.realtime.calls.end', async () => {
-    // Use real timers for this test — we flush via explicit Promise microtask queue
     vi.useRealTimers()
     const { createOutboundRouter } = await import('../src/outbound-router.js')
-    // Capture setTimeout calls via the DI timers mock (not global fake timers)
+    // Fresh mocks — not from beforeEach deps (which were built under fake timers)
+    const endSpy = vi.fn().mockResolvedValue(undefined)
+    const createSpy = vi.fn().mockResolvedValue({ id: 'call-dur-001' })
     const capturedTimers: Array<{ fn: () => void; ms: number }> = []
-    const testDeps = {
-      ...deps,
+    const freshDeps = {
+      openaiClient: { realtime: { calls: { create: createSpy, end: endSpy } } },
+      callRouter: { _size: vi.fn().mockReturnValue(0) },
+      reportBack: vi.fn().mockResolvedValue(undefined),
+      now: () => Date.now(),
       maxDurationMs: 600000,
+      escalationMs: 660000,  // distinct from maxDurationMs so find() picks the right one
       timers: {
         setTimeout: vi.fn((fn: () => void, ms: number) => {
           capturedTimers.push({ fn, ms })
@@ -150,23 +155,21 @@ describe('OutboundRouter', () => {
         clearTimeout: vi.fn(),
       },
     }
-    const router = createOutboundRouter(testDeps)
+    const router = createOutboundRouter(freshDeps)
     router.enqueue({
       target_phone: '+491234567890',
       goal: 'Max duration test',
       context: '',
       report_to_jid: 'dc:123',
     })
-    // Flush microtasks: wait for the void triggerExecute to complete
+    // Flush microtasks so triggerExecute (void async) completes
     await new Promise<void>((r) => setTimeout(r, 10))
-    // The max-duration timer should have been set (ms >= 600000)
-    const durationTimer = capturedTimers.find(({ ms }) => ms >= 600000)
+    // Duration timer should be registered (ms >= 600000)
+    const durationTimer = capturedTimers.find(({ ms }) => ms === 600000)
     expect(durationTimer).toBeDefined()
-    // inject a fake call_id so calls.end can be triggered
-    const state = router.getState()
-    if (state[0]) state[0].call_id = 'call-dur-test'
+    // Fire the duration callback — should call calls.end
     await durationTimer!.fn()
-    expect(deps.openaiClient.realtime.calls.end).toHaveBeenCalled()
+    expect(endSpy).toHaveBeenCalled()
   })
 
   it('report-back-call-on-end: reportBack is called with summary when onCallEnd fires', async () => {

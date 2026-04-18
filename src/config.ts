@@ -186,6 +186,14 @@ export const GCALENDAR_TIMEOUT_MS = parseInt(
   10,
 );
 
+// ----- Plan 03-11: voice.request_outbound_call -----
+// Bridge base URL for outbound-call requests.
+export const BRIDGE_OUTBOUND_URL =
+  process.env.BRIDGE_OUTBOUND_URL ?? 'http://10.0.0.2:4402';
+// Optional Bearer token for Bridge /outbound (empty = disabled).
+export const BRIDGE_OUTBOUND_AUTH_TOKEN =
+  process.env.BRIDGE_OUTBOUND_AUTH_TOKEN ?? '';
+
 // Timezone for scheduled tasks, message formatting, etc.
 // Validates each candidate is a real IANA identifier before accepting.
 function resolveConfigTimezone(): string {

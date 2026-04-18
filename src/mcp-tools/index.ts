@@ -24,6 +24,7 @@ import { makeVoiceGetContract } from './voice-get-contract.js';
 import { makeVoiceGetPracticeProfile } from './voice-get-practice-profile.js';
 import { makeVoiceScheduleRetry } from './voice-schedule-retry.js';
 import { makeVoiceAskCore } from './voice-ask-core.js';
+import { makeVoiceRequestOutboundCall } from './voice-request-outbound-call.js';
 import { loadSkill } from './skill-loader.js';
 import { callClaudeViaOneCli } from './claude-client.js';
 import { runAndyForVoice } from './andy-agent-runner.js';
@@ -35,6 +36,8 @@ import {
   ASK_CORE_ANDY_TIMEOUT_MS,
   ANDY_VOICE_DISCORD_CHANNEL,
   VOICE_DISCORD_ALLOWED_CHANNELS_RAW,
+  BRIDGE_OUTBOUND_URL,
+  BRIDGE_OUTBOUND_AUTH_TOKEN,
 } from '../config.js';
 
 /**
@@ -267,7 +270,8 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     ANDY_VOICE_DISCORD_CHANNEL ||
     (VOICE_DISCORD_ALLOWED_CHANNELS_RAW.split(',')
       .map((s) => s.trim())
-      .filter(Boolean)[0] ?? '');
+      .filter(Boolean)[0] ??
+      '');
 
   // voice.ask_core — always registered; graceful skill_not_configured when skill absent
   // topic='andy' → runAndyForVoice (real container-agent against groups/main)
@@ -290,6 +294,18 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
         : undefined,
       timeoutMs: ASK_CORE_CLAUDE_TIMEOUT_MS,
       maxTokens: ASK_CORE_MAX_TOKENS_PER_CALL,
+    }),
+  );
+
+  // voice.request_outbound_call — always registered; forwards to Bridge /outbound
+  registry.register(
+    'voice.request_outbound_call',
+    makeVoiceRequestOutboundCall({
+      bridgeUrl: BRIDGE_OUTBOUND_URL,
+      bridgeAuthToken: BRIDGE_OUTBOUND_AUTH_TOKEN || undefined,
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-outbound.jsonl`
+        : undefined,
     }),
   );
 

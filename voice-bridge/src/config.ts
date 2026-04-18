@@ -119,6 +119,28 @@ export const FILLER_PHRASE_TOOLS: string[] = (
   .map((s) => s.trim())
   .filter((s) => s.length > 0)
 
+// ----- Plan 03-11: Outbound-Call Queue -----
+
+// Maximum number of queued+active outbound tasks (prevents cost runaway).
+export const OUTBOUND_QUEUE_MAX = Number(
+  process.env.OUTBOUND_QUEUE_MAX ?? 10,
+)
+
+// Hard cap per outbound call (ms). Bridge fires calls.end() at this limit.
+export const OUTBOUND_CALL_MAX_DURATION_MS = Number(
+  process.env.OUTBOUND_CALL_MAX_DURATION_MS ?? 600000,
+)
+
+// Escalation timeout for queued tasks (ms). Task promoted to 'escalated' if
+// not started within this window; Discord alert sent to report_to_jid.
+export const OUTBOUND_ESCALATION_TIMEOUT_MS = Number(
+  process.env.OUTBOUND_ESCALATION_TIMEOUT_MS ?? 600000,
+)
+
+// Optional Bearer token guarding POST /outbound. Empty = disabled (WG-only auth).
+export const OUTBOUND_BRIDGE_AUTH_TOKEN =
+  process.env.OUTBOUND_BRIDGE_AUTH_TOKEN ?? ''
+
 // ----- Plan 02-11: Tool-Dispatch (Bridge → Core MCP forward) -----
 
 // DIR-04 3s hot-path-budget for tool calls. Override via DISPATCH_TOOL_TIMEOUT_MS.

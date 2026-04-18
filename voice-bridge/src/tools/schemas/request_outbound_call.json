@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "request_outbound_call",
+  "description": "Fordert einen ausgehenden Anruf von NanoClaw an. Die Bridge stellt den Anruf in die Warteschlange und fuehrt ihn aus sobald keine andere Verbindung aktiv ist.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target_phone", "goal", "report_to_jid"],
+  "properties": {
+    "call_id": {
+      "type": "string",
+      "description": "Optionale Idempotenz-ID (UUID). Falls angegeben wird doppeltes Einreihen verhindert."
+    },
+    "target_phone": {
+      "type": "string",
+      "pattern": "^\\+[1-9]\\d{1,14}$",
+      "description": "Zielnummer im E.164-Format, z.B. +491234567890."
+    },
+    "goal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "description": "Ziel des Anrufs (max. 500 Zeichen). Wird als Persona-Instruktion verwendet."
+    },
+    "context": {
+      "type": "string",
+      "maxLength": 2000,
+      "default": "",
+      "description": "Optionaler Kontext fuer den Anruf (max. 2000 Zeichen)."
+    },
+    "report_to_jid": {
+      "type": "string",
+      "minLength": 1,
+      "description": "JID oder Discord-Channel-ID fuer den Abschlussbericht. Format: 'dc:<snowflake>' fuer Discord, E.164 fuer WhatsApp."
+    }
+  }
+}
