@@ -1,10 +1,9 @@
 /**
  * voice-get-contract.ts
  *
- * MCP tool: voice.get_contract
- * Reads flat JSON contracts file, looks up by id or provider substring.
- * Graceful: not_configured when file absent, parse_error on bad JSON.
- * JSONL-logged, PII-clean (no contract content in log).
+ * MCP tool: voice.get_contract  (REQ-TOOLS-04)
+ * Args: {provider_name: string}
+ * Returns: {current_conditions, expiry_date, last_review} — all nullable
  */
 
 import path from 'path';
@@ -15,17 +14,20 @@ import { z } from 'zod';
 import { DATA_DIR } from '../config.js';
 import { logger } from '../logger.js';
 
-import { readFlatDb, FlatDbNotFound, FlatDbParseError } from './flat-db-reader.js';
+import {
+  readFlatDb,
+  FlatDbNotFound,
+  FlatDbParseError,
+} from './flat-db-reader.js';
 import { BadRequestError } from './voice-on-transcript-turn.js';
 
 // ---------------------------------------------------------------------------
-// Schema
+// Schema — REQ-TOOLS-04
 // ---------------------------------------------------------------------------
 
 const GetContractSchema = z.object({
   call_id: z.string().optional(),
-  id: z.string().regex(/^[a-z0-9_-]+$/).optional(),
-  provider: z.string().max(200).optional(),
+  provider_name: z.string().min(1).max(200),
 });
 
 // ---------------------------------------------------------------------------
@@ -33,8 +35,12 @@ const GetContractSchema = z.object({
 // ---------------------------------------------------------------------------
 
 interface Contract {
-  id: string;
   provider: string;
+  current_conditions?: string;
+  expiry_date?: string;
+  last_review?: string;
+  // legacy fields kept for backwards-compat reads
+  id?: string;
   product?: string;
   start_date?: string;
   end_date?: string;
@@ -54,9 +60,7 @@ interface ContractsDb {
 export interface VoiceGetContractDeps {
   contractsPath: string;
   jsonlPath?: string | null;
-  /** Override readFlatDb for tests. */
   readDb?: (filePath: string) => Promise<ContractsDb>;
-  /** Override JSONL appender for tests. */
   appendJsonl?: (entry: object) => void;
   now?: () => number;
 }
@@ -80,9 +84,6 @@ function makeFileAppender(filePath: string) {
 // Handler factory
 // ---------------------------------------------------------------------------
 
-/**
- * Build voice.get_contract handler.
- */
 export function makeVoiceGetContract(deps: VoiceGetContractDeps) {
   const contractsPath = deps.contractsPath;
   const now = deps.now ?? (() => Date.now());
@@ -103,12 +104,13 @@ export function makeVoiceGetContract(deps: VoiceGetContractDeps) {
 
   const readDb =
     deps.readDb ??
-    ((filePath: string) => readFlatDb<ContractsDb>(filePath, { contracts: [] }));
+    ((filePath: string) =>
+      readFlatDb<ContractsDb>(filePath, { contracts: [] }));
 
   return async function voiceGetContract(args: unknown): Promise<unknown> {
     const start = now();
 
-    // Zod parse
+    // Zod parse — REQ-TOOLS-04 shape
     const parseResult = GetContractSchema.safeParse(args);
     if (!parseResult.success) {
       const first = parseResult.error.issues[0];
@@ -118,14 +120,7 @@ export function makeVoiceGetContract(deps: VoiceGetContractDeps) {
       );
     }
 
-    const { call_id, id, provider } = parseResult.data;
-
-    // At least one query param required
-    if (!id && !provider) {
-      throw new BadRequestError('missing_query', 'id or provider required');
-    }
-
-    const queryKey = id ?? provider ?? '';
+    const { call_id, provider_name } = parseResult.data;
 
     // Load DB
     let db: ContractsDb;
@@ -133,7 +128,10 @@ export function makeVoiceGetContract(deps: VoiceGetContractDeps) {
       db = await readDb(contractsPath);
     } catch (err) {
       if (err instanceof FlatDbNotFound) {
-        logger.warn({ event: 'voice_get_contract_not_configured', contractsPath });
+        logger.warn({
+          event: 'voice_get_contract_not_configured',
+          contractsPath,
+        });
         return { ok: false, error: 'not_configured' };
       }
       if (err instanceof FlatDbParseError) {
@@ -142,26 +140,21 @@ export function makeVoiceGetContract(deps: VoiceGetContractDeps) {
       throw err;
     }
 
-    // Lookup
+    // Lookup — case-insensitive provider substring match
     const contracts = db.contracts ?? [];
-    let found: Contract | undefined;
-
-    if (id) {
-      found = contracts.find((c) => c.id === id);
-    } else if (provider) {
-      const query = provider.toLowerCase();
-      found = contracts.find((c) => c.provider.toLowerCase().includes(query));
-    }
+    const query = provider_name.toLowerCase();
+    const found = contracts.find((c) =>
+      c.provider.toLowerCase().includes(query),
+    );
 
     const latency = now() - start;
 
-    // JSONL log — no contract content
     appendJsonl({
       ts: new Date().toISOString(),
       event: 'contract_lookup_done',
       tool: 'voice.get_contract',
       call_id: call_id ?? null,
-      query_key: queryKey,
+      query_key: provider_name,
       found: found !== undefined,
       latency_ms: latency,
     });
@@ -169,7 +162,9 @@ export function makeVoiceGetContract(deps: VoiceGetContractDeps) {
     return {
       ok: true,
       result: {
-        contract: found ?? null,
+        current_conditions: found?.current_conditions ?? null,
+        expiry_date: found?.expiry_date ?? null,
+        last_review: found?.last_review ?? null,
       },
     };
   };

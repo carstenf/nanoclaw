@@ -1,103 +1,128 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import path from 'path';
 import { clearFlatDbCache } from './flat-db-reader.js';
 import { makeVoiceGetContract } from './voice-get-contract.js';
 
 const CONTRACT_A = {
-  id: 'vodafone-mobile-2024',
   provider: 'Vodafone',
-  product: 'MagentaMobil M',
-  monthly_cost_eur: 39.99,
-  notes: 'Läuft bis Ende 2025',
+  current_conditions: 'MagentaMobil M, 39.99 EUR/mon',
+  expiry_date: '2025-12-31',
+  last_review: '2024-01-15',
 };
 
 const CONTRACT_B = {
-  id: 'telekom-dsl-2023',
   provider: 'Deutsche Telekom',
-  product: 'MagentaZuhause L',
-  monthly_cost_eur: 49.99,
+  current_conditions: 'MagentaZuhause L, 49.99 EUR/mon',
+  expiry_date: '2026-03-31',
+  last_review: '2024-06-01',
 };
 
 const FAKE_DB = { contracts: [CONTRACT_A, CONTRACT_B] };
 
 function makeHandler(dbOverride?: object) {
   const jsonlLog: object[] = [];
-  const readDb = dbOverride !== undefined
-    ? async (_path: string) => dbOverride
-    : async (_path: string) => FAKE_DB;
+  const readDb =
+    dbOverride !== undefined
+      ? async (_path: string) => dbOverride
+      : async (_path: string) => FAKE_DB;
 
   const handler = makeVoiceGetContract({
     contractsPath: '/fake/contracts.json',
-    jsonlPath: null as unknown as string, // suppress file writes
+    jsonlPath: null as unknown as string,
     readDb,
-    appendJsonl: (entry: object) => { jsonlLog.push(entry); },
+    appendJsonl: (entry: object) => {
+      jsonlLog.push(entry);
+    },
   });
 
   return { handler, jsonlLog };
 }
 
-describe('voice.get_contract', () => {
+describe('voice.get_contract (REQ-TOOLS-04)', () => {
   beforeEach(() => {
     clearFlatDbCache();
   });
 
-  it('looks up contract by exact id', async () => {
+  it('looks up contract by provider_name, returns {current_conditions, expiry_date, last_review}', async () => {
     const { handler } = makeHandler();
-    const result = await handler({ call_id: 'test-01', id: 'vodafone-mobile-2024' }) as Record<string, unknown>;
+    const result = (await handler({
+      call_id: 'test-01',
+      provider_name: 'Vodafone',
+    })) as Record<string, unknown>;
 
     expect(result).toMatchObject({ ok: true });
     const inner = result.result as Record<string, unknown>;
-    expect(inner.contract).toMatchObject({ id: 'vodafone-mobile-2024', provider: 'Vodafone' });
+    expect(inner.current_conditions).toBe(CONTRACT_A.current_conditions);
+    expect(inner.expiry_date).toBe(CONTRACT_A.expiry_date);
+    expect(inner.last_review).toBe(CONTRACT_A.last_review);
   });
 
-  it('looks up contract by provider substring (case-insensitive)', async () => {
+  it('case-insensitive provider_name match', async () => {
     const { handler } = makeHandler();
-    const result = await handler({ provider: 'telekom' }) as Record<string, unknown>;
+    const result = (await handler({ provider_name: 'telekom' })) as Record<
+      string,
+      unknown
+    >;
 
     expect(result).toMatchObject({ ok: true });
     const inner = result.result as Record<string, unknown>;
-    expect(inner.contract).toMatchObject({ id: 'telekom-dsl-2023' });
+    expect(inner.current_conditions).toBe(CONTRACT_B.current_conditions);
   });
 
-  it('returns contract:null when no match found', async () => {
+  it('no match → all three fields null, ok:true', async () => {
     const { handler } = makeHandler();
-    const result = await handler({ id: 'no-such-contract' }) as Record<string, unknown>;
+    const result = (await handler({
+      provider_name: 'nonexistent provider',
+    })) as Record<string, unknown>;
 
     expect(result).toMatchObject({ ok: true });
     const inner = result.result as Record<string, unknown>;
-    expect(inner.contract).toBeNull();
+    expect(inner.current_conditions).toBeNull();
+    expect(inner.expiry_date).toBeNull();
+    expect(inner.last_review).toBeNull();
   });
 
-  it('returns ok:false error:not_configured when file does not exist', async () => {
-    const { FlatDbNotFound } = await import('./flat-db-reader.js');
-    const handler = makeVoiceGetContract({
-      contractsPath: '/fake/contracts.json',
-      jsonlPath: null as unknown as string,
-      readDb: async () => { throw new FlatDbNotFound('/fake/contracts.json'); },
-      appendJsonl: () => {},
-    });
+  it('empty provider_name → throws BadRequestError', async () => {
+    const { BadRequestError } = await import('./voice-on-transcript-turn.js');
+    const { handler } = makeHandler();
 
-    const result = await handler({ id: 'x' }) as Record<string, unknown>;
-    expect(result).toMatchObject({ ok: false, error: 'not_configured' });
+    await expect(handler({ provider_name: '' })).rejects.toBeInstanceOf(
+      BadRequestError,
+    );
   });
 
-  it('throws BadRequestError when both id and provider are absent', async () => {
+  it('missing provider_name → throws BadRequestError', async () => {
     const { BadRequestError } = await import('./voice-on-transcript-turn.js');
     const { handler } = makeHandler();
 
     await expect(handler({})).rejects.toBeInstanceOf(BadRequestError);
   });
 
-  it('logs contract_lookup_done event to JSONL (no contract content)', async () => {
+  it('file missing → ok:false error:not_configured', async () => {
+    const { FlatDbNotFound } = await import('./flat-db-reader.js');
+    const handler = makeVoiceGetContract({
+      contractsPath: '/fake/contracts.json',
+      jsonlPath: null as unknown as string,
+      readDb: async () => {
+        throw new FlatDbNotFound('/fake/contracts.json');
+      },
+      appendJsonl: () => {},
+    });
+
+    const result = (await handler({
+      provider_name: 'anything',
+    })) as Record<string, unknown>;
+    expect(result).toMatchObject({ ok: false, error: 'not_configured' });
+  });
+
+  it('JSONL: contract_lookup_done logged, no contract content', async () => {
     const { handler, jsonlLog } = makeHandler();
-    await handler({ id: 'vodafone-mobile-2024' });
+    await handler({ provider_name: 'Vodafone' });
 
     expect(jsonlLog).toHaveLength(1);
     const entry = jsonlLog[0] as Record<string, unknown>;
     expect(entry.event).toBe('contract_lookup_done');
     expect(entry.found).toBe(true);
-    expect(entry).not.toHaveProperty('contract');
-    expect(entry).not.toHaveProperty('monthly_cost_eur');
+    expect(entry).not.toHaveProperty('current_conditions');
     expect(typeof entry.latency_ms).toBe('number');
   });
 });

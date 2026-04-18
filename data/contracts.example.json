@@ -1,11 +1,10 @@
 {
   "contracts": [
     {
-      "id": "example-provider-2024",
       "provider": "Example AG",
-      "product": "Mobile Tarif",
-      "monthly_cost_eur": 29.99,
-      "notes": "Beispiel — ersetze mit echten Daten"
+      "current_conditions": "Mobile Tarif, 29.99 EUR/mon, 10 GB Data",
+      "expiry_date": "2026-12-31",
+      "last_review": "2025-01-01"
     }
   ]
 }
