@@ -21,9 +21,7 @@ const CreateEntrySchema = z.object({
   call_id: z.string().optional(),
   title: z.string().min(1).max(200),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD'),
-  time: z
-    .string()
-    .regex(/^\d{2}:\d{2}$/, 'time must be HH:mm (24h)'),
+  time: z.string().regex(/^\d{2}:\d{2}$/, 'time must be HH:mm (24h)'),
   duration: z.number().int().min(1).max(1440),
   location: z.string().max(200).optional(),
   travel_buffer_before_min: z.number().int().min(0).max(180).optional(),
@@ -65,7 +63,7 @@ function getUTCOffsetMs(localDate: Date, tz: string): number {
       get('minute'),
       get('second'),
     );
-    return Math.round((utcMs - localMs) / 60000) * 60000;
+    return Math.round((localMs - utcMs) / 60000) * 60000;
   } catch {
     return 2 * 3600000; // fallback +02:00 CEST
   }
@@ -155,8 +153,7 @@ export function makeVoiceCreateCalendarEntry(
       const existing = existingItems.find(
         (e) =>
           e.summary === title &&
-          (e.start?.dateTime?.startsWith(date) ||
-            e.start?.date === date),
+          (e.start?.dateTime?.startsWith(date) || e.start?.date === date),
       );
 
       if (existing?.id) {
@@ -228,7 +225,10 @@ export function makeVoiceCreateCalendarEntry(
           });
         } catch {
           // non-fatal: travel buffer insert failure does not affect main event
-          logger.warn({ event: 'voice_create_calendar_buffer_error', dir: 'before' });
+          logger.warn({
+            event: 'voice_create_calendar_buffer_error',
+            dir: 'before',
+          });
         }
       }
 
@@ -244,7 +244,10 @@ export function makeVoiceCreateCalendarEntry(
             },
           });
         } catch {
-          logger.warn({ event: 'voice_create_calendar_buffer_error', dir: 'after' });
+          logger.warn({
+            event: 'voice_create_calendar_buffer_error',
+            dir: 'after',
+          });
         }
       }
 
@@ -259,7 +262,10 @@ export function makeVoiceCreateCalendarEntry(
         was_duplicate: false,
       });
 
-      return { ok: true, result: { id: eventId ?? null, was_duplicate: false } };
+      return {
+        ok: true,
+        result: { id: eventId ?? null, was_duplicate: false },
+      };
     } catch (err) {
       if (err instanceof BadRequestError) throw err;
       logger.warn({ event: 'voice_create_calendar_error', err });

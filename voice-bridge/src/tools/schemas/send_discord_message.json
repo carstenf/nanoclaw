@@ -5,7 +5,11 @@
   "additionalProperties": false,
   "required": ["channel", "content"],
   "properties": {
-    "channel": { "type": "string", "minLength": 1 },
+    "channel": {
+      "type": "string",
+      "pattern": "^\\d{17,20}$",
+      "description": "Discord channel snowflake ID (17-20 digits, numeric only). Known channel: '1490365616518070407' = Andy's main/general channel."
+    },
     "content": { "type": "string", "minLength": 1, "maxLength": 2000 }
   }
 }
