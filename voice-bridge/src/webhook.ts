@@ -9,6 +9,7 @@ import { CARSTEN_CLI_NUMBER, SESSION_CONFIG } from './config.js'
 import { CASE6B_PERSONA, PHASE2_PERSONA } from './persona.js'
 import { getAllowlist, type ToolEntry } from './tools/allowlist.js'
 import type { CallRouter } from './call-router.js'
+import type { OutboundRouter } from './outbound-router.js'
 import { maybeInjectPreGreet } from './pre-greet.js'
 import { callCoreTool } from './core-mcp-client.js'
 import type { CoreClientLike } from './slow-brain.js'
@@ -93,6 +94,7 @@ export function registerAcceptRoute(
   secret: string,
   whitelist: Set<string>,
   router: CallRouter,
+  outboundRouter?: OutboundRouter,
 ): void {
   app.post('/accept', async (request, reply) => {
     const t0 = Date.now()
@@ -132,6 +134,75 @@ export function registerAcceptRoute(
 
     if (!callId) {
       log.warn({ event: 'accept_missing_call_id' })
+      return reply.code(200).send({ ok: true })
+    }
+
+    // Plan 03-11 rewrite: outbound detection. If outboundRouter has an active
+    // task with no openai_call_id yet, this incoming OpenAI webhook is for
+    // the call WE initiated via ESL → bypass whitelist, use OUTBOUND_PERSONA,
+    // bind the call_id back to the task for end-of-call correlation.
+    const activeOutbound =
+      outboundRouter?.getActiveTask() ?? null
+    const isOutbound =
+      !!activeOutbound && !activeOutbound.openai_call_id
+    if (isOutbound && activeOutbound) {
+      outboundRouter?.bindOpenaiCallId(activeOutbound.task_id, callId)
+      const outboundInstructions =
+        outboundRouter?.buildPersonaForTask(activeOutbound.task_id) ?? ''
+      const allowlistOut = getAllowlist()
+      const toolsPayloadOut = allowlistOut.map((e: ToolEntry) => {
+        const desc = (e.schema as { description?: unknown }).description
+        return {
+          type: 'function' as const,
+          name: e.name,
+          ...(typeof desc === 'string' && desc.length > 0
+            ? { description: desc }
+            : {}),
+          parameters: e.schema,
+        }
+      })
+      try {
+        await openai.realtime.calls.accept(callId, {
+          type: 'realtime',
+          model: SESSION_CONFIG.model,
+          instructions: outboundInstructions,
+          tools: toolsPayloadOut,
+          audio: SESSION_CONFIG.audio,
+        } as unknown as Parameters<typeof openai.realtime.calls.accept>[1])
+        const ctx = router.startCall(callId, log)
+        log.info({
+          event: 'call_accepted',
+          call_id: callId,
+          caller_number: callerNumber ?? null,
+          model: SESSION_CONFIG.model,
+          latency_ms: Date.now() - t0,
+          tools_count: toolsPayloadOut.length,
+          schema_compile_ok: true,
+          sideband_opened: true,
+          persona_selected: 'outbound',
+          outbound_task_id: activeOutbound.task_id,
+        })
+        // Outbound greet: skip pre-greet (no Slow-Brain context yet) but
+        // still trigger the proactive response.create after the same delay
+        // so the model emits its opening greeting based on OUTBOUND_PERSONA.
+        setTimeout(() => {
+          requestResponse(ctx.sideband.state, log)
+          log.info({
+            event: 'greet_response_create_sent',
+            call_id: callId,
+            delay_ms: GREET_TRIGGER_DELAY_MS,
+            outbound: true,
+          })
+        }, GREET_TRIGGER_DELAY_MS)
+      } catch (e: unknown) {
+        const err = e as Error
+        log.error({
+          event: 'accept_failed',
+          call_id: callId,
+          outbound: true,
+          err: err?.message,
+        })
+      }
       return reply.code(200).send({ ok: true })
     }
 

@@ -97,6 +97,21 @@ export const GREET_TRIGGER_DELAY_MS = Number(
   process.env.GREET_TRIGGER_DELAY_MS ?? 1000,
 )
 
+// ----- Plan 03-11 rewrite: ESL outbound (briefing 22:18, ESL verified) -----
+// FreeSWITCH event-socket connection on Hetzner via WireGuard. iptables blocks
+// public; only 10.0.0.0/24 reachable. Password is non-default Adagio11ESL,
+// stored in .env (NEVER commit a real value).
+export const ESL_HOST = process.env.ESL_HOST ?? '10.0.0.1'
+export const ESL_PORT = Number(process.env.ESL_PORT ?? 8021)
+export const ESL_PASSWORD = process.env.ESL_PASSWORD ?? ''
+export const ESL_TIMEOUT_MS = Number(process.env.ESL_TIMEOUT_MS ?? 5000)
+
+// OpenAI Realtime SIP project ID (also referenced by inbound dialplan in
+// voice-stack/conf/overlay/dialplan/public/01_sipgate_inbound.xml). Outbound
+// uses the same project — bridge target is sip:<projectId>@sip.api.openai.com.
+export const OPENAI_SIP_PROJECT_ID =
+  process.env.OPENAI_SIP_PROJECT_ID ?? 'proj_4tEBz3XjO4gwM5hyrvsxLM8E'
+
 // ----- Plan 02-09: NanoClaw-Core MCP endpoint (Slow-Brain Retrofit) -----
 // Slow-Brain-Inference lebt in NanoClaw-Core (Plan 03-02). voice-bridge ruft
 // per Turn voice.on_transcript_turn via HTTP-MCP ueber WireGuard. Unset =

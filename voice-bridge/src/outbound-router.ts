@@ -1,6 +1,28 @@
 // voice-bridge/src/outbound-router.ts
-// Plan 03-11: In-memory outbound-call queue + lifecycle manager.
-// Handles: enqueue, triggerExecute, onCallEnd, escalation, max-duration-cap.
+// Plan 03-11 (rewrite 22:18): outbound execution via FreeSWITCH ESL.
+//
+// Old implementation called openai.realtime.calls.create() which does NOT
+// exist in the OpenAI SDK (only accept/reject/refer/hangup for inbound).
+// REQ-SIP-02 specifies outbound via FreeSWITCH originate; ESL is the standard
+// FS control surface (verified working from Lenovo1 → Hetzner over WireGuard
+// per briefing 22:18, REQ-INFRA-13/14 fulfilled).
+//
+// Flow per outbound task:
+//   1. enqueue() puts task in queue, fires triggerExecute if no active call.
+//   2. triggerExecute() picks next queued task, calls eslOriginate() which
+//      issues `originate sofia/gateway/sipgate/<phone> &bridge(sofia/openai/...)`.
+//      FS originates A-leg to sipgate; on answer, bridges to OpenAI SIP.
+//   3. OpenAI receives the bridged INVITE, sends realtime.call.incoming
+//      webhook to /accept. /accept consults outboundRouter.getActiveTask(),
+//      sees an active outbound task with no openai_call_id yet → applies
+//      OUTBOUND_PERSONA(goal,context) and calls bindOpenaiCallId(taskId,
+//      openaiCallId).
+//   4. Call proceeds. Sideband close → endCall → outboundRouter.onCallEnd(
+//      taskId,'normal') → reportBack → triggerExecute next queued task.
+//
+// Single-active-outbound concurrency (queue-serialised) is enforced as before
+// — keeps webhook correlation trivial: "the active outbound task IS the one
+// the incoming OpenAI webhook is for."
 import crypto from 'node:crypto'
 import {
   OUTBOUND_QUEUE_MAX,
@@ -20,8 +42,10 @@ export interface OutboundTask {
   created_at: number
   started_at?: number
   ended_at?: number
-  /** OpenAI-side call ID (set after calls.create resolves) */
-  call_id?: string
+  /** FreeSWITCH-side channel UUID returned by originate +OK. */
+  fs_uuid?: string
+  /** OpenAI-side call_id, set by webhook /accept once the bridged INVITE arrives. */
+  openai_call_id?: string
   status: 'queued' | 'active' | 'done' | 'failed' | 'escalated'
   error?: string
 }
@@ -34,21 +58,25 @@ export interface EnqueueRequest {
   call_id?: string
 }
 
+export interface EslClientLike {
+  /** Issue a FreeSWITCH originate, return the FS-side UUID on success. */
+  originate: (opts: {
+    targetPhone: string
+    taskId: string
+  }) => Promise<{ fsUuid: string }>
+}
+
 // DI surface for tests
 export interface OutboundRouterDeps {
-  openaiClient: {
-    realtime: {
-      calls: {
-        create: (params: Record<string, unknown>) => Promise<{ id: string }>
-        end: (callId: string) => Promise<void>
-      }
-    }
-  }
+  /** Plan 03-11 rewrite: ESL client replaces the old openaiClient.realtime.calls.create attempt. */
+  eslClient: EslClientLike
   callRouter: {
     _size: () => number
   }
   /** Called after each task completes (done/failed/escalated) with final task state. */
   reportBack: (task: OutboundTask) => Promise<void>
+  /** Optional hard hangup (used at max-duration cap). */
+  hangupCall?: (openaiCallId: string) => Promise<void>
   timers: {
     setTimeout: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
     clearTimeout: (id: ReturnType<typeof setTimeout>) => void
@@ -63,6 +91,14 @@ export interface OutboundRouter {
   enqueue: (req: EnqueueRequest) => OutboundTask
   onCallEnd: (taskId: string, reason: string) => Promise<void>
   getState: () => OutboundTask[]
+  /** Plan 03-11 rewrite: webhook /accept reads this to see if an unmapped
+   *  outbound is in flight, then calls bindOpenaiCallId. */
+  getActiveTask: () => OutboundTask | null
+  bindOpenaiCallId: (taskId: string, openaiCallId: string) => void
+  /** Reverse lookup so endCall handlers can convert openai_call_id back to taskId. */
+  taskIdForOpenaiCallId: (openaiCallId: string) => string | null
+  /** For 03-11: persona built fresh per call, exposed for /accept handler. */
+  buildPersonaForTask: (taskId: string) => string | null
 }
 
 // ---- Error ----
@@ -91,113 +127,107 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
   const durationTimers = new Map<string, ReturnType<typeof setTimeout>>()
   // task_id that is currently "active" (executing call)
   let activeTaskId: string | null = null
+  // openai_call_id → task_id reverse index
+  const openaiToTask = new Map<string, string>()
 
   function queued(): OutboundTask[] {
     return [...tasks.values()].filter((t) => t.status === 'queued')
   }
 
   async function triggerExecute(): Promise<void> {
-    // Already executing or no tasks
     if (activeTaskId !== null) return
     const next = queued()[0]
     if (!next) return
 
-    // Mark active
     next.status = 'active'
     next.started_at = now()
     activeTaskId = next.task_id
 
-    // Clear escalation timer if still running
     const escTimer = escalationTimers.get(next.task_id)
     if (escTimer !== undefined) {
       deps.timers.clearTimeout(escTimer)
       escalationTimers.delete(next.task_id)
     }
 
-    // Build persona from goal+context
-    const instructions = buildOutboundPersona(next.goal, next.context)
-
-    // Start max-duration cap timer
+    // Start max-duration cap timer. Fires hangup if call runs too long.
     const durTimer = deps.timers.setTimeout(async () => {
-      // Call has exceeded max-duration — end it
-      if (next.call_id) {
+      const t = tasks.get(next.task_id)
+      if (!t || t.status !== 'active') return
+      if (t.openai_call_id && deps.hangupCall) {
         try {
-          await deps.openaiClient.realtime.calls.end(next.call_id)
+          await deps.hangupCall(t.openai_call_id)
         } catch {
-          // best-effort
+          /* best-effort */
         }
       }
-      // onCallEnd will be triggered by sideband close; but as fallback, fire here
+      // If the OpenAI call never wired up (no openai_call_id) we can't hangup
+      // it directly — onCallEnd-fallback marks the task failed.
       if (tasks.get(next.task_id)?.status === 'active') {
         await onCallEndInternal(next.task_id, 'timeout')
       }
     }, maxDurationMs)
     durationTimers.set(next.task_id, durTimer)
 
-    // Launch call
+    // Issue FreeSWITCH originate via ESL.
     try {
-      const result = await deps.openaiClient.realtime.calls.create({
-        type: 'sip',
-        to: next.target_phone,
-        instructions,
+      const result = await deps.eslClient.originate({
+        targetPhone: next.target_phone,
+        taskId: next.task_id,
       })
-      next.call_id = result.id
+      next.fs_uuid = result.fsUuid
     } catch (err) {
-      // calls.create failed — mark failed
       next.status = 'failed'
       next.error = err instanceof Error ? err.message : String(err)
       next.ended_at = now()
       activeTaskId = null
-      // Clear duration timer
       const dt = durationTimers.get(next.task_id)
       if (dt !== undefined) {
         deps.timers.clearTimeout(dt)
         durationTimers.delete(next.task_id)
       }
-      // Report back
       try {
         await deps.reportBack(next)
       } catch {
-        // best-effort
+        /* best-effort */
       }
-      // Try next queued task
       await triggerExecute()
     }
   }
 
-  async function onCallEndInternal(taskId: string, reason: string): Promise<void> {
+  async function onCallEndInternal(
+    taskId: string,
+    reason: string,
+  ): Promise<void> {
     const task = tasks.get(taskId)
     if (!task) return
 
-    // Clear duration timer
     const dt = durationTimers.get(taskId)
     if (dt !== undefined) {
       deps.timers.clearTimeout(dt)
       durationTimers.delete(taskId)
     }
 
-    // Update status
     task.status = reason === 'timeout' ? 'failed' : 'done'
     task.error = reason === 'timeout' ? 'max_duration_exceeded' : undefined
     task.ended_at = now()
 
+    if (task.openai_call_id) {
+      openaiToTask.delete(task.openai_call_id)
+    }
     if (activeTaskId === taskId) {
       activeTaskId = null
     }
 
-    // Report back
     try {
       await deps.reportBack(task)
     } catch {
-      // best-effort
+      /* best-effort */
     }
 
-    // Pick next queued task
     await triggerExecute()
   }
 
   function enqueue(req: EnqueueRequest): OutboundTask {
-    // Check capacity (queued + active count)
     const currentCount = [...tasks.values()].filter(
       (t) => t.status === 'queued' || t.status === 'active',
     ).length
@@ -212,12 +242,10 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
       context: req.context,
       report_to_jid: req.report_to_jid,
       created_at: now(),
-      call_id: req.call_id,
       status: 'queued',
     }
     tasks.set(task.task_id, task)
 
-    // Start escalation timer (will be cleared if task starts executing)
     const escTimer = deps.timers.setTimeout(async () => {
       const t = tasks.get(task.task_id)
       if (!t || t.status !== 'queued') return
@@ -226,15 +254,14 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
       try {
         await deps.reportBack(t)
       } catch {
-        // best-effort
+        /* best-effort */
       }
     }, escalationMs)
     escalationTimers.set(task.task_id, escTimer)
 
-    // If no active call → execute immediately (async, fire-and-forget with error guard)
     if (activeTaskId === null && deps.callRouter._size() === 0) {
       void triggerExecute().catch(() => {
-        // errors handled inside triggerExecute
+        /* errors handled inside triggerExecute */
       })
     }
 
@@ -249,5 +276,35 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
     return [...tasks.values()]
   }
 
-  return { enqueue, onCallEnd, getState }
+  function getActiveTask(): OutboundTask | null {
+    if (!activeTaskId) return null
+    return tasks.get(activeTaskId) ?? null
+  }
+
+  function bindOpenaiCallId(taskId: string, openaiCallId: string): void {
+    const t = tasks.get(taskId)
+    if (!t) return
+    t.openai_call_id = openaiCallId
+    openaiToTask.set(openaiCallId, taskId)
+  }
+
+  function taskIdForOpenaiCallId(openaiCallId: string): string | null {
+    return openaiToTask.get(openaiCallId) ?? null
+  }
+
+  function buildPersonaForTask(taskId: string): string | null {
+    const t = tasks.get(taskId)
+    if (!t) return null
+    return buildOutboundPersona(t.goal, t.context)
+  }
+
+  return {
+    enqueue,
+    onCallEnd,
+    getState,
+    getActiveTask,
+    bindOpenaiCallId,
+    taskIdForOpenaiCallId,
+    buildPersonaForTask,
+  }
 }

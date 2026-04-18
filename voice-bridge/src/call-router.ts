@@ -37,6 +37,8 @@ export interface CallRouterFactories {
   startSlowBrain?: typeof startSlowBrain
   runGhostScan?: typeof runGhostScan
   clearIdempotencyCache?: (callId: string) => void
+  /** Plan 03-11 rewrite: notify outbound-router when an outbound call ends. */
+  onCallEndExtra?: (callId: string, reason: string) => void | Promise<void>
 }
 
 export function createCallRouter(
@@ -147,6 +149,27 @@ export function createCallRouter(
           err: e.message,
         })
       })
+      // Plan 03-11 rewrite: outbound-router needs notification when its call
+      // ends so it can mark task done and trigger next queued.
+      if (factories.onCallEndExtra) {
+        try {
+          void Promise.resolve(factories.onCallEndExtra(callId, 'normal')).catch(
+            (e: Error) => {
+              log.warn({
+                event: 'on_call_end_extra_failed',
+                call_id: callId,
+                err: e.message,
+              })
+            },
+          )
+        } catch (e: unknown) {
+          log.warn({
+            event: 'on_call_end_extra_failed',
+            call_id: callId,
+            err: (e as Error).message,
+          })
+        }
+      }
       map.delete(callId)
       logs.delete(callId)
     },

@@ -14,6 +14,7 @@ import { startHeartbeat } from './heartbeat.js'
 import { createCallRouter, type CallRouter } from './call-router.js'
 import { createOutboundRouter, type OutboundRouter } from './outbound-router.js'
 import { setHangupCallback } from './tools/dispatch.js'
+import { eslOriginate } from './freeswitch-esl-client.js'
 
 export interface BuildAppOptions {
   /** Optional OpenAI client injection for tests (mock). If omitted, real client is constructed. */
@@ -72,23 +73,46 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     ).realtime.calls.hangup(callId)
   })
 
-  const router = opts.routerOverride ?? createCallRouter()
+  // Plan 03-11 rewrite: forward declaration so call-router's onCallEndExtra
+  // can notify outbound-router about call ends. The closure below captures
+  // the variable lazily — outbound-router is constructed right after.
+  let outboundRouter: OutboundRouter | undefined
+  const router =
+    opts.routerOverride ??
+    createCallRouter({
+      onCallEndExtra: async (callId, reason) => {
+        if (!outboundRouter) return
+        const taskId = outboundRouter.taskIdForOpenaiCallId(callId)
+        if (taskId) await outboundRouter.onCallEnd(taskId, reason)
+      },
+    })
 
-  // OutboundRouter: DI for tests, real instance in production
-  const outboundRouter =
+  // OutboundRouter (Plan 03-11 rewrite): ESL client + hangup callback (shared
+  // with end_call). DI for tests, real instance in production.
+  outboundRouter =
     opts.outboundRouterOverride ??
     createOutboundRouter({
-      openaiClient: openai as unknown as Parameters<typeof createOutboundRouter>[0]['openaiClient'],
+      eslClient: {
+        originate: async ({ targetPhone, taskId }) =>
+          eslOriginate({ targetPhone, taskId }),
+      },
       callRouter: router,
       reportBack: async () => {
         /* report-back wired in main() via log; no-op in buildApp */
+      },
+      hangupCall: async (callId: string) => {
+        await (
+          openai as unknown as {
+            realtime: { calls: { hangup: (id: string) => Promise<unknown> } }
+          }
+        ).realtime.calls.hangup(callId)
       },
       timers: { setTimeout, clearTimeout },
     })
 
   registerHealthRoute(app)
   registerWebhookRoute(app, openai, log, secret)
-  registerAcceptRoute(app, openai, log, secret, whitelist, router)
+  registerAcceptRoute(app, openai, log, secret, whitelist, router, outboundRouter)
   registerOutboundRoute(app, log, outboundRouter, {
     authToken: opts.outboundAuthToken,
     peerIpOverride: opts.peerIpOverride,

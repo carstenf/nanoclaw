@@ -1,32 +1,41 @@
-// tests/outbound-router.test.ts — RED tests for OutboundRouter
+// tests/outbound-router.test.ts — OutboundRouter tests
+// Plan 03-11 rewrite: openaiClient.realtime.calls.create replaced by eslClient.originate.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { OutboundRouter, OutboundTask } from '../src/outbound-router.js'
+import type { OutboundTask } from '../src/outbound-router.js'
 
-// Fake deps factory
 function makeDeps(overrides: Record<string, unknown> = {}) {
-  const openaiClient = {
-    realtime: {
-      calls: {
-        create: vi.fn().mockResolvedValue({ id: 'call-001' }),
-        end: vi.fn().mockResolvedValue(undefined),
-      },
-    },
+  const eslClient = {
+    originate: vi.fn().mockResolvedValue({ fsUuid: 'fs-uuid-001' }),
   }
   const callRouter = {
     _size: vi.fn().mockReturnValue(0),
   }
   const reportBack = vi.fn().mockResolvedValue(undefined)
+  const hangupCall = vi.fn().mockResolvedValue(undefined)
   const timers = {
-    setTimeout: vi.fn().mockReturnValue(123 as unknown as ReturnType<typeof setTimeout>),
+    setTimeout: vi
+      .fn()
+      .mockReturnValue(123 as unknown as ReturnType<typeof setTimeout>),
     clearTimeout: vi.fn(),
   }
   let t = 1_700_000_000_000
   const now = () => t
-  const advanceTime = (ms: number) => { t += ms }
-  return { openaiClient, callRouter, reportBack, timers, now, advanceTime, ...overrides }
+  const advanceTime = (ms: number) => {
+    t += ms
+  }
+  return {
+    eslClient,
+    callRouter,
+    reportBack,
+    hangupCall,
+    timers,
+    now,
+    advanceTime,
+    ...overrides,
+  }
 }
 
-describe('OutboundRouter', () => {
+describe('OutboundRouter (03-11 rewrite — ESL)', () => {
   let deps: ReturnType<typeof makeDeps>
 
   beforeEach(() => {
@@ -38,7 +47,7 @@ describe('OutboundRouter', () => {
     vi.useRealTimers()
   })
 
-  it('enqueue-idle: immediately triggers execute when no active call', async () => {
+  it('enqueue-idle: immediately triggers ESL originate when no active call', async () => {
     const { createOutboundRouter } = await import('../src/outbound-router.js')
     const router = createOutboundRouter(deps)
     const task = router.enqueue({
@@ -48,14 +57,21 @@ describe('OutboundRouter', () => {
       report_to_jid: 'dc:123',
     })
     expect(task.status).toBe('active')
-    expect(deps.openaiClient.realtime.calls.create).toHaveBeenCalledOnce()
+    // Drain microtasks (triggerExecute runs as void async). Use a small
+    // advance instead of runAllTimersAsync so duration/escalation timers
+    // (10+ minutes) do NOT fire here.
+    await vi.advanceTimersByTimeAsync(1)
+    expect(deps.eslClient.originate).toHaveBeenCalledOnce()
+    expect(deps.eslClient.originate).toHaveBeenCalledWith({
+      targetPhone: '+491234567890',
+      taskId: task.task_id,
+    })
   })
 
   it('enqueue-active: queues task when active call in progress', async () => {
     deps.callRouter._size.mockReturnValue(1)
     const { createOutboundRouter } = await import('../src/outbound-router.js')
     const router = createOutboundRouter(deps)
-    // First enqueue — with active call, should be queued
     const task = router.enqueue({
       target_phone: '+491234567890',
       goal: 'Queued goal',
@@ -63,24 +79,39 @@ describe('OutboundRouter', () => {
       report_to_jid: 'dc:123',
     })
     expect(task.status).toBe('queued')
-    expect(deps.openaiClient.realtime.calls.create).not.toHaveBeenCalled()
+    expect(deps.eslClient.originate).not.toHaveBeenCalled()
   })
 
   it('max-queue-full: throws QueueFullError when queue exceeds OUTBOUND_QUEUE_MAX', async () => {
     deps.callRouter._size.mockReturnValue(1)
-    const { createOutboundRouter, QueueFullError } = await import('../src/outbound-router.js')
-    // queueMax=2 via DI
+    const { createOutboundRouter, QueueFullError } = await import(
+      '../src/outbound-router.js'
+    )
     const router = createOutboundRouter({ ...deps, queueMax: 2 })
-    router.enqueue({ target_phone: '+491111111111', goal: 'task1', context: '', report_to_jid: 'dc:1' })
-    router.enqueue({ target_phone: '+492222222222', goal: 'task2', context: '', report_to_jid: 'dc:2' })
+    router.enqueue({
+      target_phone: '+491111111111',
+      goal: 'task1',
+      context: '',
+      report_to_jid: 'dc:1',
+    })
+    router.enqueue({
+      target_phone: '+492222222222',
+      goal: 'task2',
+      context: '',
+      report_to_jid: 'dc:2',
+    })
     expect(() =>
-      router.enqueue({ target_phone: '+493333333333', goal: 'task3', context: '', report_to_jid: 'dc:3' })
+      router.enqueue({
+        target_phone: '+493333333333',
+        goal: 'task3',
+        context: '',
+        report_to_jid: 'dc:3',
+      }),
     ).toThrow(QueueFullError)
   })
 
-  it('on-call-end-picks-next: onCallEnd with queued task triggers next execute', async () => {
+  it('on-call-end-picks-next: onCallEnd with queued task triggers next ESL originate', async () => {
     const { createOutboundRouter } = await import('../src/outbound-router.js')
-    // Start with no active calls so first enqueue executes immediately
     const router = createOutboundRouter(deps)
     const firstTask = router.enqueue({
       target_phone: '+491234567890',
@@ -88,9 +119,6 @@ describe('OutboundRouter', () => {
       context: '',
       report_to_jid: 'dc:123',
     })
-    // Now simulate another enqueue while first is active
-    // First is now active (via triggerExecute), so _size remains 0 in mock
-    // We manually queue a second by making _size return 1
     deps.callRouter._size.mockReturnValue(1)
     const secondTask = router.enqueue({
       target_phone: '+499876543210',
@@ -99,13 +127,14 @@ describe('OutboundRouter', () => {
       report_to_jid: 'dc:456',
     })
     expect(secondTask.status).toBe('queued')
-    // Now simulate call end for first task
     deps.callRouter._size.mockReturnValue(0)
     await router.onCallEnd(firstTask.task_id, 'completed')
-    expect(deps.openaiClient.realtime.calls.create).toHaveBeenCalledTimes(2)
-    // reportBack called for first task
+    expect(deps.eslClient.originate).toHaveBeenCalledTimes(2)
     expect(deps.reportBack).toHaveBeenCalledWith(
-      expect.objectContaining({ task_id: firstTask.task_id, status: 'done' }),
+      expect.objectContaining({
+        task_id: firstTask.task_id,
+        status: 'done',
+      }),
     )
   })
 
@@ -120,33 +149,34 @@ describe('OutboundRouter', () => {
       report_to_jid: 'dc:999',
     })
     expect(task.status).toBe('queued')
-    // The escalation timer should have been set
     expect(deps.timers.setTimeout).toHaveBeenCalled()
-    // Simulate escalation timer firing
     const [callback] = deps.timers.setTimeout.mock.calls[0]
     await callback()
     const state = router.getState()
     const escalated = state.find((t: OutboundTask) => t.task_id === task.task_id)
     expect(escalated?.status).toBe('escalated')
     expect(deps.reportBack).toHaveBeenCalledWith(
-      expect.objectContaining({ task_id: task.task_id, status: 'escalated' }),
+      expect.objectContaining({
+        task_id: task.task_id,
+        status: 'escalated',
+      }),
     )
   })
 
-  it('max-duration-end-fires: max-duration timer calls openai.realtime.calls.end', async () => {
+  it('max-duration-end-fires: max-duration timer calls hangupCall when openai_call_id bound', async () => {
     vi.useRealTimers()
     const { createOutboundRouter } = await import('../src/outbound-router.js')
-    // Fresh mocks — not from beforeEach deps (which were built under fake timers)
-    const endSpy = vi.fn().mockResolvedValue(undefined)
-    const createSpy = vi.fn().mockResolvedValue({ id: 'call-dur-001' })
+    const hangupSpy = vi.fn().mockResolvedValue(undefined)
+    const originateSpy = vi.fn().mockResolvedValue({ fsUuid: 'fs-dur' })
     const capturedTimers: Array<{ fn: () => void; ms: number }> = []
     const freshDeps = {
-      openaiClient: { realtime: { calls: { create: createSpy, end: endSpy } } },
+      eslClient: { originate: originateSpy },
       callRouter: { _size: vi.fn().mockReturnValue(0) },
       reportBack: vi.fn().mockResolvedValue(undefined),
+      hangupCall: hangupSpy,
       now: () => Date.now(),
       maxDurationMs: 600000,
-      escalationMs: 660000,  // distinct from maxDurationMs so find() picks the right one
+      escalationMs: 660000,
       timers: {
         setTimeout: vi.fn((fn: () => void, ms: number) => {
           capturedTimers.push({ fn, ms })
@@ -156,20 +186,19 @@ describe('OutboundRouter', () => {
       },
     }
     const router = createOutboundRouter(freshDeps)
-    router.enqueue({
+    const task = router.enqueue({
       target_phone: '+491234567890',
       goal: 'Max duration test',
       context: '',
       report_to_jid: 'dc:123',
     })
-    // Flush microtasks so triggerExecute (void async) completes
     await new Promise<void>((r) => setTimeout(r, 10))
-    // Duration timer should be registered (ms >= 600000)
+    // bind openai call_id (simulates webhook /accept)
+    router.bindOpenaiCallId(task.task_id, 'rtc_max_dur')
     const durationTimer = capturedTimers.find(({ ms }) => ms === 600000)
     expect(durationTimer).toBeDefined()
-    // Fire the duration callback — should call calls.end
     await durationTimer!.fn()
-    expect(endSpy).toHaveBeenCalled()
+    expect(hangupSpy).toHaveBeenCalledWith('rtc_max_dur')
   })
 
   it('report-back-call-on-end: reportBack is called with summary when onCallEnd fires', async () => {
@@ -192,12 +221,93 @@ describe('OutboundRouter', () => {
   it('getState returns all tasks including active and queued', async () => {
     const { createOutboundRouter } = await import('../src/outbound-router.js')
     const router = createOutboundRouter(deps)
-    router.enqueue({ target_phone: '+491234567890', goal: 'First', context: '', report_to_jid: 'dc:1' })
+    router.enqueue({
+      target_phone: '+491234567890',
+      goal: 'First',
+      context: '',
+      report_to_jid: 'dc:1',
+    })
     deps.callRouter._size.mockReturnValue(1)
-    router.enqueue({ target_phone: '+499876543210', goal: 'Second', context: '', report_to_jid: 'dc:2' })
+    router.enqueue({
+      target_phone: '+499876543210',
+      goal: 'Second',
+      context: '',
+      report_to_jid: 'dc:2',
+    })
     const state = router.getState()
     expect(state.length).toBe(2)
     expect(state.some((t: OutboundTask) => t.status === 'active')).toBe(true)
     expect(state.some((t: OutboundTask) => t.status === 'queued')).toBe(true)
+  })
+
+  // ---- 03-11 rewrite-specific tests ----
+
+  it('getActiveTask returns currently active task or null', async () => {
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    expect(router.getActiveTask()).toBeNull()
+    const task = router.enqueue({
+      target_phone: '+491234567890',
+      goal: 'Active',
+      context: '',
+      report_to_jid: 'dc:1',
+    })
+    expect(router.getActiveTask()?.task_id).toBe(task.task_id)
+  })
+
+  it('bindOpenaiCallId + taskIdForOpenaiCallId reverse-lookup works', async () => {
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    const task = router.enqueue({
+      target_phone: '+491234567890',
+      goal: 'X',
+      context: '',
+      report_to_jid: 'dc:1',
+    })
+    router.bindOpenaiCallId(task.task_id, 'rtc_xyz_123')
+    expect(router.taskIdForOpenaiCallId('rtc_xyz_123')).toBe(task.task_id)
+    expect(router.taskIdForOpenaiCallId('not-a-real-id')).toBeNull()
+  })
+
+  it('buildPersonaForTask returns OUTBOUND_PERSONA with goal+context substituted', async () => {
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    const task = router.enqueue({
+      target_phone: '+491234567890',
+      goal: 'Bei der Praxis Termin verschieben',
+      context: 'Patient: Carsten, Termin am 23.5.',
+      report_to_jid: 'dc:1',
+    })
+    const persona = router.buildPersonaForTask(task.task_id)
+    expect(persona).toBeTruthy()
+    expect(persona).toContain('Bei der Praxis Termin verschieben')
+    expect(persona).toContain('Patient: Carsten, Termin am 23.5.')
+  })
+
+  it('ESL originate failure marks task failed + reportBack + advances queue', async () => {
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const eslFail = {
+      originate: vi.fn().mockRejectedValueOnce(new Error('connect_failed: ECONNREFUSED')),
+    }
+    const failDeps = { ...deps, eslClient: eslFail }
+    const router = createOutboundRouter(failDeps)
+    const task = router.enqueue({
+      target_phone: '+491234567890',
+      goal: 'X',
+      context: '',
+      report_to_jid: 'dc:1',
+    })
+    // Flush async
+    // Drain microtasks (triggerExecute runs as void async). Use a small
+    // advance instead of runAllTimersAsync so duration/escalation timers
+    // (10+ minutes) do NOT fire here.
+    await vi.advanceTimersByTimeAsync(1)
+    const state = router.getState()
+    const got = state.find((t) => t.task_id === task.task_id)
+    expect(got?.status).toBe('failed')
+    expect(got?.error).toContain('connect_failed')
+    expect(deps.reportBack).toHaveBeenCalledWith(
+      expect.objectContaining({ task_id: task.task_id, status: 'failed' }),
+    )
   })
 })
