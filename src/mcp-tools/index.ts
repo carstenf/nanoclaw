@@ -5,13 +5,19 @@ import { OneCLI } from '@onecli-sh/sdk';
 import { DATA_DIR, ONECLI_URL } from '../config.js';
 import { logger } from '../logger.js';
 
-import { VOICE_DISCORD_ALLOWED_CHANNELS, VOICE_DISCORD_TIMEOUT_MS } from '../config.js';
+import {
+  VOICE_DISCORD_ALLOWED_CHANNELS,
+  VOICE_DISCORD_TIMEOUT_MS,
+  GOOGLE_MAPS_API_KEY,
+  GOOGLE_MAPS_TIMEOUT_MS,
+} from '../config.js';
 import { SlowBrainSessionManager } from './slow-brain-session.js';
 import { makeVoiceOnTranscriptTurn } from './voice-on-transcript-turn.js';
 import { makeVoiceCheckCalendar } from './voice-check-calendar.js';
 import { makeVoiceCreateCalendarEntry } from './voice-create-calendar-entry.js';
 import { getCalendarClient } from './calendar-client.js';
 import { makeVoiceSendDiscordMessage } from './voice-send-discord-message.js';
+import { makeVoiceGetTravelTime } from './voice-get-travel-time.js';
 
 /**
  * Fetch OneCLI CA certificate and write it to the path set in NODE_EXTRA_CA_CERTS.
@@ -73,7 +79,10 @@ export interface RegistryDeps {
   /** Inject a session manager (useful in tests to avoid real OneCLI calls). */
   sessionManager?: SlowBrainSessionManager;
   /** Discord send callback — injected from index.ts to reuse existing DiscordChannel gateway. */
-  sendDiscordMessage?: (channelId: string, text: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  sendDiscordMessage?: (
+    channelId: string,
+    text: string,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 export interface RegistryHandle {
@@ -141,7 +150,11 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   if (deps.sendDiscordMessage && VOICE_DISCORD_ALLOWED_CHANNELS.size > 0) {
     const log = deps.log ?? logger;
     log.info(
-      { event: 'mcp_tool_registering', tool: 'voice.send_discord_message', allowlist_size: VOICE_DISCORD_ALLOWED_CHANNELS.size },
+      {
+        event: 'mcp_tool_registering',
+        tool: 'voice.send_discord_message',
+        allowlist_size: VOICE_DISCORD_ALLOWED_CHANNELS.size,
+      },
       'registered tool voice.send_discord_message',
     );
     registry.register(
@@ -158,8 +171,38 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   } else {
     const log = deps.log ?? logger;
     log.warn(
-      { event: 'mcp_tool_skipped', tool: 'voice.send_discord_message', has_callback: !!deps.sendDiscordMessage, allowlist_size: VOICE_DISCORD_ALLOWED_CHANNELS.size },
+      {
+        event: 'mcp_tool_skipped',
+        tool: 'voice.send_discord_message',
+        has_callback: !!deps.sendDiscordMessage,
+        allowlist_size: VOICE_DISCORD_ALLOWED_CHANNELS.size,
+      },
       'skipping voice.send_discord_message — no callback or empty allowlist',
+    );
+  }
+
+  // voice.get_travel_time — only register when GOOGLE_MAPS_API_KEY is set
+  if (GOOGLE_MAPS_API_KEY.length > 0) {
+    const log = deps.log ?? logger;
+    log.info(
+      { event: 'mcp_tool_registering', tool: 'voice.get_travel_time' },
+      'registered tool voice.get_travel_time',
+    );
+    registry.register(
+      'voice.get_travel_time',
+      makeVoiceGetTravelTime({
+        apiKey: GOOGLE_MAPS_API_KEY,
+        timeoutMs: GOOGLE_MAPS_TIMEOUT_MS,
+        jsonlPath: deps.dataDir
+          ? `${deps.dataDir}/voice-maps.jsonl`
+          : undefined,
+      }),
+    );
+  } else {
+    const log = deps.log ?? logger;
+    log.info(
+      { event: 'mcp_tool_skipped', tool: 'voice.get_travel_time' },
+      'voice.get_travel_time skipped: no GOOGLE_MAPS_API_KEY',
     );
   }
 

@@ -102,7 +102,10 @@ export const SLOW_BRAIN_SESSION_IDLE_MS = parseInt(
 );
 
 // Discord MCP tool settings
-const envDiscord = readEnvFile(['VOICE_DISCORD_ALLOWED_CHANNELS', 'VOICE_DISCORD_TIMEOUT_MS']);
+const envDiscord = readEnvFile([
+  'VOICE_DISCORD_ALLOWED_CHANNELS',
+  'VOICE_DISCORD_TIMEOUT_MS',
+]);
 export const VOICE_DISCORD_ALLOWED_CHANNELS_RAW =
   process.env.VOICE_DISCORD_ALLOWED_CHANNELS ??
   envDiscord.VOICE_DISCORD_ALLOWED_CHANNELS ??
@@ -113,7 +116,20 @@ export const VOICE_DISCORD_ALLOWED_CHANNELS: Set<string> = new Set(
     .filter(Boolean),
 );
 export const VOICE_DISCORD_TIMEOUT_MS = parseInt(
-  process.env.VOICE_DISCORD_TIMEOUT_MS ?? envDiscord.VOICE_DISCORD_TIMEOUT_MS ?? '8000',
+  process.env.VOICE_DISCORD_TIMEOUT_MS ??
+    envDiscord.VOICE_DISCORD_TIMEOUT_MS ??
+    '8000',
+  10,
+);
+
+// Google Maps MCP tool settings
+const envMaps = readEnvFile(['GOOGLE_MAPS_API_KEY', 'GOOGLE_MAPS_TIMEOUT_MS']);
+export const GOOGLE_MAPS_API_KEY =
+  process.env.GOOGLE_MAPS_API_KEY ?? envMaps.GOOGLE_MAPS_API_KEY ?? '';
+export const GOOGLE_MAPS_TIMEOUT_MS = parseInt(
+  process.env.GOOGLE_MAPS_TIMEOUT_MS ??
+    envMaps.GOOGLE_MAPS_TIMEOUT_MS ??
+    '6000',
   10,
 );
 
