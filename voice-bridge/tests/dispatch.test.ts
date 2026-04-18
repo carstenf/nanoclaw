@@ -393,4 +393,160 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     expect(emitFiller).not.toHaveBeenCalled()
     expect(callCoreTool).toHaveBeenCalled()
   })
+
+  // -------- Plan 03-13: end_call (bridge-internal hangup) --------
+
+  it('end_call farewell: invokes hangupCall(callId), emits ok output, no MCP, no response.create', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const callCoreTool = vi.fn()
+    const hangupCall = vi.fn().mockResolvedValue(undefined)
+    const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
+    const emitResponseCreate = vi.fn().mockReturnValue(true)
+    const opts = {
+      ...makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate }),
+      hangupCall,
+    }
+
+    await dispatchTool(
+      ws,
+      'rtc_farewell_1',
+      'turn_e1',
+      'fc_e1',
+      'end_call',
+      { reason: 'farewell' },
+      log,
+      opts,
+    )
+
+    expect(hangupCall).toHaveBeenCalledWith('rtc_farewell_1')
+    expect(callCoreTool).not.toHaveBeenCalled()
+    expect(emitFunctionCallOutput).toHaveBeenCalledWith(
+      ws,
+      'fc_e1',
+      expect.objectContaining({ ok: true, ended: true, reason: 'farewell' }),
+      log,
+    )
+    // No follow-up response.create — bot must not speak after hangup
+    expect(emitResponseCreate).not.toHaveBeenCalled()
+  })
+
+  it('end_call silence: invokes hangup with reason=silence', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const hangupCall = vi.fn().mockResolvedValue(undefined)
+    const opts = { ...makeOpts(), hangupCall }
+
+    await dispatchTool(
+      ws,
+      'rtc_sil',
+      'turn',
+      'fc',
+      'end_call',
+      { reason: 'silence' },
+      log,
+      opts,
+    )
+
+    expect(hangupCall).toHaveBeenCalledOnce()
+  })
+
+  it('end_call: rejects unknown reason via schema validation, no hangup', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const hangupCall = vi.fn()
+    const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
+    const opts = {
+      ...makeOpts({ emitFunctionCallOutput }),
+      hangupCall,
+    }
+
+    await dispatchTool(
+      ws,
+      'rtc',
+      'turn',
+      'fc',
+      'end_call',
+      { reason: 'bored' },
+      log,
+      opts,
+    )
+
+    expect(hangupCall).not.toHaveBeenCalled()
+    expect(emitFunctionCallOutput).toHaveBeenCalledWith(
+      ws,
+      'fc',
+      { error: 'invalid_tool_call' },
+      log,
+    )
+  })
+
+  it('end_call: missing reason rejected', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const hangupCall = vi.fn()
+    const opts = { ...makeOpts(), hangupCall }
+
+    await dispatchTool(ws, 'rtc', 'turn', 'fc', 'end_call', {}, log, opts)
+
+    expect(hangupCall).not.toHaveBeenCalled()
+  })
+
+  it('end_call: hangup error returns ok:false but does not throw', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const hangupCall = vi.fn().mockRejectedValue(new Error('openai down'))
+    const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
+    const opts = {
+      ...makeOpts({ emitFunctionCallOutput }),
+      hangupCall,
+    }
+
+    await dispatchTool(
+      ws,
+      'rtc',
+      'turn',
+      'fc',
+      'end_call',
+      { reason: 'error' },
+      log,
+      opts,
+    )
+
+    expect(hangupCall).toHaveBeenCalled()
+    expect(emitFunctionCallOutput).toHaveBeenCalledWith(
+      ws,
+      'fc',
+      expect.objectContaining({ ok: false, error: 'openai down' }),
+      log,
+    )
+  })
+
+  it('end_call: no hangupCall wired returns ok:false hangup_not_wired', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
+    // Do NOT pass hangupCall — and clear any module-level callback
+    const { setHangupCallback } = await import('../src/tools/dispatch.js')
+    setHangupCallback(null)
+    const opts = makeOpts({ emitFunctionCallOutput })
+
+    await dispatchTool(
+      ws,
+      'rtc',
+      'turn',
+      'fc',
+      'end_call',
+      { reason: 'farewell' },
+      log,
+      opts,
+    )
+
+    expect(emitFunctionCallOutput).toHaveBeenCalledWith(
+      ws,
+      'fc',
+      expect.objectContaining({ ok: false, error: 'hangup_not_wired' }),
+      log,
+    )
+  })
 })

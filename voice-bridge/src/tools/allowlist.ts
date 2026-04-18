@@ -28,6 +28,7 @@ import getTravelTimeSchema from './schemas/get_travel_time.json' with { type: 'j
 import requestOutboundCallSchema from './schemas/request_outbound_call.json' with { type: 'json' }
 import deleteCalendarEntrySchema from './schemas/delete_calendar_entry.json' with { type: 'json' }
 import updateCalendarEntrySchema from './schemas/update_calendar_entry.json' with { type: 'json' }
+import endCallSchema from './schemas/end_call.json' with { type: 'json' }
 
 export interface ToolEntry {
   name: string
@@ -54,6 +55,7 @@ const ENTRIES: ToolEntry[] = [
   { name: 'request_outbound_call', mutating: true,  schema: requestOutboundCallSchema as Record<string, unknown>, validate: ajv.compile(requestOutboundCallSchema) },
   { name: 'delete_calendar_entry', mutating: true,  schema: deleteCalendarEntrySchema as Record<string, unknown>, validate: ajv.compile(deleteCalendarEntrySchema) },
   { name: 'update_calendar_entry', mutating: true,  schema: updateCalendarEntrySchema as Record<string, unknown>, validate: ajv.compile(updateCalendarEntrySchema) },
+  { name: 'end_call',              mutating: true,  schema: endCallSchema as Record<string, unknown>,              validate: ajv.compile(endCallSchema) },
 ]
 
 // REQ-TOOLS-09 ceiling guard — fires at module load.

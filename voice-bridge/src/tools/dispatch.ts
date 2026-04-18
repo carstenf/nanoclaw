@@ -44,6 +44,17 @@ const TOOL_TO_CORE_MCP: Record<string, string | null> = {
   confirm_action: null, // bridge-internal, 02-04 readback
   ask_core: 'voice.ask_core',
   get_travel_time: 'voice.get_travel_time',
+  end_call: null, // bridge-internal, 03-13 — handled before MCP forward
+}
+
+// Plan 03-13: bridge-internal hangup callback. Wired by buildApp at startup
+// with `(callId) => openai.realtime.calls.hangup(callId)`. Tests can override
+// per-call via DispatchOpts.hangupCall.
+let _hangupCall: ((callId: string) => Promise<void>) | null = null
+export function setHangupCallback(
+  cb: ((callId: string) => Promise<void>) | null,
+): void {
+  _hangupCall = cb
 }
 
 export interface DispatchOpts {
@@ -73,6 +84,9 @@ export interface DispatchOpts {
   dispatchTimeoutMs?: number
   /** JSONL path override (default from config) */
   jsonlPath?: string
+  /** Plan 03-13: per-call hangup override (tests). Production uses module-level
+   *  callback wired via `setHangupCallback`. */
+  hangupCall?: (callId: string) => Promise<void>
 }
 
 function appendJsonl(path: string, entry: Record<string, unknown>): void {
@@ -140,7 +154,70 @@ export async function dispatchTool(
     return
   }
 
-  // 3. Map to Core MCP name
+  // 3. Bridge-internal: end_call (Plan 03-13, REQ-VOICE-09/14)
+  if (toolName === 'end_call') {
+    const t0 = Date.now()
+    const reason =
+      typeof (args as { reason?: unknown })?.reason === 'string'
+        ? ((args as { reason: string }).reason)
+        : 'unknown'
+    const hangup = opts.hangupCall ?? _hangupCall
+    let hangupOk = true
+    let hangupErr: string | null = null
+    if (hangup) {
+      try {
+        await hangup(callId)
+      } catch (e: unknown) {
+        hangupOk = false
+        hangupErr = (e as Error)?.message ?? 'unknown'
+        log.warn({
+          event: 'end_call_hangup_failed',
+          call_id: callId,
+          reason,
+          err: hangupErr,
+        })
+      }
+    } else {
+      hangupOk = false
+      hangupErr = 'hangup_not_wired'
+      log.warn({
+        event: 'end_call_no_callback',
+        call_id: callId,
+        reason,
+      })
+    }
+    log.info({
+      event: 'end_call_invoked',
+      call_id: callId,
+      turn_id: turnId,
+      reason,
+      hangup_ok: hangupOk,
+      latency_ms: Date.now() - t0,
+    })
+    // Emit function_call_output so the function-call resolution is clean even
+    // though the WS will close shortly. NO emitCreate — we don't want a new
+    // model response after farewell; the call is ending.
+    emitOutput(
+      ws,
+      functionCallId,
+      hangupOk ? { ok: true, ended: true, reason } : { ok: false, error: hangupErr },
+      log,
+    )
+    appendJsonl(jsonlPath, {
+      ts: Date.now(),
+      event: 'tool_dispatch_done',
+      call_id: callId,
+      function_call_id: functionCallId,
+      tool_name: 'end_call',
+      latency_ms: Date.now() - t0,
+      mcp_status: hangupOk ? 'ok' : 'err',
+      reason,
+      bytes_out: 0,
+    })
+    return
+  }
+
+  // 4. Map to Core MCP name
   const coreName = TOOL_TO_CORE_MCP[toolName]
   if (coreName === null) {
     // Known but not implemented (03-08 skip or bridge-internal stub)

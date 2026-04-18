@@ -13,6 +13,7 @@ import { registerOutboundRoute } from './outbound-webhook.js'
 import { startHeartbeat } from './heartbeat.js'
 import { createCallRouter, type CallRouter } from './call-router.js'
 import { createOutboundRouter, type OutboundRouter } from './outbound-router.js'
+import { setHangupCallback } from './tools/dispatch.js'
 
 export interface BuildAppOptions {
   /** Optional OpenAI client injection for tests (mock). If omitted, real client is constructed. */
@@ -60,6 +61,16 @@ export async function buildApp(opts: BuildAppOptions = {}) {
       }
     },
   )
+
+  // Plan 03-13: wire bridge-internal end_call hangup callback. Production uses
+  // the real OpenAI client; tests can override per-call via DispatchOpts.hangupCall.
+  setHangupCallback(async (callId: string) => {
+    await (
+      openai as unknown as {
+        realtime: { calls: { hangup: (id: string) => Promise<unknown> } }
+      }
+    ).realtime.calls.hangup(callId)
+  })
 
   const router = opts.routerOverride ?? createCallRouter()
 

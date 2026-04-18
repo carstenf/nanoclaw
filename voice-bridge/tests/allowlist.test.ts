@@ -7,9 +7,9 @@ import {
 } from '../src/tools/allowlist.js'
 
 describe('tools/allowlist — REQ-TOOLS registry (D-07, D-08)', () => {
-  it('exposes exactly 14 entries (REQ-TOOLS-01..08 + confirm_action + ask_core + get_travel_time + request_outbound_call + delete/update_calendar_entry)', () => {
+  it('exposes exactly 15 entries (REQ-TOOLS-01..08 + confirm_action + ask_core + get_travel_time + request_outbound_call + delete/update_calendar_entry + end_call)', () => {
     const entries = getAllowlist()
-    expect(entries.length).toBe(14)
+    expect(entries.length).toBe(15)
   })
 
   it('enforces the REQ-TOOLS-09 ceiling of 15 at module load', () => {
@@ -17,14 +17,15 @@ describe('tools/allowlist — REQ-TOOLS registry (D-07, D-08)', () => {
     expect(entries.length).toBeLessThanOrEqual(15)
   })
 
-  it('marks exactly 8 tools as mutating (D-05 + request_outbound_call + delete/update_calendar_entry)', () => {
+  it('marks exactly 9 tools as mutating (D-05 + request_outbound_call + delete/update_calendar_entry + end_call)', () => {
     const entries = getAllowlist()
     const mutating = entries.filter((e: ToolEntry) => e.mutating)
-    expect(mutating.length).toBe(8)
+    expect(mutating.length).toBe(9)
     expect(mutating.map((e) => e.name).sort()).toEqual([
       'confirm_action',
       'create_calendar_entry',
       'delete_calendar_entry',
+      'end_call',
       'request_outbound_call',
       'schedule_retry',
       'send_discord_message',
@@ -201,5 +202,25 @@ describe('tools/allowlist — REQ-TOOLS registry (D-07, D-08)', () => {
     expect(
       entry.validate({ fields_to_update: { title: 'X' } }),
     ).toBe(false)
+  })
+
+  it('end_call is in registry with mutating=true (03-13)', () => {
+    const entry = getEntry('end_call')
+    expect(entry).toBeDefined()
+    expect(entry?.mutating).toBe(true)
+  })
+
+  it('end_call validate accepts valid reason enum (03-13)', () => {
+    const entry = getEntry('end_call')!
+    for (const reason of ['farewell', 'silence', 'user_request', 'error']) {
+      expect(entry.validate({ reason })).toBe(true)
+    }
+  })
+
+  it('end_call validate rejects unknown reason values (03-13)', () => {
+    const entry = getEntry('end_call')!
+    expect(entry.validate({ reason: 'because_i_want_to' })).toBe(false)
+    expect(entry.validate({ reason: '' })).toBe(false)
+    expect(entry.validate({})).toBe(false)
   })
 })
