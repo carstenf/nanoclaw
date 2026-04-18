@@ -14,6 +14,7 @@ import {
   emitFunctionCallOutput,
   emitResponseCreate,
 } from './tools/tool-output-emitter.js'
+import { dispatchTool as realDispatchTool } from './tools/dispatch.js'
 
 export interface SidebandState {
   callId: string
@@ -249,21 +250,8 @@ export function openSidebandSession(
   }
 }
 
-/**
- * Lazy loader for the real dispatchTool to avoid circular imports at
- * module load time. Cached after first call.
- */
-let _cachedDispatch: DispatchToolFn | null = null
 function _getDispatchTool(): DispatchToolFn {
-  if (_cachedDispatch) return _cachedDispatch
-  // Dynamic require at runtime — safe because this path is only hit in
-  // production (tests inject via opts.dispatchTool DI).
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const mod = require('./tools/dispatch.js') as {
-    dispatchTool: DispatchToolFn
-  }
-  _cachedDispatch = mod.dispatchTool
-  return _cachedDispatch
+  return realDispatchTool as unknown as DispatchToolFn
 }
 
 /**
