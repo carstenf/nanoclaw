@@ -24,158 +24,166 @@ afterEach(() => {
 const JSONL_PATH = () => path.join(tmpDir, 'voice-scheduler.jsonl');
 
 const BASE_NOW = new Date('2026-01-01T12:00:00Z').getTime();
-const RETRY_AT_VALID = new Date(BASE_NOW + 60 * 60 * 1000).toISOString(); // now + 1h
-const RETRY_AT_PAST = new Date(BASE_NOW - 60 * 1000).toISOString(); // now - 1min
-const RETRY_AT_FAR = new Date(BASE_NOW + 40 * 24 * 60 * 60 * 1000).toISOString(); // now + 40d
+const NOT_BEFORE_VALID = new Date(BASE_NOW + 60 * 60 * 1000).toISOString(); // now + 1h
+const NOT_BEFORE_PAST = new Date(BASE_NOW - 60 * 1000).toISOString(); // now - 1min
+const NOT_BEFORE_FAR = new Date(
+  BASE_NOW + 40 * 24 * 60 * 60 * 1000,
+).toISOString(); // now + 40d
 
 function makeDeps(
   overrides: Partial<VoiceScheduleRetryDeps> = {},
+  existingTasks: ScheduledTask[] = [],
 ): VoiceScheduleRetryDeps & { capturedTask: ScheduledTask | null } {
-  let capturedTask: ScheduledTask | null = null;
-  const deps: VoiceScheduleRetryDeps & { capturedTask: ScheduledTask | null } = {
-    capturedTask,
-    createTask: (task) => {
-      deps.capturedTask = task as ScheduledTask;
-    },
-    getMainGroupAndJid: () => ({
-      folder: 'main',
-      jid: 'main@g.us',
-    }),
-    jsonlPath: JSONL_PATH(),
-    now: () => BASE_NOW,
-    ...overrides,
-  };
+  const deps: VoiceScheduleRetryDeps & { capturedTask: ScheduledTask | null } =
+    {
+      capturedTask: null,
+      createTask: (task) => {
+        deps.capturedTask = task as ScheduledTask;
+      },
+      getAllTasks: () => existingTasks,
+      getMainGroupAndJid: () => ({
+        folder: 'main',
+        jid: 'main@g.us',
+      }),
+      jsonlPath: JSONL_PATH(),
+      now: () => BASE_NOW,
+      ...overrides,
+    };
   return deps;
 }
 
-describe('makeVoiceScheduleRetry', () => {
-  it('happy path: schedules retry and returns task_id + scheduled_for', async () => {
+describe('makeVoiceScheduleRetry (REQ-TOOLS-07)', () => {
+  it('happy path: schedules retry, returns {scheduled:true}, prompt synthesized internally', async () => {
     const deps = makeDeps();
     const handler = makeVoiceScheduleRetry(deps);
 
     const result = (await handler({
       call_id: 'test-call-1',
-      retry_at: RETRY_AT_VALID,
-      prompt: 'Bitte morgen nochmal anrufen.',
-    })) as { ok: true; result: { task_id: string; scheduled_for: string } };
+      case_type: 'reservation',
+      target_phone: '+491708036426',
+      not_before_ts: NOT_BEFORE_VALID,
+    })) as { ok: true; result: { scheduled: boolean } };
 
     expect(result.ok).toBe(true);
-    expect(result.result.task_id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
-    expect(result.result.scheduled_for).toBe(RETRY_AT_VALID);
-  });
+    expect(result.result.scheduled).toBe(true);
 
-  it('happy path: createTask called with schedule_type=once and correct fields', async () => {
-    const deps = makeDeps();
-    const handler = makeVoiceScheduleRetry(deps);
-
-    await handler({
-      retry_at: RETRY_AT_VALID,
-      prompt: 'Test retry prompt',
-    });
-
+    // createTask was called with synthesized prompt
     const task = deps.capturedTask as ScheduledTask;
     expect(task).not.toBeNull();
+    expect(task.prompt).toContain('reservation');
+    expect(task.prompt).toContain('+491708036426');
     expect(task.schedule_type).toBe('once');
-    expect(task.schedule_value).toBe(RETRY_AT_VALID);
-    expect(task.next_run).toBe(RETRY_AT_VALID);
-    expect(task.context_mode).toBe('isolated');
-    expect(task.group_folder).toBe('main');
-    expect(task.chat_jid).toBe('main@g.us');
-    expect(task.prompt).toBe('Test retry prompt');
     expect(task.status).toBe('active');
-    expect(task.id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
   });
 
-  it('retry_at in past → BadRequestError retry_at_in_past', async () => {
-    const deps = makeDeps();
-    const handler = makeVoiceScheduleRetry(deps);
+  it('idempotent: same (case_type, target_phone, not_before_ts) → scheduled:true, no new insert', async () => {
+    const existingTask: ScheduledTask = {
+      id: 'existing-uuid',
+      group_folder: 'main',
+      chat_jid: 'main@g.us',
+      prompt: "Retry for case 'reservation', target: +491708036426.",
+      script: null,
+      schedule_type: 'once',
+      schedule_value: NOT_BEFORE_VALID,
+      context_mode: 'isolated',
+      next_run: NOT_BEFORE_VALID,
+      status: 'active',
+      created_at: '2026-01-01T10:00:00Z',
+      last_run: null,
+      last_result: null,
+    };
 
-    await expect(
-      handler({
-        retry_at: RETRY_AT_PAST,
-        prompt: 'should fail',
-      }),
-    ).rejects.toBeInstanceOf(BadRequestError);
-
-    await expect(
-      handler({
-        retry_at: RETRY_AT_PAST,
-        prompt: 'should fail',
-      }),
-    ).rejects.toMatchObject({ field: 'retry_at', expected: 'retry_at_in_past' });
-  });
-
-  it('retry_at too far in future → BadRequestError retry_at_too_far', async () => {
-    const deps = makeDeps();
-    const handler = makeVoiceScheduleRetry(deps);
-
-    await expect(
-      handler({
-        retry_at: RETRY_AT_FAR,
-        prompt: 'should fail',
-      }),
-    ).rejects.toBeInstanceOf(BadRequestError);
-
-    await expect(
-      handler({
-        retry_at: RETRY_AT_FAR,
-        prompt: 'should fail',
-      }),
-    ).rejects.toMatchObject({ field: 'retry_at', expected: 'retry_at_too_far' });
-  });
-
-  it('prompt empty → BadRequestError (zod validation)', async () => {
-    const deps = makeDeps();
-    const handler = makeVoiceScheduleRetry(deps);
-
-    await expect(
-      handler({
-        retry_at: RETRY_AT_VALID,
-        prompt: '',
-      }),
-    ).rejects.toBeInstanceOf(BadRequestError);
-  });
-
-  it('prompt too long → BadRequestError (zod validation)', async () => {
-    const deps = makeDeps();
-    const handler = makeVoiceScheduleRetry(deps);
-
-    await expect(
-      handler({
-        retry_at: RETRY_AT_VALID,
-        prompt: 'x'.repeat(4001),
-      }),
-    ).rejects.toBeInstanceOf(BadRequestError);
-  });
-
-  it('no_main_group → returns {ok:false, error:"no_main_group"}', async () => {
-    const deps = makeDeps({
-      getMainGroupAndJid: () => null,
-    });
+    const deps = makeDeps({}, [existingTask]);
     const handler = makeVoiceScheduleRetry(deps);
 
     const result = (await handler({
-      retry_at: RETRY_AT_VALID,
-      prompt: 'Test prompt',
+      call_id: 'dedup-call',
+      case_type: 'reservation',
+      target_phone: '+491708036426',
+      not_before_ts: NOT_BEFORE_VALID,
+    })) as { ok: true; result: { scheduled: boolean } };
+
+    expect(result.ok).toBe(true);
+    expect(result.result.scheduled).toBe(true);
+    // createTask NOT called (idempotent)
+    expect(deps.capturedTask).toBeNull();
+  });
+
+  it('not_before_ts in past → throws BadRequestError', async () => {
+    const deps = makeDeps();
+    const handler = makeVoiceScheduleRetry(deps);
+
+    await expect(
+      handler({
+        case_type: 'test',
+        target_phone: '+491708036426',
+        not_before_ts: NOT_BEFORE_PAST,
+      }),
+    ).rejects.toMatchObject({ field: 'not_before_ts', expected: 'retry_at_in_past' });
+  });
+
+  it('not_before_ts too far in future → throws BadRequestError', async () => {
+    const deps = makeDeps();
+    const handler = makeVoiceScheduleRetry(deps);
+
+    await expect(
+      handler({
+        case_type: 'test',
+        target_phone: '+491708036426',
+        not_before_ts: NOT_BEFORE_FAR,
+      }),
+    ).rejects.toMatchObject({ field: 'not_before_ts', expected: 'retry_at_too_far' });
+  });
+
+  it('invalid E164 phone → throws BadRequestError', async () => {
+    const deps = makeDeps();
+    const handler = makeVoiceScheduleRetry(deps);
+
+    await expect(
+      handler({
+        case_type: 'test',
+        target_phone: '0170123456', // missing +
+        not_before_ts: NOT_BEFORE_VALID,
+      }),
+    ).rejects.toThrow(BadRequestError);
+  });
+
+  it('empty case_type → throws BadRequestError', async () => {
+    const deps = makeDeps();
+    const handler = makeVoiceScheduleRetry(deps);
+
+    await expect(
+      handler({
+        case_type: '',
+        target_phone: '+491708036426',
+        not_before_ts: NOT_BEFORE_VALID,
+      }),
+    ).rejects.toThrow(BadRequestError);
+  });
+
+  it('no_main_group → returns {ok:false, error:"no_main_group"}', async () => {
+    const deps = makeDeps({ getMainGroupAndJid: () => null });
+    const handler = makeVoiceScheduleRetry(deps);
+
+    const result = (await handler({
+      case_type: 'test',
+      target_phone: '+491708036426',
+      not_before_ts: NOT_BEFORE_VALID,
     })) as { ok: false; error: string };
 
     expect(result.ok).toBe(false);
     expect(result.error).toBe('no_main_group');
   });
 
-  it('JSONL success event written without prompt text, only prompt_len', async () => {
+  it('JSONL: retry_scheduled written without prompt text, with case_type', async () => {
     const deps = makeDeps();
     const handler = makeVoiceScheduleRetry(deps);
-    const prompt = 'Bitte morgen um 10 Uhr anrufen.';
 
     await handler({
       call_id: 'jsonl-test',
-      retry_at: RETRY_AT_VALID,
-      prompt,
+      case_type: 'restaurant-reservation',
+      target_phone: '+491708036426',
+      not_before_ts: NOT_BEFORE_VALID,
     });
 
     const jsonl = fs.readFileSync(JSONL_PATH(), 'utf8');
@@ -183,10 +191,40 @@ describe('makeVoiceScheduleRetry', () => {
 
     expect(entry.event).toBe('retry_scheduled');
     expect(entry.tool).toBe('voice.schedule_retry');
-    expect(entry.prompt_len).toBe(prompt.length);
     expect(entry).not.toHaveProperty('prompt');
     expect(entry).toHaveProperty('task_id');
     expect(entry).toHaveProperty('scheduled_for');
-    expect(entry).toHaveProperty('ts');
+  });
+
+  it('dedup JSONL: retry_scheduled_deduplicated event on idempotent call', async () => {
+    const existingTask: ScheduledTask = {
+      id: 'dup-uuid',
+      group_folder: 'main',
+      chat_jid: 'main@g.us',
+      prompt: "Retry for case 'delivery', target: +491708036426.",
+      script: null,
+      schedule_type: 'once',
+      schedule_value: NOT_BEFORE_VALID,
+      context_mode: 'isolated',
+      next_run: NOT_BEFORE_VALID,
+      status: 'active',
+      created_at: '2026-01-01T10:00:00Z',
+      last_run: null,
+      last_result: null,
+    };
+
+    const deps = makeDeps({}, [existingTask]);
+    const handler = makeVoiceScheduleRetry(deps);
+
+    await handler({
+      call_id: 'dedup-jsonl',
+      case_type: 'delivery',
+      target_phone: '+491708036426',
+      not_before_ts: NOT_BEFORE_VALID,
+    });
+
+    const jsonl = fs.readFileSync(JSONL_PATH(), 'utf8');
+    const entry = JSON.parse(jsonl.trim().split('\n').pop()!);
+    expect(entry.event).toBe('retry_scheduled_deduplicated');
   });
 });

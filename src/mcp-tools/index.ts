@@ -26,7 +26,7 @@ import { makeVoiceScheduleRetry } from './voice-schedule-retry.js';
 import { makeVoiceAskCore } from './voice-ask-core.js';
 import { loadSkill } from './skill-loader.js';
 import { callClaudeViaOneCli } from './claude-client.js';
-import { createTask } from '../db.js';
+import { createTask, getAllTasks } from '../db.js';
 import {
   SKILLS_DIR,
   ASK_CORE_CLAUDE_TIMEOUT_MS,
@@ -249,6 +249,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     'voice.schedule_retry',
     makeVoiceScheduleRetry({
       createTask,
+      getAllTasks,
       getMainGroupAndJid: deps.getMainGroupAndJid ?? (() => null),
       jsonlPath: deps.dataDir
         ? `${deps.dataDir}/voice-scheduler.jsonl`
