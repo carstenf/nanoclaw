@@ -9,8 +9,10 @@ import { HOST, PORT, getSecret, getApiKey, getWhitelist } from './config.js'
 import { buildLogger } from './logger.js'
 import { registerHealthRoute } from './health.js'
 import { registerWebhookRoute, registerAcceptRoute } from './webhook.js'
+import { registerOutboundRoute } from './outbound-webhook.js'
 import { startHeartbeat } from './heartbeat.js'
 import { createCallRouter, type CallRouter } from './call-router.js'
+import { createOutboundRouter, type OutboundRouter } from './outbound-router.js'
 
 export interface BuildAppOptions {
   /** Optional OpenAI client injection for tests (mock). If omitted, real client is constructed. */
@@ -21,6 +23,12 @@ export interface BuildAppOptions {
   skipApiKey?: boolean
   /** Optional CallRouter injection for tests — mock the Phase-2 per-call lifecycle. */
   routerOverride?: CallRouter
+  /** Optional OutboundRouter injection for tests. */
+  outboundRouterOverride?: OutboundRouter
+  /** Optional Bearer auth token for /outbound (overrides env). */
+  outboundAuthToken?: string
+  /** Override peer IP for /outbound tests (bypasses real IP extraction). */
+  peerIpOverride?: string
 }
 
 /**
@@ -55,9 +63,25 @@ export async function buildApp(opts: BuildAppOptions = {}) {
 
   const router = opts.routerOverride ?? createCallRouter()
 
+  // OutboundRouter: DI for tests, real instance in production
+  const outboundRouter =
+    opts.outboundRouterOverride ??
+    createOutboundRouter({
+      openaiClient: openai as unknown as Parameters<typeof createOutboundRouter>[0]['openaiClient'],
+      callRouter: router,
+      reportBack: async () => {
+        /* report-back wired in main() via log; no-op in buildApp */
+      },
+      timers: { setTimeout, clearTimeout },
+    })
+
   registerHealthRoute(app)
   registerWebhookRoute(app, openai, log, secret)
   registerAcceptRoute(app, openai, log, secret, whitelist, router)
+  registerOutboundRoute(app, log, outboundRouter, {
+    authToken: opts.outboundAuthToken,
+    peerIpOverride: opts.peerIpOverride,
+  })
 
   return app
 }
