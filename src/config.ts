@@ -140,6 +140,20 @@ export const PRACTICE_PROFILE_PATH =
   process.env.PRACTICE_PROFILE_PATH ??
   path.join(DATA_DIR, 'practice-profile.json');
 
+// Skills directory for voice.ask_core skill resolution
+export const SKILLS_DIR =
+  process.env.SKILLS_DIR ?? path.join(DATA_DIR, 'skills');
+
+// voice.ask_core Claude inference settings
+export const ASK_CORE_CLAUDE_TIMEOUT_MS = parseInt(
+  process.env.ASK_CORE_CLAUDE_TIMEOUT_MS ?? '10000',
+  10,
+);
+export const ASK_CORE_MAX_TOKENS_PER_CALL = parseInt(
+  process.env.ASK_CORE_MAX_TOKENS_PER_CALL ?? '500',
+  10,
+);
+
 // Google Calendar MCP tool settings
 export const GCALENDAR_CREDS_PATH =
   process.env.GCALENDAR_CREDS_PATH ??

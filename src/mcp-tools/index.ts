@@ -23,7 +23,15 @@ import { makeVoiceGetTravelTime } from './voice-get-travel-time.js';
 import { makeVoiceGetContract } from './voice-get-contract.js';
 import { makeVoiceGetPracticeProfile } from './voice-get-practice-profile.js';
 import { makeVoiceScheduleRetry } from './voice-schedule-retry.js';
+import { makeVoiceAskCore } from './voice-ask-core.js';
+import { loadSkill } from './skill-loader.js';
+import { callClaudeViaOneCli } from './claude-client.js';
 import { createTask } from '../db.js';
+import {
+  SKILLS_DIR,
+  ASK_CORE_CLAUDE_TIMEOUT_MS,
+  ASK_CORE_MAX_TOKENS_PER_CALL,
+} from '../config.js';
 
 /**
  * Fetch OneCLI CA certificate and write it to the path set in NODE_EXTRA_CA_CERTS.
@@ -245,6 +253,24 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       jsonlPath: deps.dataDir
         ? `${deps.dataDir}/voice-scheduler.jsonl`
         : undefined,
+    }),
+  );
+
+  // voice.ask_core — always registered; graceful skill_not_configured when skill absent
+  registry.register(
+    'voice.ask_core',
+    makeVoiceAskCore({
+      loadSkill: (topic) => loadSkill(topic, { skillsDir: SKILLS_DIR }),
+      callClaude: (sys, msgs, o) =>
+        callClaudeViaOneCli(sys, msgs, {
+          timeoutMs: o?.timeoutMs,
+          maxTokens: o?.maxTokens,
+        }),
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-ask-core.jsonl`
+        : undefined,
+      timeoutMs: ASK_CORE_CLAUDE_TIMEOUT_MS,
+      maxTokens: ASK_CORE_MAX_TOKENS_PER_CALL,
     }),
   );
 
