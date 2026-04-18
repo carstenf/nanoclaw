@@ -1,12 +1,9 @@
 /**
  * voice-get-practice-profile.ts
  *
- * MCP tool: voice.get_practice_profile
- * Reads flat JSON practice-profile file.
- * - key absent → list all profile keys
- * - key set → exact lookup → profile or null
- * Graceful: not_configured when file absent, parse_error on bad JSON.
- * JSONL-logged, PII-clean (no profile content in log).
+ * MCP tool: voice.get_practice_profile  (REQ-TOOLS-06)
+ * Args: {name: string 1..200}
+ * Returns: {phone, patient_id, insurance_type, last_visit, authorized_data_fields[]}
  */
 
 import path from 'path';
@@ -22,14 +19,15 @@ import {
   FlatDbNotFound,
   FlatDbParseError,
 } from './flat-db-reader.js';
+import { BadRequestError } from './voice-on-transcript-turn.js';
 
 // ---------------------------------------------------------------------------
-// Schema
+// Schema — REQ-TOOLS-06
 // ---------------------------------------------------------------------------
 
 const GetPracticeProfileSchema = z.object({
   call_id: z.string().optional(),
-  key: z.string().regex(/^[a-z0-9_-]*$/).optional(),
+  name: z.string().min(1).max(200),
 });
 
 // ---------------------------------------------------------------------------
@@ -38,9 +36,14 @@ const GetPracticeProfileSchema = z.object({
 
 interface PracticeProfile {
   name: string;
+  phone?: string;
+  patient_id?: string;
+  insurance_type?: string;
+  last_visit?: string;
+  authorized_data_fields?: string[];
+  // legacy fields kept for backwards-compat reads
   type?: string;
   address?: string;
-  phone?: string;
   email?: string;
   languages?: string[];
   opening_hours?: string;
@@ -58,9 +61,7 @@ interface PracticeProfileDb {
 export interface VoiceGetPracticeProfileDeps {
   profilesPath: string;
   jsonlPath?: string | null;
-  /** Override readFlatDb for tests. */
   readDb?: (filePath: string) => Promise<PracticeProfileDb>;
-  /** Override JSONL appender for tests. */
   appendJsonl?: (entry: object) => void;
   now?: () => number;
 }
@@ -84,9 +85,6 @@ function makeFileAppender(filePath: string) {
 // Handler factory
 // ---------------------------------------------------------------------------
 
-/**
- * Build voice.get_practice_profile handler.
- */
 export function makeVoiceGetPracticeProfile(deps: VoiceGetPracticeProfileDeps) {
   const profilesPath = deps.profilesPath;
   const now = deps.now ?? (() => Date.now());
@@ -115,20 +113,17 @@ export function makeVoiceGetPracticeProfile(deps: VoiceGetPracticeProfileDeps) {
   ): Promise<unknown> {
     const start = now();
 
-    // Zod parse
+    // Zod parse — REQ-TOOLS-06 shape
     const parseResult = GetPracticeProfileSchema.safeParse(args);
     if (!parseResult.success) {
       const first = parseResult.error.issues[0];
-      logger.warn({
-        event: 'voice_get_practice_profile_invalid_input',
-        error: first?.message,
-      });
-      // Return graceful error rather than throwing (key is optional anyway)
-      return { ok: false, error: 'invalid_input' };
+      throw new BadRequestError(
+        String(first?.path?.[0] ?? 'input'),
+        first?.message ?? 'invalid',
+      );
     }
 
-    const { call_id, key } = parseResult.data;
-    const queryKey = key ?? 'list';
+    const { call_id, name } = parseResult.data;
 
     // Load DB
     let db: PracticeProfileDb;
@@ -148,39 +143,34 @@ export function makeVoiceGetPracticeProfile(deps: VoiceGetPracticeProfileDeps) {
       throw err;
     }
 
+    // Lookup — case-insensitive name match across all profiles
     const profiles = db.profiles ?? {};
+    const query = name.toLowerCase();
+    const found = Object.values(profiles).find((p) =>
+      p.name.toLowerCase().includes(query),
+    );
+
     const latency = now() - start;
-
-    if (!key) {
-      // List mode — return all keys
-      const keys = Object.keys(profiles);
-
-      appendJsonl({
-        ts: new Date().toISOString(),
-        event: 'practice_profile_lookup_done',
-        tool: 'voice.get_practice_profile',
-        call_id: call_id ?? null,
-        query_key: queryKey,
-        found: keys.length > 0,
-        latency_ms: latency,
-      });
-
-      return { ok: true, result: { keys } };
-    }
-
-    // Lookup mode — exact key
-    const profile = profiles[key] ?? null;
 
     appendJsonl({
       ts: new Date().toISOString(),
       event: 'practice_profile_lookup_done',
       tool: 'voice.get_practice_profile',
       call_id: call_id ?? null,
-      query_key: queryKey,
-      found: profile !== null,
+      query_key: name,
+      found: found !== undefined,
       latency_ms: latency,
     });
 
-    return { ok: true, result: { profile } };
+    return {
+      ok: true,
+      result: {
+        phone: found?.phone ?? null,
+        patient_id: found?.patient_id ?? null,
+        insurance_type: found?.insurance_type ?? null,
+        last_visit: found?.last_visit ?? null,
+        authorized_data_fields: found?.authorized_data_fields ?? [],
+      },
+    };
   };
 }

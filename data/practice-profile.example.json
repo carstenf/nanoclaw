@@ -2,12 +2,11 @@
   "profiles": {
     "example-practice": {
       "name": "Example Praxis",
-      "type": "doctor",
-      "address": "Musterstraße 1, 80000 Musterstadt",
       "phone": "+491234567890",
-      "email": "info@example-praxis.de",
-      "languages": ["de", "en"],
-      "opening_hours": "Mo-Fr 09:00-17:00",
+      "patient_id": "PAT-EXAMPLE-001",
+      "insurance_type": "GKV",
+      "last_visit": "2025-06-01",
+      "authorized_data_fields": ["name", "phone", "insurance_type"],
       "notes": "Beispiel — ersetze mit echten Daten"
     }
   }
