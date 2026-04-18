@@ -16,6 +16,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { vi } from 'vitest'
 import type { Logger } from 'pino'
+import type { WebSocket as WSType } from 'ws'
 import { dispatchTool } from '../../src/tools/dispatch.js'
 import { invokeIdempotent, clearCall } from '../../src/idempotency.js'
 
@@ -114,6 +115,16 @@ export async function runReplayAgainstBridge(
       }
       // Unique turn id per call (turn_idx repeats across fixtures) so the
       // idempotency wrapper does not collapse distinct fixture turns.
+      // 02-11: dispatchTool is now async (ws, callId, turnId, functionCallId,
+      // toolName, args, log, opts). Harness uses a null-sink mock WS and
+      // a no-op callCoreTool so no real MCP calls happen.
+      const mockWS = { send: vi.fn() } as unknown as WSType
+      const mockOpts = {
+        callCoreTool: vi.fn().mockResolvedValue({ ok: true }),
+        emitFunctionCallOutput: vi.fn().mockReturnValue(true),
+        emitResponseCreate: vi.fn().mockReturnValue(true),
+        jsonlPath: '/dev/null',
+      }
       await invokeIdempotent(
         'replay',
         `${fixtureName}:${turn.turn_idx}`,
@@ -121,11 +132,14 @@ export async function runReplayAgainstBridge(
         args,
         async () =>
           dispatchTool(
+            mockWS,
             'replay',
             `${fixtureName}:${turn.turn_idx}`,
+            `fc_${turn.turn_idx}`,
             turn.tool_name as string,
             args,
             log,
+            mockOpts,
           ),
         log,
       )
