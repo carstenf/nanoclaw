@@ -17,6 +17,8 @@ import { SlowBrainSessionManager } from './slow-brain-session.js';
 import { makeVoiceOnTranscriptTurn } from './voice-on-transcript-turn.js';
 import { makeVoiceCheckCalendar } from './voice-check-calendar.js';
 import { makeVoiceCreateCalendarEntry } from './voice-create-calendar-entry.js';
+import { makeVoiceDeleteCalendarEntry } from './voice-delete-calendar-entry.js';
+import { makeVoiceUpdateCalendarEntry } from './voice-update-calendar-entry.js';
 import { getCalendarClient } from './calendar-client.js';
 import { makeVoiceSendDiscordMessage } from './voice-send-discord-message.js';
 import { makeVoiceGetTravelTime } from './voice-get-travel-time.js';
@@ -162,6 +164,26 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   registry.register(
     'voice.create_calendar_entry',
     makeVoiceCreateCalendarEntry({
+      calendarClient: () => getCalendarClient(),
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-calendar.jsonl`
+        : undefined,
+    }),
+  );
+
+  registry.register(
+    'voice.delete_calendar_entry',
+    makeVoiceDeleteCalendarEntry({
+      calendarClient: () => getCalendarClient(),
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-calendar.jsonl`
+        : undefined,
+    }),
+  );
+
+  registry.register(
+    'voice.update_calendar_entry',
+    makeVoiceUpdateCalendarEntry({
       calendarClient: () => getCalendarClient(),
       jsonlPath: deps.dataDir
         ? `${deps.dataDir}/voice-calendar.jsonl`

@@ -7,9 +7,9 @@ import {
 } from '../src/tools/allowlist.js'
 
 describe('tools/allowlist — REQ-TOOLS registry (D-07, D-08)', () => {
-  it('exposes exactly 12 entries (REQ-TOOLS-01..08 + confirm_action + ask_core + get_travel_time + request_outbound_call)', () => {
+  it('exposes exactly 14 entries (REQ-TOOLS-01..08 + confirm_action + ask_core + get_travel_time + request_outbound_call + delete/update_calendar_entry)', () => {
     const entries = getAllowlist()
-    expect(entries.length).toBe(12)
+    expect(entries.length).toBe(14)
   })
 
   it('enforces the REQ-TOOLS-09 ceiling of 15 at module load', () => {
@@ -17,17 +17,19 @@ describe('tools/allowlist — REQ-TOOLS registry (D-07, D-08)', () => {
     expect(entries.length).toBeLessThanOrEqual(15)
   })
 
-  it('marks exactly 6 tools as mutating (D-05 + request_outbound_call)', () => {
+  it('marks exactly 8 tools as mutating (D-05 + request_outbound_call + delete/update_calendar_entry)', () => {
     const entries = getAllowlist()
     const mutating = entries.filter((e: ToolEntry) => e.mutating)
-    expect(mutating.length).toBe(6)
+    expect(mutating.length).toBe(8)
     expect(mutating.map((e) => e.name).sort()).toEqual([
       'confirm_action',
       'create_calendar_entry',
+      'delete_calendar_entry',
       'request_outbound_call',
       'schedule_retry',
       'send_discord_message',
       'transfer_call',
+      'update_calendar_entry',
     ])
   })
 
@@ -138,5 +140,66 @@ describe('tools/allowlist — REQ-TOOLS registry (D-07, D-08)', () => {
     const entry = getEntry('get_travel_time')!
     expect(entry.validate({ origin: 'A', destination: 'B', mode: 'transit' })).toBe(true)
     expect(entry.validate({ origin: 'A', destination: 'B', mode: 'flying' })).toBe(false)
+  })
+
+  it('delete_calendar_entry is in registry with mutating=true (03-12)', () => {
+    const entry = getEntry('delete_calendar_entry')
+    expect(entry).toBeDefined()
+    expect(entry?.mutating).toBe(true)
+  })
+
+  it('delete_calendar_entry validate accepts event_id alone (03-12)', () => {
+    const entry = getEntry('delete_calendar_entry')!
+    expect(entry.validate({ event_id: 'evt-123' })).toBe(true)
+  })
+
+  it('delete_calendar_entry validate accepts title+date alone (03-12)', () => {
+    const entry = getEntry('delete_calendar_entry')!
+    expect(entry.validate({ title: 'Joggen', date: '2026-04-20' })).toBe(true)
+  })
+
+  it('delete_calendar_entry validate rejects empty args (03-12)', () => {
+    // Bridge-side schema rejects {} via minProperties: 1.
+    // Core handler's zod refine enforces title+date pairing (cannot express in
+    // ajv-strict-friendly draft-07 without anyOf+strictRequired conflict).
+    const entry = getEntry('delete_calendar_entry')!
+    expect(entry.validate({})).toBe(false)
+  })
+
+  it('delete_calendar_entry validate rejects additionalProperties (03-12)', () => {
+    const entry = getEntry('delete_calendar_entry')!
+    expect(
+      entry.validate({ event_id: 'evt-123', evil: 'x' }),
+    ).toBe(false)
+  })
+
+  it('update_calendar_entry is in registry with mutating=true (03-12)', () => {
+    const entry = getEntry('update_calendar_entry')
+    expect(entry).toBeDefined()
+    expect(entry?.mutating).toBe(true)
+  })
+
+  it('update_calendar_entry validate accepts event_id + single field (03-12)', () => {
+    const entry = getEntry('update_calendar_entry')!
+    expect(
+      entry.validate({
+        event_id: 'evt-1',
+        fields_to_update: { title: 'Neu' },
+      }),
+    ).toBe(true)
+  })
+
+  it('update_calendar_entry validate rejects empty fields_to_update (03-12)', () => {
+    const entry = getEntry('update_calendar_entry')!
+    expect(
+      entry.validate({ event_id: 'evt-1', fields_to_update: {} }),
+    ).toBe(false)
+  })
+
+  it('update_calendar_entry validate rejects missing event_id (03-12)', () => {
+    const entry = getEntry('update_calendar_entry')!
+    expect(
+      entry.validate({ fields_to_update: { title: 'X' } }),
+    ).toBe(false)
   })
 })

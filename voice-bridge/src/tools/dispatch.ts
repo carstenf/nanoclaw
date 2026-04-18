@@ -32,6 +32,8 @@ import {
 const TOOL_TO_CORE_MCP: Record<string, string | null> = {
   check_calendar: 'voice.check_calendar',
   create_calendar_entry: 'voice.create_calendar_entry',
+  delete_calendar_entry: 'voice.delete_calendar_entry',
+  update_calendar_entry: 'voice.update_calendar_entry',
   send_discord_message: 'voice.send_discord_message',
   get_contract: 'voice.get_contract',
   get_practice_profile: 'voice.get_practice_profile',

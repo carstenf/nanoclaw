@@ -26,6 +26,8 @@ import confirmActionSchema from './schemas/confirm_action.json' with { type: 'js
 import askCoreSchema from './schemas/ask_core.json' with { type: 'json' }
 import getTravelTimeSchema from './schemas/get_travel_time.json' with { type: 'json' }
 import requestOutboundCallSchema from './schemas/request_outbound_call.json' with { type: 'json' }
+import deleteCalendarEntrySchema from './schemas/delete_calendar_entry.json' with { type: 'json' }
+import updateCalendarEntrySchema from './schemas/update_calendar_entry.json' with { type: 'json' }
 
 export interface ToolEntry {
   name: string
@@ -50,6 +52,8 @@ const ENTRIES: ToolEntry[] = [
   { name: 'ask_core',              mutating: false, schema: askCoreSchema as Record<string, unknown>,              validate: ajv.compile(askCoreSchema) },
   { name: 'get_travel_time',       mutating: false, schema: getTravelTimeSchema as Record<string, unknown>,       validate: ajv.compile(getTravelTimeSchema) },
   { name: 'request_outbound_call', mutating: true,  schema: requestOutboundCallSchema as Record<string, unknown>, validate: ajv.compile(requestOutboundCallSchema) },
+  { name: 'delete_calendar_entry', mutating: true,  schema: deleteCalendarEntrySchema as Record<string, unknown>, validate: ajv.compile(deleteCalendarEntrySchema) },
+  { name: 'update_calendar_entry', mutating: true,  schema: updateCalendarEntrySchema as Record<string, unknown>, validate: ajv.compile(updateCalendarEntrySchema) },
 ]
 
 // REQ-TOOLS-09 ceiling guard — fires at module load.

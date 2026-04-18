@@ -299,7 +299,7 @@ describe('POST /accept — Phase 2 full-wiring', () => {
     expect(session.audio.input.turn_detection.type).toBe('server_vad')
     expect(session.audio.input.turn_detection.create_response).toBe(true)
     expect(Array.isArray(session.tools)).toBe(true)
-    expect(session.tools.length).toBe(12)
+    expect(session.tools.length).toBe(14)
     expect(session.tools[0]).toHaveProperty('type', 'function')
     expect(session.tools[0]).toHaveProperty('name')
     expect(session.tools[0]).toHaveProperty('parameters')
@@ -318,6 +318,7 @@ describe('POST /accept — Phase 2 full-wiring', () => {
       'check_calendar',
       'confirm_action',
       'create_calendar_entry',
+      'delete_calendar_entry',
       'get_contract',
       'get_practice_profile',
       'get_travel_time',
@@ -326,6 +327,7 @@ describe('POST /accept — Phase 2 full-wiring', () => {
       'search_competitors',
       'send_discord_message',
       'transfer_call',
+      'update_calendar_entry',
     ])
   })
 
