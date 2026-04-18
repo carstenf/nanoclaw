@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "get_travel_time",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["origin", "destination"],
+  "properties": {
+    "origin": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "destination": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["driving", "walking", "bicycling", "transit"],
+      "default": "driving"
+    },
+    "departure_time": {
+      "type": "string"
+    }
+  }
+}
