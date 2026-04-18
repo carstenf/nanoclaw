@@ -107,7 +107,11 @@ export interface StartMcpServerOpts {
   registry?: ToolRegistry;
   log?: Pick<typeof logger, 'info' | 'warn' | 'error' | 'fatal'>;
   deps?: {
-    sendDiscordMessage?: (channelId: string, text: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+    sendDiscordMessage?: (
+      channelId: string,
+      text: string,
+    ) => Promise<{ ok: true } | { ok: false; error: string }>;
+    getMainGroupAndJid?: () => { folder: string; jid: string } | null;
   };
 }
 
@@ -133,7 +137,13 @@ export function startMcpServer(opts: StartMcpServerOpts = {}): http.Server {
     .filter((s) => s.length > 0);
 
   const log = opts.log ?? logger;
-  const registry = opts.registry ?? buildDefaultRegistry({ log, sendDiscordMessage: opts.deps?.sendDiscordMessage });
+  const registry =
+    opts.registry ??
+    buildDefaultRegistry({
+      log,
+      sendDiscordMessage: opts.deps?.sendDiscordMessage,
+      getMainGroupAndJid: opts.deps?.getMainGroupAndJid,
+    });
   const app = buildMcpApp({
     registry,
     log,

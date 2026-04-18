@@ -22,6 +22,8 @@ import { makeVoiceSendDiscordMessage } from './voice-send-discord-message.js';
 import { makeVoiceGetTravelTime } from './voice-get-travel-time.js';
 import { makeVoiceGetContract } from './voice-get-contract.js';
 import { makeVoiceGetPracticeProfile } from './voice-get-practice-profile.js';
+import { makeVoiceScheduleRetry } from './voice-schedule-retry.js';
+import { createTask } from '../db.js';
 
 /**
  * Fetch OneCLI CA certificate and write it to the path set in NODE_EXTRA_CA_CERTS.
@@ -87,6 +89,8 @@ export interface RegistryDeps {
     channelId: string,
     text: string,
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Main-group lookup callback — returns {folder, jid} for is_main=1 group, or null. */
+  getMainGroupAndJid?: () => { folder: string; jid: string } | null;
 }
 
 export interface RegistryHandle {
@@ -228,6 +232,18 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       profilesPath: PRACTICE_PROFILE_PATH,
       jsonlPath: deps.dataDir
         ? `${deps.dataDir}/voice-lookup.jsonl`
+        : undefined,
+    }),
+  );
+
+  // voice.schedule_retry — always registered; returns no_main_group if callback absent or returns null
+  registry.register(
+    'voice.schedule_retry',
+    makeVoiceScheduleRetry({
+      createTask,
+      getMainGroupAndJid: deps.getMainGroupAndJid ?? (() => null),
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-scheduler.jsonl`
         : undefined,
     }),
   );
