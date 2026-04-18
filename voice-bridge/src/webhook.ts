@@ -13,6 +13,7 @@ import { maybeInjectPreGreet } from './pre-greet.js'
 import { callCoreTool } from './core-mcp-client.js'
 import type { CoreClientLike } from './slow-brain.js'
 import { requestResponse } from './sideband.js'
+import { GREET_TRIGGER_DELAY_MS } from './config.js'
 
 export function registerWebhookRoute(
   app: FastifyInstance,
@@ -222,11 +223,17 @@ export function registerAcceptRoute(
           // until an event drives a response. After pre-greet finishes (with
           // or without injection), push a response.create so the model emits
           // its opening line based on the (possibly updated) instructions.
-          requestResponse(ctx.sideband.state, log)
-          log.info({
-            event: 'greet_response_create_sent',
-            call_id: callId,
-          })
+          // Plan 03-15 fix 22:18 PSTN: Carsten reported greet was audible too
+          // soon after pickup → first word clipped. Wait GREET_TRIGGER_DELAY_MS
+          // (default 1000ms) so the audio path settles before the model speaks.
+          setTimeout(() => {
+            requestResponse(ctx.sideband.state, log)
+            log.info({
+              event: 'greet_response_create_sent',
+              call_id: callId,
+              delay_ms: GREET_TRIGGER_DELAY_MS,
+            })
+          }, GREET_TRIGGER_DELAY_MS)
         })
     } catch (e: unknown) {
       const err = e as Error

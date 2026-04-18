@@ -89,6 +89,14 @@ export const SIDEBAND_WS_URL_TEMPLATE =
   process.env.SIDEBAND_WS_URL_TEMPLATE ??
   'wss://api.openai.com/v1/realtime?call_id={callId}'
 
+// Plan 03-15 fix 22:18 PSTN: extra delay AFTER pre-greet completes before the
+// initial response.create push. Default 1000ms — caller reported greet was
+// audible too soon after pickup, leading to clipped first word. Tuneable via
+// env without rebuild.
+export const GREET_TRIGGER_DELAY_MS = Number(
+  process.env.GREET_TRIGGER_DELAY_MS ?? 1000,
+)
+
 // ----- Plan 02-09: NanoClaw-Core MCP endpoint (Slow-Brain Retrofit) -----
 // Slow-Brain-Inference lebt in NanoClaw-Core (Plan 03-02). voice-bridge ruft
 // per Turn voice.on_transcript_turn via HTTP-MCP ueber WireGuard. Unset =
