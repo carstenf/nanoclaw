@@ -26,11 +26,15 @@ import { makeVoiceScheduleRetry } from './voice-schedule-retry.js';
 import { makeVoiceAskCore } from './voice-ask-core.js';
 import { loadSkill } from './skill-loader.js';
 import { callClaudeViaOneCli } from './claude-client.js';
+import { runAndyForVoice } from './andy-agent-runner.js';
 import { createTask, getAllTasks } from '../db.js';
 import {
   SKILLS_DIR,
   ASK_CORE_CLAUDE_TIMEOUT_MS,
   ASK_CORE_MAX_TOKENS_PER_CALL,
+  ASK_CORE_ANDY_TIMEOUT_MS,
+  ANDY_VOICE_DISCORD_CHANNEL,
+  VOICE_DISCORD_ALLOWED_CHANNELS_RAW,
 } from '../config.js';
 
 /**
@@ -257,7 +261,17 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     }),
   );
 
+  // Resolve Andy's Discord channel: use explicit ANDY_VOICE_DISCORD_CHANNEL if set,
+  // otherwise fall back to the first allowed channel from VOICE_DISCORD_ALLOWED_CHANNELS.
+  const andyDiscordChannel: string =
+    ANDY_VOICE_DISCORD_CHANNEL ||
+    (VOICE_DISCORD_ALLOWED_CHANNELS_RAW.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)[0] ?? '');
+
   // voice.ask_core — always registered; graceful skill_not_configured when skill absent
+  // topic='andy' → runAndyForVoice (real container-agent against groups/main)
+  // other topics  → echo-skill / Claude inference path
   registry.register(
     'voice.ask_core',
     makeVoiceAskCore({
@@ -267,6 +281,10 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
           timeoutMs: o?.timeoutMs,
           maxTokens: o?.maxTokens,
         }),
+      runAndy: (req) =>
+        runAndyForVoice(req, { timeoutMs: ASK_CORE_ANDY_TIMEOUT_MS }),
+      sendDiscord: deps.sendDiscordMessage,
+      andyDiscordChannel: andyDiscordChannel || undefined,
       jsonlPath: deps.dataDir
         ? `${deps.dataDir}/voice-ask-core.jsonl`
         : undefined,
