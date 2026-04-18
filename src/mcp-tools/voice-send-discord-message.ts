@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -10,28 +11,46 @@ import { BadRequestError } from './voice-on-transcript-turn.js';
 import type { ToolHandler } from './index.js';
 
 const DEFAULT_TIMEOUT_MS = 8000;
+const DEFAULT_DEDUP_TTL_MS = parseInt(
+  process.env.SEND_DISCORD_DEDUP_TTL_MS ?? '300000',
+  10,
+);
 
+// REQ-TOOLS-03: args {channel: snowflake, content: 1..4000}
 const SendDiscordMessageSchema = z.object({
   call_id: z.string().optional(),
-  channel_id: z.string().regex(/^\d{17,20}$/, 'invalid snowflake'),
-  text: z.string().min(1).max(4000),
+  channel: z.string().regex(/^\d{17,20}$/, 'invalid snowflake'),
+  content: z.string().min(1).max(4000),
 });
 
+// In-memory dedup map: channel+sha256(content) → timestamp
+const dedupMap = new Map<string, number>();
+
 export interface VoiceSendDiscordMessageDeps {
-  sendDiscordMessage: (channelId: string, text: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  sendDiscordMessage: (
+    channelId: string,
+    text: string,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
   allowedChannels: Set<string>;
   jsonlPath?: string;
   timeoutMs?: number;
   now?: () => number;
+  dedupTtlMs?: number;
 }
 
-export function makeVoiceSendDiscordMessage(deps: VoiceSendDiscordMessageDeps): ToolHandler {
-  const jsonlPath = deps.jsonlPath ?? path.join(DATA_DIR, 'voice-discord.jsonl');
+export function makeVoiceSendDiscordMessage(
+  deps: VoiceSendDiscordMessageDeps,
+): ToolHandler {
+  const jsonlPath =
+    deps.jsonlPath ?? path.join(DATA_DIR, 'voice-discord.jsonl');
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const now = deps.now ?? (() => Date.now());
+  const dedupTtlMs = deps.dedupTtlMs ?? DEFAULT_DEDUP_TTL_MS;
 
-  return async function voiceSendDiscordMessage(args: unknown): Promise<unknown> {
-    // Zod parse
+  return async function voiceSendDiscordMessage(
+    args: unknown,
+  ): Promise<unknown> {
+    // Zod parse — REQ-TOOLS-03 shape
     const parseResult = SendDiscordMessageSchema.safeParse(args);
     if (!parseResult.success) {
       const firstError = parseResult.error.issues[0];
@@ -41,16 +60,37 @@ export function makeVoiceSendDiscordMessage(deps: VoiceSendDiscordMessageDeps): 
       );
     }
 
-    const { call_id, channel_id, text } = parseResult.data;
+    const { call_id, channel, content } = parseResult.data;
 
     // Allowlist check — deny-all if channel not in set
-    if (!deps.allowedChannels.has(channel_id)) {
-      throw new BadRequestError('channel_id', 'channel_not_allowed');
+    if (!deps.allowedChannels.has(channel)) {
+      throw new BadRequestError('channel', 'channel_not_allowed');
     }
 
+    // Content hash for dedup + JSONL (first 8 hex chars)
+    const contentHash = crypto
+      .createHash('sha256')
+      .update(content)
+      .digest('hex');
+    const contentHashShort = contentHash.slice(0, 8);
+    const dedupKey = `${channel}:${contentHash}`;
+
     const start = now();
-    const length = text.length;
-    const chunks = Math.ceil(length / 2000);
+
+    // Idempotency: check dedup map
+    const lastSent = dedupMap.get(dedupKey);
+    if (lastSent !== undefined && now() - lastSent < dedupTtlMs) {
+      appendJsonl(jsonlPath, {
+        ts: new Date().toISOString(),
+        event: 'discord_message_deduplicated',
+        tool: 'voice.send_discord_message',
+        call_id: call_id ?? null,
+        channel,
+        content_hash: contentHashShort,
+        latency_ms: now() - start,
+      });
+      return { ok: true, result: { ok: true } };
+    }
 
     // AbortController for timeout
     const controller = new AbortController();
@@ -58,7 +98,7 @@ export function makeVoiceSendDiscordMessage(deps: VoiceSendDiscordMessageDeps): 
 
     let res: { ok: true } | { ok: false; error: string };
     try {
-      const sendPromise = deps.sendDiscordMessage(channel_id, text);
+      const sendPromise = deps.sendDiscordMessage(channel, content);
       const abortPromise = new Promise<never>((_resolve, reject) => {
         controller.signal.addEventListener('abort', () => {
           reject(new DOMException('Aborted', 'AbortError'));
@@ -76,9 +116,8 @@ export function makeVoiceSendDiscordMessage(deps: VoiceSendDiscordMessageDeps): 
           event: 'discord_message_failed',
           tool: 'voice.send_discord_message',
           call_id: call_id ?? null,
-          channel_id,
-          length,
-          chunks,
+          channel,
+          content_hash: contentHashShort,
           latency_ms: now() - start,
           error: 'discord_timeout',
         });
@@ -90,9 +129,8 @@ export function makeVoiceSendDiscordMessage(deps: VoiceSendDiscordMessageDeps): 
         event: 'discord_message_failed',
         tool: 'voice.send_discord_message',
         call_id: call_id ?? null,
-        channel_id,
-        length,
-        chunks,
+        channel,
+        content_hash: contentHashShort,
         latency_ms: now() - start,
         error: 'internal',
       });
@@ -106,35 +144,28 @@ export function makeVoiceSendDiscordMessage(deps: VoiceSendDiscordMessageDeps): 
         event: 'discord_message_failed',
         tool: 'voice.send_discord_message',
         call_id: call_id ?? null,
-        channel_id,
-        length,
-        chunks,
+        channel,
+        content_hash: contentHashShort,
         latency_ms: now() - start,
         error: res.error,
       });
       return { ok: false, error: res.error };
     }
 
+    // Record in dedup map
+    dedupMap.set(dedupKey, now());
+
     appendJsonl(jsonlPath, {
       ts: new Date().toISOString(),
       event: 'discord_message_sent',
       tool: 'voice.send_discord_message',
       call_id: call_id ?? null,
-      channel_id,
-      length,
-      chunks,
+      channel,
+      content_hash: contentHashShort,
       latency_ms: now() - start,
     });
 
-    return {
-      ok: true,
-      result: {
-        delivered: true,
-        channel_id,
-        length,
-        chunks,
-      },
-    };
+    return { ok: true, result: { ok: true } };
   };
 }
 

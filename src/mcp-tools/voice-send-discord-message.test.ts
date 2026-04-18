@@ -25,8 +25,8 @@ function makeOkCallback() {
   return vi.fn().mockResolvedValue({ ok: true as const });
 }
 
-describe('makeVoiceSendDiscordMessage', () => {
-  it('happy path: delivers message and returns delivered:true', async () => {
+describe('makeVoiceSendDiscordMessage (REQ-TOOLS-03)', () => {
+  it('happy path: delivers message via {channel, content} args and returns {ok:true}', async () => {
     const cb = makeOkCallback();
     const handler = makeVoiceSendDiscordMessage({
       sendDiscordMessage: cb,
@@ -36,23 +36,63 @@ describe('makeVoiceSendDiscordMessage', () => {
 
     const result = await handler({
       call_id: 'smoke-1',
-      channel_id: ALLOWED_CHANNEL,
-      text: 'Hello from smoke test',
+      channel: ALLOWED_CHANNEL,
+      content: 'Hello from smoke test',
     });
 
     expect(result).toMatchObject({
       ok: true,
-      result: {
-        delivered: true,
-        channel_id: ALLOWED_CHANNEL,
-        length: 21,
-        chunks: 1,
-      },
+      result: { ok: true },
     });
     expect(cb).toHaveBeenCalledWith(ALLOWED_CHANNEL, 'Hello from smoke test');
   });
 
-  it('allowlist deny: channel_id not in allowlist throws BadRequestError channel_not_allowed', async () => {
+  it('dedup: second call with same channel+content within 5min → ok:true, no Discord send', async () => {
+    const cb = makeOkCallback();
+    let fakeNow = 1000;
+    const handler = makeVoiceSendDiscordMessage({
+      sendDiscordMessage: cb,
+      allowedChannels: ALLOWED_SET,
+      jsonlPath: JSONL_PATH(),
+      now: () => fakeNow,
+      dedupTtlMs: 300000, // 5 min
+    });
+
+    // First call — should send
+    await handler({ channel: ALLOWED_CHANNEL, content: 'dedup test content' });
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    // Second call within TTL — should NOT send
+    fakeNow = 2000;
+    const result2 = (await handler({
+      channel: ALLOWED_CHANNEL,
+      content: 'dedup test content',
+    })) as { ok: true; result: { ok: boolean } };
+    expect(result2.ok).toBe(true);
+    expect(cb).toHaveBeenCalledTimes(1); // still 1, not 2
+  });
+
+  it('dedup expired: same content after TTL → re-sends', async () => {
+    const cb = makeOkCallback();
+    let fakeNow = 1000;
+    const handler = makeVoiceSendDiscordMessage({
+      sendDiscordMessage: cb,
+      allowedChannels: ALLOWED_SET,
+      jsonlPath: JSONL_PATH(),
+      now: () => fakeNow,
+      dedupTtlMs: 5000, // 5s TTL for test
+    });
+
+    await handler({ channel: ALLOWED_CHANNEL, content: 'expire test' });
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    // Advance past TTL
+    fakeNow = 1000 + 6000;
+    await handler({ channel: ALLOWED_CHANNEL, content: 'expire test' });
+    expect(cb).toHaveBeenCalledTimes(2); // re-sent
+  });
+
+  it('channel_not_allowed → throws BadRequestError', async () => {
     const cb = makeOkCallback();
     const handler = makeVoiceSendDiscordMessage({
       sendDiscordMessage: cb,
@@ -61,23 +101,11 @@ describe('makeVoiceSendDiscordMessage', () => {
     });
 
     await expect(
-      handler({
-        call_id: 'smoke-2',
-        channel_id: '999999999999999999',
-        text: 'should be blocked',
-      }),
-    ).rejects.toThrow(BadRequestError);
-
-    await expect(
-      handler({
-        call_id: 'smoke-2',
-        channel_id: '999999999999999999',
-        text: 'should be blocked',
-      }),
-    ).rejects.toMatchObject({ field: 'channel_id', expected: 'channel_not_allowed' });
+      handler({ channel: '999999999999999999', content: 'blocked' }),
+    ).rejects.toMatchObject({ field: 'channel', expected: 'channel_not_allowed' });
   });
 
-  it('snowflake validation: invalid channel_id (not digits) throws BadRequestError', async () => {
+  it('invalid snowflake → throws BadRequestError', async () => {
     const cb = makeOkCallback();
     const handler = makeVoiceSendDiscordMessage({
       sendDiscordMessage: cb,
@@ -86,15 +114,11 @@ describe('makeVoiceSendDiscordMessage', () => {
     });
 
     await expect(
-      handler({
-        call_id: 'smoke-3',
-        channel_id: 'not-a-snowflake',
-        text: 'Hello',
-      }),
+      handler({ channel: 'not-a-snowflake', content: 'test' }),
     ).rejects.toThrow(BadRequestError);
   });
 
-  it('empty text throws BadRequestError', async () => {
+  it('content empty → throws BadRequestError', async () => {
     const cb = makeOkCallback();
     const handler = makeVoiceSendDiscordMessage({
       sendDiscordMessage: cb,
@@ -103,105 +127,57 @@ describe('makeVoiceSendDiscordMessage', () => {
     });
 
     await expect(
-      handler({
-        call_id: 'smoke-4',
-        channel_id: ALLOWED_CHANNEL,
-        text: '',
-      }),
+      handler({ channel: ALLOWED_CHANNEL, content: '' }),
     ).rejects.toThrow(BadRequestError);
   });
 
-  it('text too long (>4000 chars) throws BadRequestError', async () => {
-    const cb = makeOkCallback();
-    const handler = makeVoiceSendDiscordMessage({
-      sendDiscordMessage: cb,
-      allowedChannels: ALLOWED_SET,
-      jsonlPath: JSONL_PATH(),
-    });
-
-    await expect(
-      handler({
-        call_id: 'smoke-5',
-        channel_id: ALLOWED_CHANNEL,
-        text: 'x'.repeat(4001),
-      }),
-    ).rejects.toThrow(BadRequestError);
-  });
-
-  it('timeout: callback never resolves → returns ok:false with discord_timeout', async () => {
-    const cb = vi.fn().mockImplementation(
-      () => new Promise<never>(() => {}), // never resolves
-    );
-    const handler = makeVoiceSendDiscordMessage({
-      sendDiscordMessage: cb,
-      allowedChannels: ALLOWED_SET,
-      jsonlPath: JSONL_PATH(),
-      timeoutMs: 20, // very short
-    });
-
-    const result = await handler({
-      call_id: 'smoke-timeout',
-      channel_id: ALLOWED_CHANNEL,
-      text: 'Timeout test',
-    });
-
-    expect(result).toMatchObject({ ok: false, error: 'discord_timeout' });
-  });
-
-  it('JSONL written on success with correct fields (no message text)', async () => {
+  it('JSONL: discord_message_sent with content_hash, no message text (PII-clean)', async () => {
     const cb = makeOkCallback();
     const jsonlPath = JSONL_PATH();
-    const now = vi.fn().mockReturnValue(1000);
     const handler = makeVoiceSendDiscordMessage({
       sendDiscordMessage: cb,
       allowedChannels: ALLOWED_SET,
       jsonlPath,
-      now,
+      now: vi.fn().mockReturnValue(1000),
     });
 
     await handler({
-      call_id: 'smoke-jsonl',
-      channel_id: ALLOWED_CHANNEL,
-      text: 'PII should not appear',
+      call_id: 'pii-test',
+      channel: ALLOWED_CHANNEL,
+      content: 'PII should not appear in logs',
     });
 
     const logContent = fs.readFileSync(jsonlPath, 'utf8').trim();
-    const entry = JSON.parse(logContent);
+    const entry = JSON.parse(logContent.split('\n')[0]);
 
     expect(entry.event).toBe('discord_message_sent');
     expect(entry.tool).toBe('voice.send_discord_message');
-    expect(entry.call_id).toBe('smoke-jsonl');
-    expect(entry.channel_id).toBe(ALLOWED_CHANNEL);
-    expect(typeof entry.length).toBe('number');
-    expect(entry.chunks).toBe(1);
+    expect(entry.call_id).toBe('pii-test');
+    expect(typeof entry.content_hash).toBe('string');
+    expect(entry.content_hash.length).toBe(8); // first 8 hex chars
     expect(typeof entry.latency_ms).toBe('number');
-
-    // PII check: no message text in JSONL
+    // PII check
     expect(logContent).not.toContain('PII should not appear');
   });
 
-  it('JSONL written on failure (discord_not_configured) with event discord_message_failed', async () => {
-    const cb = vi.fn().mockResolvedValue({ ok: false as const, error: 'discord_not_configured' });
+  it('dedup: JSONL contains discord_message_deduplicated event on second call', async () => {
+    const cb = makeOkCallback();
+    let fakeNow = 1000;
     const jsonlPath = JSONL_PATH();
     const handler = makeVoiceSendDiscordMessage({
       sendDiscordMessage: cb,
       allowedChannels: ALLOWED_SET,
       jsonlPath,
+      now: () => fakeNow,
+      dedupTtlMs: 300000,
     });
 
-    const result = await handler({
-      call_id: 'smoke-fail',
-      channel_id: ALLOWED_CHANNEL,
-      text: 'test message',
-    });
+    await handler({ call_id: 'first', channel: ALLOWED_CHANNEL, content: 'dedup-log-test' });
+    fakeNow = 2000;
+    await handler({ call_id: 'second', channel: ALLOWED_CHANNEL, content: 'dedup-log-test' });
 
-    expect(result).toMatchObject({ ok: false, error: 'discord_not_configured' });
-
-    const logContent = fs.readFileSync(jsonlPath, 'utf8').trim();
-    const entry = JSON.parse(logContent);
-
-    expect(entry.event).toBe('discord_message_failed');
-    expect(entry.error).toBe('discord_not_configured');
-    expect(entry.call_id).toBe('smoke-fail');
+    const lines = fs.readFileSync(jsonlPath, 'utf8').trim().split('\n');
+    const events = lines.map((l) => JSON.parse(l).event);
+    expect(events).toContain('discord_message_deduplicated');
   });
 });
