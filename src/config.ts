@@ -155,8 +155,10 @@ export const ASK_CORE_MAX_TOKENS_PER_CALL = parseInt(
 );
 
 // voice.ask_core topic='andy' — container-agent timeout
+// Default 90s: cold container start (Docker pull skipped if image cached) + npm compile
+// + Claude inference can take 30-60s. Plan spec says 30s but real containers need more.
 export const ASK_CORE_ANDY_TIMEOUT_MS = parseInt(
-  process.env.ASK_CORE_ANDY_TIMEOUT_MS ?? '30000',
+  process.env.ASK_CORE_ANDY_TIMEOUT_MS ?? '90000',
   10,
 );
 

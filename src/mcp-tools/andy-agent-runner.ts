@@ -12,8 +12,6 @@
  * DI: all external dependencies injectable for testing without real containers.
  */
 
-import { randomUUID } from 'crypto';
-
 import { runContainerAgent } from '../container-runner.js';
 import { logger } from '../logger.js';
 import { loadSkill } from './skill-loader.js';
@@ -183,7 +181,10 @@ export async function runAndyForVoice(
   }));
 
   if (!skill.exists || !skill.body) {
-    logger.warn({ event: 'andy_runner_skill_missing' }, 'ask-core-andy skill not configured');
+    logger.warn(
+      { event: 'andy_runner_skill_missing' },
+      'ask-core-andy skill not configured',
+    );
     return {
       voice_short: 'Andy-Skill ist nicht konfiguriert.',
       discord_long: null,
@@ -194,7 +195,10 @@ export async function runAndyForVoice(
   // 2. Fetch main-group row
   const mainGroup = _loadMainGroup();
   if (!mainGroup) {
-    logger.warn({ event: 'andy_runner_no_main_group' }, 'No main group found in DB');
+    logger.warn(
+      { event: 'andy_runner_no_main_group' },
+      'No main group found in DB',
+    );
     return {
       voice_short: 'Andy ist gerade nicht erreichbar. Bitte nochmal versuchen.',
       discord_long: null,
@@ -202,13 +206,14 @@ export async function runAndyForVoice(
     };
   }
 
-  // 3. Build container input — prepend skill body to ensure voice format rules are visible
+  // 3. Build container input — prepend skill body to ensure voice format rules are visible.
+  // No sessionId: voice requests always start a fresh conversation. Passing a new UUID
+  // would cause the agent-runner to attempt session resume, which fails for non-existent IDs.
+  // Use mainGroup.folder (e.g. 'whatsapp_main') — NOT the hardcoded string 'main'.
   const prompt = `${skill.body}\n\n=== REQUEST ===\n${request}`;
-  const sessionId = randomUUID();
   const containerInput = {
     prompt,
-    sessionId,
-    groupFolder: 'main',
+    groupFolder: mainGroup.folder,
     chatJid: mainGroup.jid,
     isMain: true,
     isScheduledTask: false as const,
@@ -222,7 +227,10 @@ export async function runAndyForVoice(
         mainGroup,
         containerInput,
         (_proc, name) => {
-          logger.info({ event: 'andy_container_spawned', containerName: name }, 'Andy container spawned for voice request');
+          logger.info(
+            { event: 'andy_container_spawned', containerName: name },
+            'Andy container spawned for voice request',
+          );
         },
         // No streaming output handler — we parse stdout at end
       ),
@@ -239,10 +247,12 @@ export async function runAndyForVoice(
       ),
     ]);
   } catch (err) {
-    logger.warn({ event: 'andy_container_spawn_error', err }, 'Container spawn error for voice Andy');
+    logger.warn(
+      { event: 'andy_container_spawn_error', err },
+      'Container spawn error for voice Andy',
+    );
     return {
-      voice_short:
-        'Ich erreiche Andy gerade nicht. Bitte nochmal versuchen.',
+      voice_short: 'Ich erreiche Andy gerade nicht. Bitte nochmal versuchen.',
       discord_long: null,
       container_latency_ms: now() - startTs,
     };
@@ -253,19 +263,23 @@ export async function runAndyForVoice(
   // 5. Handle timeout / error status
   if (output.status === 'error') {
     if (output.error === 'timeout') {
-      logger.warn({ event: 'andy_container_timeout', timeoutMs }, 'Andy container timed out');
+      logger.warn(
+        { event: 'andy_container_timeout', timeoutMs },
+        'Andy container timed out',
+      );
       return {
-        voice_short:
-          'Das dauert noch. Ich melde mich mit Details in Discord.',
+        voice_short: 'Das dauert noch. Ich melde mich mit Details in Discord.',
         discord_long: null,
         container_latency_ms: latency,
       };
     }
 
-    logger.warn({ event: 'andy_container_error', error: output.error }, 'Andy container returned error');
+    logger.warn(
+      { event: 'andy_container_error', error: output.error },
+      'Andy container returned error',
+    );
     return {
-      voice_short:
-        'Ich erreiche Andy gerade nicht. Bitte nochmal versuchen.',
+      voice_short: 'Ich erreiche Andy gerade nicht. Bitte nochmal versuchen.',
       discord_long: null,
       container_latency_ms: latency,
     };
@@ -281,7 +295,8 @@ export async function runAndyForVoice(
       'No valid JSON block found in Andy container output',
     );
     // Fallback: use first 200 chars of stdout
-    const fallbackText = stdout.trim().slice(0, 200) || 'Keine Antwort von Andy.';
+    const fallbackText =
+      stdout.trim().slice(0, 200) || 'Keine Antwort von Andy.';
     return {
       voice_short: fallbackText,
       discord_long: null,
