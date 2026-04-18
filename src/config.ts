@@ -133,6 +133,13 @@ export const GOOGLE_MAPS_TIMEOUT_MS = parseInt(
   10,
 );
 
+// Flat-DB paths for voice.get_contract + voice.get_practice_profile
+export const CONTRACTS_PATH =
+  process.env.CONTRACTS_PATH ?? path.join(DATA_DIR, 'contracts.json');
+export const PRACTICE_PROFILE_PATH =
+  process.env.PRACTICE_PROFILE_PATH ??
+  path.join(DATA_DIR, 'practice-profile.json');
+
 // Google Calendar MCP tool settings
 export const GCALENDAR_CREDS_PATH =
   process.env.GCALENDAR_CREDS_PATH ??

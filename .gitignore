@@ -6,8 +6,20 @@ dist/
 
 # Local data & auth
 store/
-data/
 logs/
+
+# data/ subdirectories (runtime state, not tracked)
+data/env/
+data/ipc/
+data/sessions/
+
+# data/ runtime logs (not tracked)
+data/*.jsonl
+
+# data/ live config files (contain real personal data — not tracked)
+# Use .example.json variants as schema reference instead
+data/contracts.json
+data/practice-profile.json
 
 # Groups - only track base structure and specific CLAUDE.md files
 groups/*

@@ -1,0 +1,14 @@
+{
+  "profiles": {
+    "example-practice": {
+      "name": "Example Praxis",
+      "type": "doctor",
+      "address": "Musterstraße 1, 80000 Musterstadt",
+      "phone": "+491234567890",
+      "email": "info@example-praxis.de",
+      "languages": ["de", "en"],
+      "opening_hours": "Mo-Fr 09:00-17:00",
+      "notes": "Beispiel — ersetze mit echten Daten"
+    }
+  }
+}

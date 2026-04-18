@@ -1,0 +1,11 @@
+{
+  "contracts": [
+    {
+      "id": "example-provider-2024",
+      "provider": "Example AG",
+      "product": "Mobile Tarif",
+      "monthly_cost_eur": 29.99,
+      "notes": "Beispiel — ersetze mit echten Daten"
+    }
+  ]
+}

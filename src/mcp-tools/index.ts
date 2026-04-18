@@ -10,6 +10,8 @@ import {
   VOICE_DISCORD_TIMEOUT_MS,
   GOOGLE_MAPS_API_KEY,
   GOOGLE_MAPS_TIMEOUT_MS,
+  CONTRACTS_PATH,
+  PRACTICE_PROFILE_PATH,
 } from '../config.js';
 import { SlowBrainSessionManager } from './slow-brain-session.js';
 import { makeVoiceOnTranscriptTurn } from './voice-on-transcript-turn.js';
@@ -18,6 +20,8 @@ import { makeVoiceCreateCalendarEntry } from './voice-create-calendar-entry.js';
 import { getCalendarClient } from './calendar-client.js';
 import { makeVoiceSendDiscordMessage } from './voice-send-discord-message.js';
 import { makeVoiceGetTravelTime } from './voice-get-travel-time.js';
+import { makeVoiceGetContract } from './voice-get-contract.js';
+import { makeVoiceGetPracticeProfile } from './voice-get-practice-profile.js';
 
 /**
  * Fetch OneCLI CA certificate and write it to the path set in NODE_EXTRA_CA_CERTS.
@@ -205,6 +209,28 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       'voice.get_travel_time skipped: no GOOGLE_MAPS_API_KEY',
     );
   }
+
+  // voice.get_contract — always registered; graceful not_configured when file absent
+  registry.register(
+    'voice.get_contract',
+    makeVoiceGetContract({
+      contractsPath: CONTRACTS_PATH,
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-lookup.jsonl`
+        : undefined,
+    }),
+  );
+
+  // voice.get_practice_profile — always registered; graceful not_configured when file absent
+  registry.register(
+    'voice.get_practice_profile',
+    makeVoiceGetPracticeProfile({
+      profilesPath: PRACTICE_PROFILE_PATH,
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-lookup.jsonl`
+        : undefined,
+    }),
+  );
 
   return registry;
 }
