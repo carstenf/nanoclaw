@@ -663,6 +663,48 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   );
 }
 
+/**
+ * Returns the main RegisteredGroup (is_main=1) with its JID, or null if not found.
+ * Used by andy-agent-runner to obtain the group row for container spawning.
+ */
+export function getMainGroup(): (RegisteredGroup & { jid: string }) | null {
+  const row = db
+    .prepare('SELECT * FROM registered_groups WHERE is_main = 1 LIMIT 1')
+    .get() as
+    | {
+        jid: string;
+        name: string;
+        folder: string;
+        trigger_pattern: string;
+        added_at: string;
+        container_config: string | null;
+        requires_trigger: number | null;
+        is_main: number | null;
+      }
+    | undefined;
+  if (!row) return null;
+  if (!isValidGroupFolder(row.folder)) {
+    logger.warn(
+      { jid: row.jid, folder: row.folder },
+      'Main group has invalid folder — skipping',
+    );
+    return null;
+  }
+  return {
+    jid: row.jid,
+    name: row.name,
+    folder: row.folder,
+    trigger: row.trigger_pattern,
+    added_at: row.added_at,
+    containerConfig: row.container_config
+      ? JSON.parse(row.container_config)
+      : undefined,
+    requiresTrigger:
+      row.requires_trigger === null ? undefined : row.requires_trigger === 1,
+    isMain: true,
+  };
+}
+
 export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
   const rows = db.prepare('SELECT * FROM registered_groups').all() as Array<{
     jid: string;

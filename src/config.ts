@@ -154,6 +154,20 @@ export const ASK_CORE_MAX_TOKENS_PER_CALL = parseInt(
   10,
 );
 
+// voice.ask_core topic='andy' — container-agent timeout
+export const ASK_CORE_ANDY_TIMEOUT_MS = parseInt(
+  process.env.ASK_CORE_ANDY_TIMEOUT_MS ?? '30000',
+  10,
+);
+
+// Andy's voice-long-form Discord channel
+// Default: env ANDY_VOICE_DISCORD_CHANNEL, or first allowed channel from VOICE_DISCORD_ALLOWED_CHANNELS
+const _envAndyDiscord = readEnvFile(['ANDY_VOICE_DISCORD_CHANNEL']);
+export const ANDY_VOICE_DISCORD_CHANNEL: string =
+  process.env.ANDY_VOICE_DISCORD_CHANNEL ??
+  _envAndyDiscord.ANDY_VOICE_DISCORD_CHANNEL ??
+  '';
+
 // Google Calendar MCP tool settings
 export const GCALENDAR_CREDS_PATH =
   process.env.GCALENDAR_CREDS_PATH ??
