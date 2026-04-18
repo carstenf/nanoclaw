@@ -8,9 +8,8 @@
   "properties": {
     "topic": {
       "type": "string",
-      "pattern": "^[a-z0-9_-]+$",
-      "maxLength": 64,
-      "description": "Kurzer Slug der das Themengebiet kennzeichnet, z.B. 'test', 'general', 'hotel', 'competitor'. Nur Kleinbuchstaben, Zahlen, '-' und '_'."
+      "enum": ["andy", "test"],
+      "description": "Pflicht-Wert 'andy' fuer echte Recherche/Faktenfragen/Web-Suche (spawnt den Core-Agent mit vollem Tool-Set). 'test' nur fuer Pipeline-Smoke, NICHT fuer echte Anfragen."
     },
     "request": {
       "type": "string",

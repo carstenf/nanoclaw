@@ -245,14 +245,14 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
       'turn_ask1',
       'fc_ask1',
       'ask_core',
-      { topic: 'praxis-info', request: 'Was sind eure Oeffnungszeiten?' },
+      { topic: 'andy', request: 'Was sind eure Oeffnungszeiten?' },
       log,
       opts,
     )
 
     expect(callCoreTool).toHaveBeenCalledWith(
       'voice.ask_core',
-      { topic: 'praxis-info', request: 'Was sind eure Oeffnungszeiten?' },
+      { topic: 'andy', request: 'Was sind eure Oeffnungszeiten?' },
       expect.objectContaining({ timeoutMs: 3000 }),
     )
     expect(emitFunctionCallOutput).toHaveBeenCalledWith(ws, 'fc_ask1', coreResult, log)

@@ -108,9 +108,13 @@ describe('tools/allowlist — REQ-TOOLS registry (D-07, D-08)', () => {
     expect(typeof entry?.validate).toBe('function')
   })
 
-  it('ask_core validate accepts valid topic+request (02-12)', () => {
+  it('ask_core validate accepts valid topic+request (02-12, 02-15 enum)', () => {
     const entry = getEntry('ask_core')!
-    expect(entry.validate({ topic: 'praxis-info', request: 'Was sind eure Oeffnungszeiten?' })).toBe(true)
+    expect(entry.validate({ topic: 'andy', request: 'Was sind eure Oeffnungszeiten?' })).toBe(true)
+    expect(entry.validate({ topic: 'test', request: 'ping' })).toBe(true)
+    // 02-15: topic is now enum ['andy','test'] — non-enum values rejected
+    expect(entry.validate({ topic: 'general', request: 'x' })).toBe(false)
+    expect(entry.validate({ topic: 'praxis-info', request: 'x' })).toBe(false)
   })
 
   it('ask_core validate rejects invalid topic pattern (02-12)', () => {
