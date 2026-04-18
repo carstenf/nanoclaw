@@ -230,6 +230,64 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)
   })
 
+  it('happy-path ask_core: calls callCoreTool with voice.ask_core prefix (02-12)', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const coreResult = { answer: 'Montag bis Freitag 9-18 Uhr' }
+    const callCoreTool = vi.fn().mockResolvedValue(coreResult)
+    const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
+    const emitResponseCreate = vi.fn().mockReturnValue(true)
+    const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
+
+    await dispatchTool(
+      ws,
+      'call_ask1',
+      'turn_ask1',
+      'fc_ask1',
+      'ask_core',
+      { topic: 'praxis-info', request: 'Was sind eure Oeffnungszeiten?' },
+      log,
+      opts,
+    )
+
+    expect(callCoreTool).toHaveBeenCalledWith(
+      'voice.ask_core',
+      { topic: 'praxis-info', request: 'Was sind eure Oeffnungszeiten?' },
+      expect.objectContaining({ timeoutMs: 3000 }),
+    )
+    expect(emitFunctionCallOutput).toHaveBeenCalledWith(ws, 'fc_ask1', coreResult, log)
+    expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)
+  })
+
+  it('happy-path get_travel_time: calls callCoreTool with voice.get_travel_time prefix (02-12)', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const coreResult = { duration_text: '12 Minuten', duration_seconds: 720 }
+    const callCoreTool = vi.fn().mockResolvedValue(coreResult)
+    const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
+    const emitResponseCreate = vi.fn().mockReturnValue(true)
+    const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
+
+    await dispatchTool(
+      ws,
+      'call_gtt1',
+      'turn_gtt1',
+      'fc_gtt1',
+      'get_travel_time',
+      { origin: 'Marienplatz, Munich', destination: 'Schwabing, Munich', mode: 'transit' },
+      log,
+      opts,
+    )
+
+    expect(callCoreTool).toHaveBeenCalledWith(
+      'voice.get_travel_time',
+      { origin: 'Marienplatz, Munich', destination: 'Schwabing, Munich', mode: 'transit' },
+      expect.objectContaining({ timeoutMs: 3000 }),
+    )
+    expect(emitFunctionCallOutput).toHaveBeenCalledWith(ws, 'fc_gtt1', coreResult, log)
+    expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)
+  })
+
   it('JSONL file gets a tool_dispatch_done entry for successful dispatch', async () => {
     const ws = makeMockWS()
     const log = makeLog()

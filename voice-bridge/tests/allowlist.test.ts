@@ -7,9 +7,9 @@ import {
 } from '../src/tools/allowlist.js'
 
 describe('tools/allowlist — REQ-TOOLS registry (D-07, D-08)', () => {
-  it('exposes exactly 9 entries (REQ-TOOLS-01..08 + confirm_action)', () => {
+  it('exposes exactly 11 entries (REQ-TOOLS-01..08 + confirm_action + ask_core + get_travel_time)', () => {
     const entries = getAllowlist()
-    expect(entries.length).toBe(9)
+    expect(entries.length).toBe(11)
   })
 
   it('enforces the REQ-TOOLS-09 ceiling of 15 at module load', () => {
@@ -30,14 +30,16 @@ describe('tools/allowlist — REQ-TOOLS registry (D-07, D-08)', () => {
     ])
   })
 
-  it('marks exactly 4 tools as non-mutating', () => {
+  it('marks exactly 4 tools as non-mutating (original read-only set)', () => {
     const entries = getAllowlist()
     const readOnly = entries.filter((e: ToolEntry) => !e.mutating)
-    expect(readOnly.length).toBe(4)
+    expect(readOnly.length).toBe(6)
     expect(readOnly.map((e) => e.name).sort()).toEqual([
+      'ask_core',
       'check_calendar',
       'get_contract',
       'get_practice_profile',
+      'get_travel_time',
       'search_competitors',
     ])
   })
@@ -96,5 +98,40 @@ describe('tools/allowlist — REQ-TOOLS registry (D-07, D-08)', () => {
     expect(INVALID_TOOL_RESPONSE.message).toBe(
       'Das kann ich gerade leider nicht nachsehen.',
     )
+  })
+
+  it('ask_core is in registry with mutating=false (02-12)', () => {
+    const entry = getEntry('ask_core')
+    expect(entry).toBeDefined()
+    expect(entry?.mutating).toBe(false)
+    expect(typeof entry?.validate).toBe('function')
+  })
+
+  it('ask_core validate accepts valid topic+request (02-12)', () => {
+    const entry = getEntry('ask_core')!
+    expect(entry.validate({ topic: 'praxis-info', request: 'Was sind eure Oeffnungszeiten?' })).toBe(true)
+  })
+
+  it('ask_core validate rejects invalid topic pattern (02-12)', () => {
+    const entry = getEntry('ask_core')!
+    expect(entry.validate({ topic: 'UPPERCASE NOT ALLOWED', request: 'test' })).toBe(false)
+  })
+
+  it('get_travel_time is in registry with mutating=false (02-12)', () => {
+    const entry = getEntry('get_travel_time')
+    expect(entry).toBeDefined()
+    expect(entry?.mutating).toBe(false)
+    expect(typeof entry?.validate).toBe('function')
+  })
+
+  it('get_travel_time validate accepts valid origin+destination (02-12)', () => {
+    const entry = getEntry('get_travel_time')!
+    expect(entry.validate({ origin: 'Marienplatz, Munich', destination: 'Schwabing, Munich' })).toBe(true)
+  })
+
+  it('get_travel_time validate accepts optional mode enum (02-12)', () => {
+    const entry = getEntry('get_travel_time')!
+    expect(entry.validate({ origin: 'A', destination: 'B', mode: 'transit' })).toBe(true)
+    expect(entry.validate({ origin: 'A', destination: 'B', mode: 'flying' })).toBe(false)
   })
 })
