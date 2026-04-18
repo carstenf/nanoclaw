@@ -72,6 +72,13 @@ export interface SidebandOpenOpts {
    * dependency at module load time.
    */
   dispatchTool?: DispatchToolFn
+  /**
+   * Plan 03-15: VAD speech-segment events. Used by silence-monitor to detect
+   * caller-side silence (no speech_started for >10s after speech_stopped) and
+   * fire forced response.create prompts (REQ-VOICE-08/09).
+   */
+  onSpeechStart?: () => void
+  onSpeechStop?: () => void
 }
 
 export function openSidebandSession(
@@ -149,6 +156,16 @@ export function openSidebandSession(
         call_id?: unknown
         name?: unknown
         arguments?: unknown
+      }
+
+      // Plan 03-15: VAD speech-segment events for silence-monitor
+      if (parsed?.type === 'input_audio_buffer.speech_started') {
+        opts.onSpeechStart?.()
+        return
+      }
+      if (parsed?.type === 'input_audio_buffer.speech_stopped') {
+        opts.onSpeechStop?.()
+        return
       }
 
       // Plan 02-10: user-utterance transcript completed → slow-brain push
@@ -288,6 +305,48 @@ export function updateInstructions(
     const err = e as Error
     log.warn({
       event: 'sideband_send_failed',
+      call_id: state.callId,
+      err: err.message,
+    })
+    return false
+  }
+}
+
+/**
+ * Plan 03-15: actively request a model response. OpenAI Realtime API only
+ * generates assistant audio in reaction to events — without an explicit
+ * response.create the model stays silent even after session.update. Used by:
+ * - Greet-trigger (post-accept proactive greeting)
+ * - Silence-monitor forced re-engagement after caller silence
+ *
+ * `instructionsOverride` injects a one-shot instruction for THIS response only,
+ * leaving the session-level instructions intact. Without it, the model uses
+ * the current session instructions (the persona floor or last session.update).
+ */
+export function requestResponse(
+  state: SidebandState,
+  log: Logger,
+  instructionsOverride?: string,
+): boolean {
+  if (!state.ready || !state.ws) {
+    log.warn({
+      event: 'sideband_response_create_skipped',
+      call_id: state.callId,
+      reason: 'not_ready',
+    })
+    return false
+  }
+  const payload: Record<string, unknown> = { type: 'response.create' }
+  if (instructionsOverride) {
+    payload.response = { instructions: instructionsOverride }
+  }
+  try {
+    state.ws.send(JSON.stringify(payload))
+    return true
+  } catch (e: unknown) {
+    const err = e as Error
+    log.warn({
+      event: 'sideband_response_create_failed',
       call_id: state.callId,
       err: err.message,
     })

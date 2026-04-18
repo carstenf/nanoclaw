@@ -12,6 +12,7 @@ import type { CallRouter } from './call-router.js'
 import { maybeInjectPreGreet } from './pre-greet.js'
 import { callCoreTool } from './core-mcp-client.js'
 import type { CoreClientLike } from './slow-brain.js'
+import { requestResponse } from './sideband.js'
 
 export function registerWebhookRoute(
   app: FastifyInstance,
@@ -208,13 +209,25 @@ export function registerAcceptRoute(
         sideband: ctx.sideband,
         coreClient,
         log,
-      }).catch((err: Error) => {
-        log.warn({
-          event: 'pre_greet_unhandled_error',
-          call_id: callId,
-          err: err?.message,
-        })
       })
+        .catch((err: Error) => {
+          log.warn({
+            event: 'pre_greet_unhandled_error',
+            call_id: callId,
+            err: err?.message,
+          })
+        })
+        .finally(() => {
+          // Plan 03-15: explicit greet-trigger. OpenAI Realtime stays silent
+          // until an event drives a response. After pre-greet finishes (with
+          // or without injection), push a response.create so the model emits
+          // its opening line based on the (possibly updated) instructions.
+          requestResponse(ctx.sideband.state, log)
+          log.info({
+            event: 'greet_response_create_sent',
+            call_id: callId,
+          })
+        })
     } catch (e: unknown) {
       const err = e as Error
       log.error({

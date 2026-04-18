@@ -57,6 +57,11 @@ export function setHangupCallback(
   _hangupCall = cb
 }
 
+/** Plan 03-15: read the module-level hangup callback (used by silence-monitor). */
+export function getHangupCallback(): ((callId: string) => Promise<void>) | null {
+  return _hangupCall
+}
+
 export interface DispatchOpts {
   /** DI: override callCoreTool for tests */
   callCoreTool?: (

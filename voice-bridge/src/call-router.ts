@@ -11,6 +11,8 @@ import { startSlowBrain } from './slow-brain.js'
 import { startTeardown } from './teardown.js'
 import { runGhostScan } from './ghost-scan.js'
 import { clearCall as clearIdempotencyCache } from './idempotency.js'
+import { createSilenceMonitor, type SilenceMonitor } from './silence-monitor.js'
+import { getHangupCallback } from './tools/dispatch.js'
 
 export interface CallContext {
   callId: string
@@ -19,6 +21,7 @@ export interface CallContext {
   turnLog: TurnLog
   sideband: SidebandHandle
   slowBrain: SlowBrainWorker
+  silence: SilenceMonitor | null
 }
 
 export interface CallRouter {
@@ -81,9 +84,27 @@ export function createCallRouter(
           }
           existing.slowBrain.push({ turnId, transcript })
         },
+        // Plan 03-15: VAD events drive silence-monitor (REQ-VOICE-08/09)
+        onSpeechStart: () => {
+          router.getCall(callId)?.silence?.onSpeechStart()
+        },
+        onSpeechStop: () => {
+          router.getCall(callId)?.silence?.onSpeechStop()
+        },
       })
       logs.set(callId, log)
       const slowBrain = fSlow(log, sideband.state)
+      // Plan 03-15: per-call silence monitor. Skipped if no hangup callback is
+      // wired (tests, or buildApp variants without OpenAI client).
+      const hangupCb = getHangupCallback()
+      const silence = hangupCb
+        ? createSilenceMonitor({
+            callId,
+            sideband,
+            log,
+            hangupCall: hangupCb,
+          })
+        : null
       const ctx: CallContext = {
         callId,
         startedAt: Date.now(),
@@ -91,6 +112,7 @@ export function createCallRouter(
         turnLog,
         sideband,
         slowBrain,
+        silence,
       }
       map.set(callId, ctx)
       return ctx
@@ -110,6 +132,7 @@ export function createCallRouter(
         memBaselineMB: ctx.memBaselineMB,
       })
       teardown.markClosed()
+      ctx.silence?.stop()
       ctx.slowBrain.stop().catch((e: Error) => {
         log.warn({
           event: 'slow_brain_stop_failed',
