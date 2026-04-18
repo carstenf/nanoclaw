@@ -303,3 +303,110 @@ describe('openSidebandSession — onTranscriptTurn (02-10)', () => {
     expect(true).toBe(true)
   })
 })
+
+describe('openSidebandSession — function_call_arguments.done handler (02-11)', () => {
+  beforeEach(() => {
+    process.env.OPENAI_SIP_API_KEY = 'sk-test-sideband'
+  })
+  afterEach(() => {
+    delete process.env.OPENAI_SIP_API_KEY
+  })
+
+  it('function_call_arguments.done fires dispatchTool fire-and-forget with parsed args', async () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const dispatchTool = vi.fn().mockResolvedValue(undefined)
+
+    openSidebandSession('rtc-fc-1', log, {
+      wsFactory: () => ws as unknown as WSType,
+      dispatchTool,
+    })
+    ws.simulateOpen()
+    ws.emit(
+      'message',
+      JSON.stringify({
+        type: 'response.function_call_arguments.done',
+        response_id: 'resp_abc',
+        item_id: 'fc_xyz',
+        call_id: 'call_abc',
+        name: 'check_calendar',
+        arguments: JSON.stringify({ date: '2026-05-01', duration_minutes: 30 }),
+      }),
+    )
+
+    // Fire-and-forget: handler returns immediately, dispatch runs async.
+    // Yield the microtask queue so the promise resolves.
+    await new Promise((r) => setImmediate(r))
+
+    expect(dispatchTool).toHaveBeenCalledTimes(1)
+    const [_ws, _callId, _turnId, functionCallId, toolName, parsedArgs] =
+      dispatchTool.mock.calls[0]
+    expect(functionCallId).toBe('call_abc')
+    expect(toolName).toBe('check_calendar')
+    expect(parsedArgs).toEqual({ date: '2026-05-01', duration_minutes: 30 })
+  })
+
+  it('malformed arguments JSON emits invalid_arguments error directly without dispatching', async () => {
+    const ws = new MockWS()
+    ws.readyState = 1
+    const log = mockLog()
+    const dispatchTool = vi.fn()
+
+    openSidebandSession('rtc-fc-2', log, {
+      wsFactory: () => ws as unknown as WSType,
+      dispatchTool,
+    })
+    ws.simulateOpen()
+    ws.emit(
+      'message',
+      JSON.stringify({
+        type: 'response.function_call_arguments.done',
+        call_id: 'call_bad',
+        name: 'check_calendar',
+        arguments: '{not valid json',
+      }),
+    )
+
+    await new Promise((r) => setImmediate(r))
+
+    // dispatchTool must NOT be called
+    expect(dispatchTool).not.toHaveBeenCalled()
+    // A send with invalid_arguments error must have been emitted
+    const sent = ws.sent
+    expect(sent.length).toBeGreaterThanOrEqual(1)
+    const outputMsg = sent.find((s) => {
+      try {
+        const p = JSON.parse(s)
+        return p.item?.type === 'function_call_output'
+      } catch {
+        return false
+      }
+    })
+    expect(outputMsg).toBeDefined()
+    if (outputMsg) {
+      const parsed = JSON.parse(outputMsg)
+      const output = JSON.parse(parsed.item.output as string)
+      expect(output.error).toBe('invalid_arguments')
+    }
+  })
+
+  it('unknown event types (e.g. response.done) are still silently ignored when dispatchTool is set', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const dispatchTool = vi.fn()
+    const onTranscriptTurn = vi.fn()
+
+    openSidebandSession('rtc-fc-3', log, {
+      wsFactory: () => ws as unknown as WSType,
+      dispatchTool,
+      onTranscriptTurn,
+    })
+    ws.simulateOpen()
+    ws.emit('message', JSON.stringify({ type: 'response.done', response: {} }))
+    ws.emit('message', JSON.stringify({ type: 'session.created' }))
+
+    expect(dispatchTool).not.toHaveBeenCalled()
+    expect(onTranscriptTurn).not.toHaveBeenCalled()
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+})

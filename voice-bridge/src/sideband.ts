@@ -10,6 +10,10 @@ import {
   SIDEBAND_WS_URL_TEMPLATE,
   getApiKey,
 } from './config.js'
+import {
+  emitFunctionCallOutput,
+  emitResponseCreate,
+} from './tools/tool-output-emitter.js'
 
 export interface SidebandState {
   callId: string
@@ -23,6 +27,22 @@ export interface SidebandHandle {
   state: SidebandState
   close: () => void
 }
+
+/**
+ * DI-injectable dispatchTool signature (matches tools/dispatch.ts export).
+ * Kept as a loose function type so tests can pass a vi.fn() without importing
+ * the real implementation (which would pull in fs/core-mcp-client).
+ */
+export type DispatchToolFn = (
+  ws: WSType,
+  callId: string,
+  turnId: string,
+  functionCallId: string,
+  toolName: string,
+  args: unknown,
+  log: Logger,
+  opts?: Record<string, unknown>,
+) => Promise<void>
 
 export interface SidebandOpenOpts {
   wsFactory?: (url: string, headers: Record<string, string>) => WSType
@@ -43,6 +63,14 @@ export interface SidebandOpenOpts {
    * final transcript text. Callers wire this to `slowBrain.push({...})`.
    */
   onTranscriptTurn?: (turnId: string, transcript: string) => void
+  /**
+   * Plan 02-11: DI hook for dispatchTool. If provided, used instead of the
+   * real dispatchTool import. Allows tests to mock without side-effects.
+   * Production callers (call-router) leave this unset — the sideband module
+   * imports the real dispatchTool lazily via dynamic import to avoid circular
+   * dependency at module load time.
+   */
+  dispatchTool?: DispatchToolFn
 }
 
 export function openSidebandSession(
@@ -103,11 +131,9 @@ export function openSidebandSession(
   })
 
   ws.on('message', (raw: unknown) => {
-    // Plan 02-10: parse OpenAI Realtime events, filter user-transcript-
-    // completed, dispatch to onTranscriptTurn. Any JSON-parse failure or
-    // unexpected shape is swallowed with a WARN — message-loop must never
-    // crash the WS (REQ-DIR-02 hot-path-continuity).
-    if (!opts.onTranscriptTurn) return
+    // Plan 02-10 + 02-11: parse OpenAI Realtime events.
+    // Any JSON-parse failure or unexpected shape is swallowed with a WARN —
+    // message-loop must never crash the WS (REQ-DIR-02 hot-path-continuity).
     try {
       const text =
         typeof raw === 'string'
@@ -119,8 +145,14 @@ export function openSidebandSession(
         type?: unknown
         item_id?: unknown
         transcript?: unknown
+        call_id?: unknown
+        name?: unknown
+        arguments?: unknown
       }
+
+      // Plan 02-10: user-utterance transcript completed → slow-brain push
       if (
+        opts.onTranscriptTurn &&
         parsed?.type === 'conversation.item.input_audio_transcription.completed' &&
         typeof parsed.transcript === 'string'
       ) {
@@ -129,8 +161,50 @@ export function openSidebandSession(
             ? parsed.item_id
             : 'unknown'
         opts.onTranscriptTurn(turnId, parsed.transcript)
+        return
       }
-      // delta, response.done, and every other event type: silent ignore.
+
+      // Plan 02-11: function_call_arguments.done → dispatch tool fire-and-forget
+      if (parsed?.type === 'response.function_call_arguments.done') {
+        const functionCallId =
+          typeof parsed.call_id === 'string' ? parsed.call_id : ''
+        const toolName =
+          typeof parsed.name === 'string' ? parsed.name : ''
+
+        // Parse arguments JSON string — on failure emit invalid_arguments directly
+        let parsedArgs: unknown
+        try {
+          parsedArgs = JSON.parse(parsed.arguments as string)
+        } catch {
+          log.warn({
+            event: 'function_call_arguments_parse_failed',
+            call_id: callId,
+            function_call_id: functionCallId,
+            tool_name: toolName,
+          })
+          // Emit error directly without dispatching
+          emitFunctionCallOutput(ws, functionCallId, { error: 'invalid_arguments' }, log)
+          emitResponseCreate(ws, log)
+          return
+        }
+
+        // Fire-and-forget dispatch — handler must not block
+        const dispatch = opts.dispatchTool ?? _getDispatchTool()
+        dispatch(ws, callId, 'fc-turn', functionCallId, toolName, parsedArgs, log).catch(
+          (e: unknown) => {
+            const err = e as Error
+            log.warn({
+              event: 'dispatch_tool_unhandled_error',
+              call_id: callId,
+              function_call_id: functionCallId,
+              err: err.message,
+            })
+          },
+        )
+        return
+      }
+
+      // All other event types: silent ignore.
     } catch (e: unknown) {
       const err = e as Error
       log.warn({
@@ -173,6 +247,23 @@ export function openSidebandSession(
       }
     },
   }
+}
+
+/**
+ * Lazy loader for the real dispatchTool to avoid circular imports at
+ * module load time. Cached after first call.
+ */
+let _cachedDispatch: DispatchToolFn | null = null
+function _getDispatchTool(): DispatchToolFn {
+  if (_cachedDispatch) return _cachedDispatch
+  // Dynamic require at runtime — safe because this path is only hit in
+  // production (tests inject via opts.dispatchTool DI).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const mod = require('./tools/dispatch.js') as {
+    dispatchTool: DispatchToolFn
+  }
+  _cachedDispatch = mod.dispatchTool
+  return _cachedDispatch
 }
 
 /**
