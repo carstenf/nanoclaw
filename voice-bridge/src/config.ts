@@ -104,6 +104,27 @@ export const CORE_MCP_TIMEOUT_MS = Number(
 // Optional Bearer-Token fuer Core-MCP-Auth. Unset = WG-only auth (aktuell v0).
 export const CORE_MCP_TOKEN = process.env.CORE_MCP_TOKEN
 
+// ----- Plan 02-11: Tool-Dispatch (Bridge → Core MCP forward) -----
+
+// DIR-04 3s hot-path-budget for tool calls. Override via DISPATCH_TOOL_TIMEOUT_MS.
+export const DISPATCH_TOOL_TIMEOUT_MS = Number(
+  process.env.DISPATCH_TOOL_TIMEOUT_MS ?? 3000,
+)
+
+// JSONL path for tool_dispatch_done entries (PII-free: tool_name + latency + status).
+// Follows DATA_DIR convention: BRIDGE_LOG_DIR env or ~/nanoclaw/voice-container/runs.
+import { join } from 'node:path'
+import { homedir } from 'node:os'
+
+function getDataDir(): string {
+  return (
+    process.env.BRIDGE_LOG_DIR ??
+    join(homedir(), 'nanoclaw', 'voice-container', 'runs')
+  )
+}
+
+export const TOOL_DISPATCH_JSONL_PATH = join(getDataDir(), 'tool-dispatch.jsonl')
+
 // Phase-2 /accept session knobs. Single source of truth for turn-detection
 // config — tests grep on SESSION_CONFIG for VOICE-04 / VOICE-05 assertions.
 // REQ-VOICE-05 (barge-in cancellation within 200 ms of counterpart VAD) is an
