@@ -297,7 +297,7 @@ describe('POST /accept — Phase 2 full-wiring', () => {
     expect(session.audio.input.turn_detection.type).toBe('server_vad')
     expect(session.audio.input.turn_detection.create_response).toBe(true)
     expect(Array.isArray(session.tools)).toBe(true)
-    expect(session.tools.length).toBe(9)
+    expect(session.tools.length).toBe(11)
     expect(session.tools[0]).toHaveProperty('type', 'function')
     expect(session.tools[0]).toHaveProperty('name')
     expect(session.tools[0]).toHaveProperty('parameters')
@@ -312,11 +312,13 @@ describe('POST /accept — Phase 2 full-wiring', () => {
     const session = acceptSpy.mock.calls[0][1]
     const names = session.tools.map((t: { name: string }) => t.name).sort()
     expect(names).toEqual([
+      'ask_core',
       'check_calendar',
       'confirm_action',
       'create_calendar_entry',
       'get_contract',
       'get_practice_profile',
+      'get_travel_time',
       'schedule_retry',
       'search_competitors',
       'send_discord_message',

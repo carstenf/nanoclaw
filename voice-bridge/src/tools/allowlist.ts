@@ -23,6 +23,8 @@ import getPracticeProfileSchema from './schemas/get_practice_profile.json' with 
 import scheduleRetrySchema from './schemas/schedule_retry.json' with { type: 'json' }
 import transferCallSchema from './schemas/transfer_call.json' with { type: 'json' }
 import confirmActionSchema from './schemas/confirm_action.json' with { type: 'json' }
+import askCoreSchema from './schemas/ask_core.json' with { type: 'json' }
+import getTravelTimeSchema from './schemas/get_travel_time.json' with { type: 'json' }
 
 export interface ToolEntry {
   name: string
@@ -44,6 +46,8 @@ const ENTRIES: ToolEntry[] = [
   { name: 'schedule_retry',        mutating: true,  schema: scheduleRetrySchema as Record<string, unknown>,        validate: ajv.compile(scheduleRetrySchema) },
   { name: 'transfer_call',         mutating: true,  schema: transferCallSchema as Record<string, unknown>,         validate: ajv.compile(transferCallSchema) },
   { name: 'confirm_action',        mutating: true,  schema: confirmActionSchema as Record<string, unknown>,        validate: ajv.compile(confirmActionSchema) },
+  { name: 'ask_core',              mutating: false, schema: askCoreSchema as Record<string, unknown>,              validate: ajv.compile(askCoreSchema) },
+  { name: 'get_travel_time',       mutating: false, schema: getTravelTimeSchema as Record<string, unknown>,       validate: ajv.compile(getTravelTimeSchema) },
 ]
 
 // REQ-TOOLS-09 ceiling guard — fires at module load.

@@ -34,6 +34,8 @@ const TOOL_TO_CORE_MCP: Record<string, string | null> = {
   search_hotels: null, // 03-08 skipped
   transfer_call: null, // bridge-internal, 02-12+
   confirm_action: null, // bridge-internal, 02-04 readback
+  ask_core: 'voice.ask_core',
+  get_travel_time: 'voice.get_travel_time',
 }
 
 export interface DispatchOpts {
