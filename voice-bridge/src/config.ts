@@ -104,6 +104,21 @@ export const CORE_MCP_TIMEOUT_MS = Number(
 // Optional Bearer-Token fuer Core-MCP-Auth. Unset = WG-only auth (aktuell v0).
 export const CORE_MCP_TOKEN = process.env.CORE_MCP_TOKEN
 
+// ----- Plan 02-14: Case-6b persona + filler-phrase injection -----
+
+// E.164 CLI number that maps to CASE6B_PERSONA (Carsten's personal number).
+export const CARSTEN_CLI_NUMBER =
+  process.env.CARSTEN_CLI_NUMBER ?? '+491708036426'
+
+// Comma-separated list of tool names that trigger code-side filler-phrase injection.
+// Default: ask_core (long container cold-start, ~90s).
+export const FILLER_PHRASE_TOOLS: string[] = (
+  process.env.FILLER_PHRASE_TOOLS ?? 'ask_core'
+)
+  .split(',')
+  .map((s) => s.trim())
+  .filter((s) => s.length > 0)
+
 // ----- Plan 02-11: Tool-Dispatch (Bridge → Core MCP forward) -----
 
 // DIR-04 3s hot-path-budget for tool calls. Override via DISPATCH_TOOL_TIMEOUT_MS.
