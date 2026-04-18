@@ -1,12 +1,26 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "schedule_retry",
+  "description": "Plane einen automatischen Wiederholungs-Versuch zu einem spaeteren Zeitpunkt (z.B. Telefon-Nachrichten-Ansage besetzt, nochmal in einer Stunde versuchen). Idempotent.",
   "type": "object",
   "additionalProperties": false,
   "required": ["case_type", "target_phone", "not_before_ts"],
   "properties": {
-    "case_type":     { "type": "string", "minLength": 1 },
-    "target_phone":  { "type": "string", "pattern": "^\\+[1-9]\\d{1,14}$" },
-    "not_before_ts": { "type": "string", "format": "date-time" }
+    "case_type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Art des Retry-Falls, z.B. 'hotel_booking', 'doctor_appointment', 'restaurant_reservation'."
+    },
+    "target_phone": {
+      "type": "string",
+      "pattern": "^\\+[1-9]\\d{1,14}$",
+      "description": "Zu waehlende Nummer in E.164-Format, z.B. '+49891234567'. Kein Leerzeichen, kein Bindestrich."
+    },
+    "not_before_ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Frühester Retry-Zeitpunkt im ISO-8601-Format, z.B. '2026-04-20T15:00:00+02:00'. Muss in der Zukunft liegen, max. 30 Tage ab jetzt."
+    }
   }
 }

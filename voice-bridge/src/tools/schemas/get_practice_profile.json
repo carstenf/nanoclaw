@@ -1,10 +1,16 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "get_practice_profile",
+  "description": "Hole Kontakt- und Patientendaten zu einer Arztpraxis, Werkstatt oder aehnlicher Einrichtung aus Carstens Archiv. Liefert phone, patient_id, insurance_type, last_visit, authorized_data_fields. Falls kein Profil existiert: alle Felder null + leeres Array.",
   "type": "object",
   "additionalProperties": false,
   "required": ["name"],
   "properties": {
-    "name": { "type": "string", "minLength": 1 }
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Name der Praxis/Einrichtung, z.B. 'Zahnarzt Mueller', 'Dr. Schmidt'. Matching ist case-insensitive."
+    }
   }
 }

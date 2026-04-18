@@ -154,11 +154,15 @@ export function registerAcceptRoute(
     // Accept — Phase 2 full session config (D-39..D-43):
     // allowlist tools, PHASE2_PERSONA, server_vad + create_response, de-DE.
     const allowlist = getAllowlist()
-    const toolsPayload = allowlist.map((e: ToolEntry) => ({
-      type: 'function' as const,
-      name: e.name,
-      parameters: e.schema,
-    }))
+    const toolsPayload = allowlist.map((e: ToolEntry) => {
+      const desc = (e.schema as { description?: unknown }).description
+      return {
+        type: 'function' as const,
+        name: e.name,
+        ...(typeof desc === 'string' && desc.length > 0 ? { description: desc } : {}),
+        parameters: e.schema,
+      }
+    })
     try {
       await openai.realtime.calls.accept(callId, {
         type: 'realtime',

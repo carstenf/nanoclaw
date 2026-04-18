@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "send_discord_message",
+  "description": "Sende eine Text-Nachricht an einen Discord-Channel. Idempotent: gleicher Inhalt an denselben Channel innerhalb 5 Minuten wird nur einmal gesendet.",
   "type": "object",
   "additionalProperties": false,
   "required": ["channel", "content"],
@@ -8,8 +9,13 @@
     "channel": {
       "type": "string",
       "pattern": "^\\d{17,20}$",
-      "description": "Discord channel snowflake ID (17-20 digits, numeric only). Known channel: '1490365616518070407' = Andy's main/general channel."
+      "description": "Discord-Channel als 17-20-stellige Snowflake-ID (rein numerisch). Bekannter Channel: '1490365616518070407' = Andy's main/general-Channel — nutze diese ID wenn der Benutzer 'Andy' oder 'Discord' nennt ohne explizite Channel-Angabe."
     },
-    "content": { "type": "string", "minLength": 1, "maxLength": 2000 }
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "Der Nachrichtentext. Discord-Limit 2000 Zeichen."
+    }
   }
 }
