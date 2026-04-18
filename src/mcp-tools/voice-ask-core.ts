@@ -2,12 +2,14 @@
  * voice-ask-core.ts
  *
  * MCP tool: voice.ask_core
- * Generic fallback tool that delegates to a Skill via Claude-Sonnet inference.
+ * Two-path handler:
+ *   - topic='andy' → runAndyForVoice (real container-agent call against groups/main)
+ *   - other topics  → Claude-Sonnet inference via OneCLI (echo-skill path)
+ *
  * Skill-resolution: data/skills/ask-core-<topic>/SKILL.md
  *
  * - If skill not found → graceful answer 'skill_not_configured'
- * - If skill found → call Claude with skill body as system-prompt, request as user-message
- * - JSONL log: only lengths, no request/answer text (PII-clean)
+ * - JSONL log: only lengths + event type, no request/answer text (PII-clean)
  */
 
 import fs from 'fs';
@@ -24,6 +26,7 @@ import {
 } from '../config.js';
 import { BadRequestError } from './voice-on-transcript-turn.js';
 import type { SkillLoadResult } from './skill-loader.js';
+import type { AndyVoiceResult } from './andy-agent-runner.js';
 
 // Input schema: topic must be slug-format to prevent path-traversal
 const AskCoreSchema = z.object({
@@ -45,6 +48,24 @@ export interface VoiceAskCoreDeps {
     messages: Array<{ role: 'user'; content: string }>,
     opts?: { timeoutMs?: number; maxTokens?: number },
   ) => Promise<string>;
+  /**
+   * Run Andy via real container-agent (topic='andy' path).
+   * Injected from andy-agent-runner.runAndyForVoice in index.ts.
+   */
+  runAndy?: (request: string) => Promise<AndyVoiceResult>;
+  /**
+   * Send Discord message (fire-and-forget for andy discord_long).
+   * Injected from index.ts sendDiscordMessage callback.
+   */
+  sendDiscord?: (
+    channelId: string,
+    content: string,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * Discord channel ID for Andy's long-form posts.
+   * Injected from config ANDY_VOICE_DISCORD_CHANNEL.
+   */
+  andyDiscordChannel?: string;
   /** Path to JSONL log file. Default: DATA_DIR/voice-ask-core.jsonl */
   jsonlPath?: string;
   /** Inference timeout in ms. Default: ASK_CORE_CLAUDE_TIMEOUT_MS */
@@ -80,6 +101,74 @@ export function makeVoiceAskCore(deps: VoiceAskCoreDeps) {
     }
 
     const { call_id, topic, request } = parseResult.data;
+
+    // -----------------------------------------------------------------------
+    // PATH A: topic='andy' → real container-agent call
+    // -----------------------------------------------------------------------
+    if (topic === 'andy') {
+      if (!deps.runAndy) {
+        // Graceful degradation when runAndy not wired (shouldn't happen in prod)
+        logger.warn(
+          { event: 'ask_core_andy_not_wired' },
+          'runAndy not injected — falling through to echo path',
+        );
+      } else {
+        try {
+          const result = await deps.runAndy(request);
+
+          // Fire-and-forget Discord long-form if present
+          if (result.discord_long && deps.sendDiscord && deps.andyDiscordChannel) {
+            void deps
+              .sendDiscord(deps.andyDiscordChannel, result.discord_long)
+              .catch((err: unknown) =>
+                logger.warn({ event: 'discord_longform_failed', err }),
+              );
+          }
+
+          appendJsonl(jsonlPath, {
+            ts: new Date().toISOString(),
+            event: 'ask_core_andy_done',
+            tool: 'voice.ask_core',
+            call_id: call_id ?? null,
+            topic,
+            request_len: request.length,
+            container_latency_ms: result.container_latency_ms,
+            voice_short_len: result.voice_short.length,
+            discord_long_sent: !!(result.discord_long && deps.sendDiscord && deps.andyDiscordChannel),
+            discord_long_len: result.discord_long?.length ?? null,
+          });
+
+          return {
+            ok: true,
+            result: {
+              answer: result.voice_short,
+              topic: 'andy',
+              citations: [],
+            },
+          };
+        } catch (err) {
+          logger.warn({ event: 'ask_core_andy_error', err });
+          appendJsonl(jsonlPath, {
+            ts: new Date().toISOString(),
+            event: 'ask_core_andy_failed',
+            tool: 'voice.ask_core',
+            call_id: call_id ?? null,
+            topic,
+            request_len: request.length,
+            container_latency_ms: null,
+            voice_short_len: 0,
+            discord_long_sent: false,
+            discord_long_len: null,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return { ok: false, error: 'andy_error' };
+        }
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // PATH B: all other topics → echo-skill / Claude inference path (unchanged)
+    // -----------------------------------------------------------------------
 
     // Load skill file
     const skill = await deps.loadSkill(topic);
