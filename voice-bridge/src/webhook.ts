@@ -9,6 +9,9 @@ import { CARSTEN_CLI_NUMBER, SESSION_CONFIG } from './config.js'
 import { CASE6B_PERSONA, PHASE2_PERSONA } from './persona.js'
 import { getAllowlist, type ToolEntry } from './tools/allowlist.js'
 import type { CallRouter } from './call-router.js'
+import { maybeInjectPreGreet } from './pre-greet.js'
+import { callCoreTool } from './core-mcp-client.js'
+import type { CoreClientLike } from './slow-brain.js'
 
 export function registerWebhookRoute(
   app: FastifyInstance,
@@ -177,7 +180,7 @@ export function registerAcceptRoute(
         tools: toolsPayload,
         audio: SESSION_CONFIG.audio,
       } as unknown as Parameters<typeof openai.realtime.calls.accept>[1])
-      router.startCall(callId, log)
+      const ctx = router.startCall(callId, log)
       log.info({
         event: 'call_accepted',
         call_id: callId,
@@ -188,6 +191,29 @@ export function registerAcceptRoute(
         schema_compile_ok: true,
         sideband_opened: true,
         persona_selected: personaLabel,
+      })
+
+      // Plan 03-14 / REQ-VOICE-13: fire-and-forget Slow-Brain pre-greet
+      // injection. <2000ms budget, fallback to static persona on timeout
+      // or no instructions returned. Never blocks accept-handler return.
+      const coreClient: CoreClientLike = {
+        callTool: async (name, args, o) =>
+          (await callCoreTool(name, args, {
+            timeoutMs: o?.timeoutMs,
+            signal: o?.signal,
+          })) as { ok: boolean; instructions_update?: string | null },
+      }
+      void maybeInjectPreGreet({
+        callId,
+        sideband: ctx.sideband,
+        coreClient,
+        log,
+      }).catch((err: Error) => {
+        log.warn({
+          event: 'pre_greet_unhandled_error',
+          call_id: callId,
+          err: err?.message,
+        })
       })
     } catch (e: unknown) {
       const err = e as Error
