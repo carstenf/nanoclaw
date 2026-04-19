@@ -90,4 +90,69 @@ touch "$TESTDIR/subdir/three.flac"
   }
 )
 
+# ---------- test case 4: dev-artefact paths are excluded ----------
+# node_modules, _archive*, spike/, voice-stack/runs/ are legitimate dev
+# artefact locations that hold test fixtures / POC data. Production call
+# recordings never land there, so excluding them prevents the §201 audit
+# from drowning in known false positives.
+rm -f "$TESTDIR/subdir/one.mp3" "$TESTDIR/subdir/two.opus" "$TESTDIR/subdir/three.flac"
+mkdir -p \
+  "$TESTDIR/node_modules/node-wav" \
+  "$TESTDIR/_archive-2025/vault" \
+  "$TESTDIR/spike/candidate-a" \
+  "$TESTDIR/voice-stack/runs"
+touch \
+  "$TESTDIR/node_modules/node-wav/fixture.wav" \
+  "$TESTDIR/_archive-2025/vault/old.wav" \
+  "$TESTDIR/spike/candidate-a/sample.wav" \
+  "$TESTDIR/voice-stack/runs/test.wav"
+
+(
+  export HOME="$TESTDIR"
+  export TMPDIR="$TESTDIR/tmp"
+  export DISCORD_AUDIT_WEBHOOK_URL=""
+  export AUDIT_AUDIO_ROOTS_OVERRIDE="$TESTDIR"
+  mkdir -p "$TMPDIR"
+
+  if ! bash "$AUDIT" > "$TESTDIR/out4.log" 2>&1; then
+    echo "FAIL: dev-artefact paths were not excluded (expected exit 0):" >&2
+    cat "$TESTDIR/out4.log" >&2
+    exit 1
+  fi
+  grep -q "AUDIT PASS" "$TESTDIR/out4.log" || {
+    echo "FAIL: expected AUDIT PASS when only dev-artefact audio present" >&2
+    cat "$TESTDIR/out4.log" >&2
+    exit 1
+  }
+)
+
+# ---------- test case 5: real finding alongside excluded paths still fails ----------
+# Exclusions must not let a real production recording slip through if it
+# happens to coexist with dev artefacts.
+touch "$TESTDIR/subdir/real-recording.wav"
+
+(
+  export HOME="$TESTDIR"
+  export TMPDIR="$TESTDIR/tmp"
+  export DISCORD_AUDIT_WEBHOOK_URL=""
+  export AUDIT_AUDIO_ROOTS_OVERRIDE="$TESTDIR"
+  mkdir -p "$TMPDIR"
+
+  if bash "$AUDIT" > "$TESTDIR/out5.log" 2>&1; then
+    echo "FAIL: real .wav was not reported despite dev-artefact coexistence" >&2
+    cat "$TESTDIR/out5.log" >&2
+    exit 1
+  fi
+  grep -q "real-recording.wav" "$TESTDIR/out5.log" || {
+    echo "FAIL: expected real-recording.wav in findings" >&2
+    cat "$TESTDIR/out5.log" >&2
+    exit 1
+  }
+  grep -q "AUDIT FAIL: 1 files" "$TESTDIR/out5.log" || {
+    echo "FAIL: expected exactly 1 finding (only real-recording.wav, excluded dirs skipped)" >&2
+    cat "$TESTDIR/out5.log" >&2
+    exit 1
+  }
+)
+
 echo "audit-audio.sh test PASS"

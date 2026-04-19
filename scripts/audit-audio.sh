@@ -39,8 +39,15 @@ trap 'rm -f "$FINDINGS"' EXIT
 for r in "${ROOTS[@]}"; do
   [ -d "$r" ] || continue
   # Pitfall 4: skip our own findings tempfile pattern and systemd runtime.
+  # Dev-artefact exclusions: the §201 contract targets PRODUCTION call audio,
+  # not checked-in test fixtures, POC spikes, or npm package resources.
+  # Keeping them in the scan buries real findings in known false positives.
   find "$r" -type f \
     -not -path "$HOME/.local/share/systemd/*" \
+    -not -path "*/node_modules/*" \
+    -not -path "*/_archive*/*" \
+    -not -path "*/spike/*" \
+    -not -path "*/voice-stack/runs/*" \
     -not -name "audit-audio.*" \
     \( -name "*.wav" -o -name "*.mp3" -o -name "*.opus" -o -name "*.flac" \) \
     2>/dev/null >> "$FINDINGS" || true
