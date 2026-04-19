@@ -61,7 +61,14 @@ import {
   loadSenderAllowlist,
   shouldDropMessage,
 } from './sender-allowlist.js';
-import { startSchedulerLoop } from './task-scheduler.js';
+import { startPhase4CronLoop, startSchedulerLoop } from './task-scheduler.js';
+import { runDriftMonitor } from './drift-monitor.js';
+import { runRecon3Way } from './recon-3way.js';
+import { runReconInvoice } from './recon-invoice.js';
+import { getDatabase } from './db.js';
+import fsNode from 'node:fs';
+import pathNode from 'node:path';
+import osNode from 'node:os';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 import { recallMemory, retainMemory } from './hindsight.js';
@@ -747,6 +754,78 @@ async function main(): Promise<void> {
       if (text) await channel.sendMessage(jid, text);
     },
   });
+
+  // Phase 4 Plan 04-04: in-process drift + recon cron jobs (Lenovo1 only).
+  // Pure in-process (CLAUDE.md single-Node-process). Systemd-timer jobs
+  // (§201 audit + Hetzner pricing-refresh) live OUTSIDE this node process.
+  const discordAlertUrl = process.env.DISCORD_ALERT_WEBHOOK_URL ?? '';
+  const sendDiscordAlert = async (message: string): Promise<void> => {
+    if (!discordAlertUrl) return;
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 3000);
+      await fetch(discordAlertUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content: message }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+    } catch {
+      // Alert delivery failed — JSONL and local logger are the audit trail
+      // of last resort (same contract as voice-bridge/src/alerts.ts).
+    }
+  };
+  const writeStateRepoOpenPoint = (content: string): void => {
+    try {
+      const openPointsPath = pathNode.join(
+        osNode.homedir(),
+        'nanoclaw-state',
+        'open_points.md',
+      );
+      fsNode.mkdirSync(pathNode.dirname(openPointsPath), { recursive: true });
+      fsNode.appendFileSync(openPointsPath, '\n' + content + '\n');
+    } catch (err: unknown) {
+      logger.warn({
+        event: 'open_point_write_failed',
+        err: (err as Error).message,
+      });
+    }
+  };
+  startPhase4CronLoop([
+    {
+      name: 'drift-monitor',
+      dailyAt: '03:00',
+      run: () => runDriftMonitor({ sendDiscordAlert }),
+    },
+    {
+      name: 'recon-3way',
+      dailyAt: '03:15',
+      run: () =>
+        runRecon3Way({
+          db: getDatabase(),
+          // Phase-4 MVP: Discord summary fetch not yet wired — Phase 3
+          // did not ship a summary-channel read API. Return [] means
+          // every call is tagged as missing-discord (single-source
+          // drift), which is overfit to noise. We explicitly return []
+          // AND disable alerts on this code path by short-circuiting
+          // when no Discord summary listing backend is configured.
+          listDiscordSummaryMessages: async () => [],
+          sendDiscordAlert,
+          writeStateRepoOpenPoint,
+        }),
+    },
+    {
+      name: 'recon-invoice',
+      monthlyAt: { day: 2, time: '04:00' },
+      run: () =>
+        runReconInvoice({
+          db: getDatabase(),
+          sendDiscordAlert,
+          writeStateRepoOpenPoint,
+        }),
+    },
+  ]);
   startIpcWatcher({
     sendMessage: (jid, text) => {
       const channel = findChannel(channels, jid);

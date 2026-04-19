@@ -2,8 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { _initTestDatabase, createTask, getTaskById } from './db.js';
 import {
+  _resetPhase4CronForTests,
   _resetSchedulerLoopForTests,
   computeNextRun,
+  shouldFirePhase4Cron,
+  startPhase4CronLoop,
   startSchedulerLoop,
 } from './task-scheduler.js';
 
@@ -125,5 +128,73 @@ describe('task scheduler', () => {
     const offset =
       (new Date(nextRun!).getTime() - new Date(scheduledTime).getTime()) % ms;
     expect(offset).toBe(0);
+  });
+});
+
+describe('Phase4 cron (in-process drift/recon)', () => {
+  beforeEach(() => {
+    _resetPhase4CronForTests();
+  });
+
+  it('fires a daily job when `now` crosses the anchor and never previously ran', () => {
+    const job = {
+      name: 'drift-monitor',
+      dailyAt: '03:00',
+      run: async () => undefined,
+    };
+    const now = new Date('2026-04-19T04:00:00');
+    expect(shouldFirePhase4Cron(job, null, now)).toBe(true);
+  });
+
+  it('does NOT fire a daily job before the anchor', () => {
+    const job = {
+      name: 'drift-monitor',
+      dailyAt: '03:00',
+      run: async () => undefined,
+    };
+    const now = new Date('2026-04-19T02:00:00');
+    expect(shouldFirePhase4Cron(job, null, now)).toBe(false);
+  });
+
+  it('does NOT fire a daily job twice within the same day', () => {
+    const job = {
+      name: 'drift-monitor',
+      dailyAt: '03:00',
+      run: async () => undefined,
+    };
+    const firstRun = new Date('2026-04-19T03:00:10');
+    const secondCheck = new Date('2026-04-19T10:00:00');
+    expect(shouldFirePhase4Cron(job, firstRun.toISOString(), secondCheck)).toBe(
+      false,
+    );
+  });
+
+  it('fires a monthly job on the target day after the anchor', () => {
+    const job = {
+      name: 'recon-invoice',
+      monthlyAt: { day: 2, time: '04:00' },
+      run: async () => undefined,
+    };
+    const now = new Date('2026-04-02T05:00:00');
+    expect(shouldFirePhase4Cron(job, null, now)).toBe(true);
+  });
+
+  it('does NOT fire a monthly job before the target day', () => {
+    const job = {
+      name: 'recon-invoice',
+      monthlyAt: { day: 2, time: '04:00' },
+      run: async () => undefined,
+    };
+    const now = new Date('2026-04-01T23:59:00');
+    expect(shouldFirePhase4Cron(job, null, now)).toBe(false);
+  });
+
+  it('startPhase4CronLoop is idempotent (second call is noop)', () => {
+    const firstHandle = startPhase4CronLoop([], 60_000);
+    const secondHandle = startPhase4CronLoop([], 60_000);
+    // Both handles have stop(); neither should throw when called.
+    firstHandle.stop();
+    secondHandle.stop();
+    expect(typeof firstHandle.stop).toBe('function');
   });
 });

@@ -282,3 +282,154 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
 export function _resetSchedulerLoopForTests(): void {
   schedulerRunning = false;
 }
+
+// ---------------------------------------------------------------------------
+// Phase 4 in-process cron loop — runDriftMonitor / runRecon3Way / runReconInvoice
+// ---------------------------------------------------------------------------
+// Reasoning (CLAUDE.md): NanoClaw runs as a single Node.js process. The
+// drift + recon jobs are lightweight (file scan + SQLite SUM + Discord
+// POST) and must share the Core's SQLite handle + config. Spinning up
+// separate systemd services for them would either require IPC back to Core
+// (for the DB handle) or a second DB opener (which sqlite-wal permits but
+// invites write contention). Instead we register them as in-process cron
+// callbacks that fire from a tiny poller running alongside the main
+// scheduler loop.
+//
+// Systemd-unit-based jobs (§201 audit + pricing refresh) live OUTSIDE this
+// poller — those are shell scripts invoked by systemd/user timers.
+
+export interface Phase4CronJob {
+  name: string;
+  /** Daily local-time anchor as "HH:MM" (24h). */
+  dailyAt?: string;
+  /** Monthly anchor as `{day: 1-28, time: "HH:MM"}`. */
+  monthlyAt?: { day: number; time: string };
+  run: () => Promise<unknown>;
+}
+
+interface Phase4CronState {
+  lastRunIso: string | null;
+}
+
+/**
+ * Parses "HH:MM" → minutes-since-midnight local-time. Returns null on bad input.
+ */
+function parseHHMM(s: string): number | null {
+  const m = s.match(/^([0-9]{1,2}):([0-9]{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+}
+
+/**
+ * Returns true if `now` has crossed the daily/monthly anchor since the
+ * job's `lastRunIso`. Missed anchors fire on the next tick (Persistent=true
+ * equivalent).
+ */
+export function shouldFirePhase4Cron(
+  job: Phase4CronJob,
+  lastRunIso: string | null,
+  now: Date,
+): boolean {
+  if (job.dailyAt) {
+    const anchor = parseHHMM(job.dailyAt);
+    if (anchor === null) return false;
+    const todayAnchor = new Date(now);
+    todayAnchor.setHours(Math.floor(anchor / 60), anchor % 60, 0, 0);
+    if (now.getTime() < todayAnchor.getTime()) return false;
+    if (!lastRunIso) return true;
+    return new Date(lastRunIso).getTime() < todayAnchor.getTime();
+  }
+  if (job.monthlyAt) {
+    const anchor = parseHHMM(job.monthlyAt.time);
+    if (anchor === null) return false;
+    if (now.getDate() < job.monthlyAt.day) return false;
+    const monthAnchor = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      job.monthlyAt.day,
+      Math.floor(anchor / 60),
+      anchor % 60,
+      0,
+      0,
+    );
+    if (now.getTime() < monthAnchor.getTime()) return false;
+    if (!lastRunIso) return true;
+    return new Date(lastRunIso).getTime() < monthAnchor.getTime();
+  }
+  return false;
+}
+
+let phase4CronRunning = false;
+
+/**
+ * Start the in-process cron poller for Phase-4 drift/recon jobs.
+ * Safe to call multiple times — subsequent calls are no-ops.
+ *
+ * `pollIntervalMs` defaults to 60_000 (check every minute). Each registered
+ * job fires at most once per day (or month for monthlyAt) even if the poller
+ * runs late; missed anchors on restart are handled via Persistent=true
+ * semantics — we fire on the first poll tick where the anchor is in the past
+ * and the job hasn't run since the anchor.
+ */
+export function startPhase4CronLoop(
+  jobs: Phase4CronJob[],
+  pollIntervalMs = 60_000,
+): { stop: () => void } {
+  if (phase4CronRunning) {
+    logger.debug('Phase4 cron loop already running — noop');
+    return { stop: () => {} };
+  }
+  phase4CronRunning = true;
+  const state = new Map<string, Phase4CronState>();
+  for (const j of jobs) {
+    state.set(j.name, { lastRunIso: null });
+    logger.info(
+      {
+        event: 'phase4_cron_registered',
+        job: j.name,
+        daily_at: j.dailyAt ?? null,
+        monthly_at: j.monthlyAt ?? null,
+      },
+      `registered phase-4 cron job ${j.name}`,
+    );
+  }
+
+  let stopped = false;
+  const timer = setInterval(async () => {
+    if (stopped) return;
+    const now = new Date();
+    for (const job of jobs) {
+      const s = state.get(job.name);
+      if (!s) continue;
+      if (!shouldFirePhase4Cron(job, s.lastRunIso, now)) continue;
+      s.lastRunIso = now.toISOString();
+      try {
+        await job.run();
+        logger.info({ event: 'phase4_cron_fired', job: job.name });
+      } catch (err) {
+        logger.error({
+          event: 'phase4_cron_failed',
+          job: job.name,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }, pollIntervalMs);
+  if (timer.unref) timer.unref();
+
+  return {
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+      phase4CronRunning = false;
+    },
+  };
+}
+
+/** @internal — for tests only. */
+export function _resetPhase4CronForTests(): void {
+  phase4CronRunning = false;
+}
