@@ -31,6 +31,7 @@ import { makeVoiceRecordTurnCost } from './voice-record-turn-cost.js';
 import { makeVoiceFinalizeCallCost } from './voice-finalize-call-cost.js';
 import { makeVoiceGetDayMonthCostSum } from './voice-get-day-month-cost-sum.js';
 import { makeVoiceResetMonthlyCap } from './voice-reset-monthly-cap.js';
+import { makeVoiceSearchCompetitors } from './voice-search-competitors.js';
 import { loadSkill } from './skill-loader.js';
 import { callClaudeViaOneCli } from './claude-client.js';
 import { runAndyForVoice } from './andy-agent-runner.js';
@@ -397,6 +398,21 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       jsonlPath: deps.dataDir
         ? `${deps.dataDir}/voice-cost.jsonl`
         : undefined,
+    }),
+  );
+
+  // Phase 4 Plan 04-03 (TOOLS-05): voice.search_competitors.
+  // MVP Phase-4: returns not_configured when SEARCH_COMPETITORS_PROVIDER env
+  // is unset. Phase 7 (C4 negotiation) wires the Claude-over-web-search
+  // backend via askCompetitorsBackend dep.
+  registry.register(
+    'voice.search_competitors',
+    makeVoiceSearchCompetitors({
+      provider: process.env.SEARCH_COMPETITORS_PROVIDER,
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-lookup.jsonl`
+        : undefined,
+      // askCompetitorsBackend deferred to Phase 7
     }),
   );
 

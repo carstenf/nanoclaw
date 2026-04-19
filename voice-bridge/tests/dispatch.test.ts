@@ -118,7 +118,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     )
   })
 
-  it('not_implemented (search_competitors) — emits not_implemented without callCoreTool', async () => {
+  it('not_implemented (search_hotels) — emits not_implemented without callCoreTool (Phase 6 scope)', async () => {
     const ws = makeMockWS()
     const log = makeLog()
     const callCoreTool = vi.fn()
@@ -126,22 +126,65 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     const emitResponseCreate = vi.fn().mockReturnValue(true)
     const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
 
+    // Bridge allowlist does not include search_hotels yet — this is an
+    // invalid_tool_call at allowlist level, emitting invalid_tool_call not
+    // not_implemented. search_hotels is Phase 6 scope; the TOOL_TO_CORE_MCP
+    // mapping stays null for it as a sanity-check that other null-mapped
+    // tools still short-circuit correctly.
     await dispatchTool(
       ws,
       'c4',
       't4',
       'fc_004',
-      'search_competitors',
-      { category: 'physiotherapy', criteria: {} },
+      'search_hotels',
+      { city: 'Munich' },
       log,
       opts,
     )
 
     expect(callCoreTool).not.toHaveBeenCalled()
+    // invalid_tool_call emitted because search_hotels is not in the Bridge
+    // allowlist (even though it's in TOOL_TO_CORE_MCP map as null).
     expect(emitFunctionCallOutput).toHaveBeenCalledWith(
       ws,
       'fc_004',
-      expect.objectContaining({ error: 'not_implemented' }),
+      expect.objectContaining({ error: 'invalid_tool_call' }),
+      log,
+    )
+    expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)
+  })
+
+  it('search_competitors routes to voice.search_competitors (Plan 04-03)', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const coreResult = { ok: false, error: 'not_configured' }
+    const callCoreTool = vi.fn().mockResolvedValue(coreResult)
+    const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
+    const emitResponseCreate = vi.fn().mockReturnValue(true)
+    const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
+
+    await dispatchTool(
+      ws,
+      'c4sc',
+      't4sc',
+      'fc_sc',
+      'search_competitors',
+      { category: 'physiotherapy', criteria: { zip: '80339' } },
+      log,
+      opts,
+    )
+
+    // Core MCP invoked with voice.search_competitors prefix — no longer
+    // short-circuited with not_implemented.
+    expect(callCoreTool).toHaveBeenCalledWith(
+      'voice.search_competitors',
+      { category: 'physiotherapy', criteria: { zip: '80339' } },
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    )
+    expect(emitFunctionCallOutput).toHaveBeenCalledWith(
+      ws,
+      'fc_sc',
+      coreResult,
       log,
     )
     expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)

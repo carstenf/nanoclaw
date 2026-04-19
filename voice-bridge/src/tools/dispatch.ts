@@ -39,8 +39,8 @@ const TOOL_TO_CORE_MCP: Record<string, string | null> = {
   get_contract: 'voice.get_contract',
   get_practice_profile: 'voice.get_practice_profile',
   schedule_retry: 'voice.schedule_retry',
-  search_competitors: null, // 03-08 skipped
-  search_hotels: null, // 03-08 skipped
+  search_competitors: 'voice.search_competitors', // Plan 04-03: wired (returns not_configured until SEARCH_COMPETITORS_PROVIDER set)
+  search_hotels: null, // 03-08 skipped (Phase 6 scope)
   transfer_call: null, // bridge-internal, 02-12+
   confirm_action: null, // bridge-internal, 02-04 readback
   ask_core: 'voice.ask_core',
