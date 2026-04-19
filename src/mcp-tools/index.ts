@@ -29,11 +29,18 @@ import { makeVoiceAskCore } from './voice-ask-core.js';
 import { makeVoiceRequestOutboundCall } from './voice-request-outbound-call.js';
 import { makeVoiceRecordTurnCost } from './voice-record-turn-cost.js';
 import { makeVoiceFinalizeCallCost } from './voice-finalize-call-cost.js';
+import { makeVoiceGetDayMonthCostSum } from './voice-get-day-month-cost-sum.js';
+import { makeVoiceResetMonthlyCap } from './voice-reset-monthly-cap.js';
 import { loadSkill } from './skill-loader.js';
 import { callClaudeViaOneCli } from './claude-client.js';
 import { runAndyForVoice } from './andy-agent-runner.js';
-import { createTask, getAllTasks, getDatabase } from '../db.js';
-import { insertTurnCost, upsertCallCost } from '../cost-ledger.js';
+import { createTask, getAllTasks, getDatabase, getRouterState, setRouterState } from '../db.js';
+import {
+  insertTurnCost,
+  upsertCallCost,
+  sumCostCurrentDay,
+  sumCostCurrentMonth,
+} from '../cost-ledger.js';
 import {
   SKILLS_DIR,
   ASK_CORE_CLAUDE_TIMEOUT_MS,
@@ -359,6 +366,34 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
           .get(call_id) as { s: number; n: number };
         return { sum_eur: r.s, count: r.n };
       },
+      // Phase 4 Plan 04-02 (COST-03 variant b): auto-suspend after monthly
+      // cap reached, triggered inside finalize — atomic with the upsert.
+      sumCostCurrentMonth: () => sumCostCurrentMonth(getDatabase()),
+      setRouterState,
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-cost.jsonl`
+        : undefined,
+    }),
+  );
+
+  // Phase 4 Plan 04-02: /accept-time cost gate + manual cap reset.
+  // voice.get_day_month_cost_sum is read by voice-bridge/src/cost/gate.ts on
+  // every incoming call. voice.reset_monthly_cap is the manual override
+  // Carsten invokes (via iPhone/Chat) after a €25 monthly breach.
+  registry.register(
+    'voice.get_day_month_cost_sum',
+    makeVoiceGetDayMonthCostSum({
+      sumCostCurrentDay: () => sumCostCurrentDay(getDatabase()),
+      sumCostCurrentMonth: () => sumCostCurrentMonth(getDatabase()),
+      isSuspended: () => getRouterState('voice_channel_suspended') === '1',
+    }),
+  );
+
+  registry.register(
+    'voice.reset_monthly_cap',
+    makeVoiceResetMonthlyCap({
+      getRouterState,
+      setRouterState,
       jsonlPath: deps.dataDir
         ? `${deps.dataDir}/voice-cost.jsonl`
         : undefined,

@@ -41,6 +41,20 @@ export interface VoiceFinalizeCallCostDeps {
    * time — do NOT trust Bridge in-RAM totals which may be lost on restart.
    */
   sumTurnCosts: (call_id: string) => { sum_eur: number; count: number };
+  /**
+   * Phase 4 Plan 04-02 Task 3 (COST-03 variant b, locked per WARNING-2):
+   * after upsert, query SUM(voice_call_costs.cost_eur) for current month.
+   * If result >= CAP_MONTHLY_EUR (€25), auto-suspend via setRouterState
+   * ('voice_channel_suspended','1'). Injected so in-memory tests can omit
+   * and production wiring in mcp-tools/index.ts supplies real accessors.
+   */
+  sumCostCurrentMonth?: () => number;
+  setRouterState?: (key: string, value: string) => void;
+  /**
+   * Monthly cap constant (€25). Default matches voice-bridge/src/cost/gate.ts
+   * CAP_MONTHLY_EUR. Injectable only for test override.
+   */
+  capMonthlyEur?: number;
   jsonlPath?: string;
   now?: () => number;
 }
@@ -87,6 +101,45 @@ export function makeVoiceFinalizeCallCost(
       });
     }
 
+    // Phase 4 Plan 04-02 (COST-03 variant b, locked): Core-side auto-suspend.
+    // After upsert, re-query the monthly SUM. If >= CAP_MONTHLY_EUR (default
+    // €25), atomically set router_state.voice_channel_suspended='1'. The
+    // Bridge /accept-gate then reads this flag via voice.get_day_month_cost_sum
+    // and returns SIP 503 for any further calls until voice.reset_monthly_cap
+    // is invoked. Keeping the suspension-write on the same Core handler
+    // avoids adding a voice.set_suspend MCP tool (A12 surface minimization).
+    const capMonthlyEur = deps.capMonthlyEur ?? 25.0;
+    let auto_suspended = false;
+    let monthSumAfter: number | null = null;
+    if (deps.sumCostCurrentMonth && deps.setRouterState) {
+      try {
+        monthSumAfter = deps.sumCostCurrentMonth();
+        if (monthSumAfter >= capMonthlyEur) {
+          deps.setRouterState('voice_channel_suspended', '1');
+          auto_suspended = true;
+          logger.warn({
+            event: 'monthly_cap_auto_suspend',
+            call_id: d.call_id,
+            month_eur: monthSumAfter,
+            cap_eur: capMonthlyEur,
+          });
+          appendJsonl(jsonlPath, {
+            ts: new Date().toISOString(),
+            event: 'monthly_cap_auto_suspend',
+            tool: 'voice.finalize_call_cost',
+            call_id: d.call_id,
+            month_eur: monthSumAfter,
+            cap_eur: capMonthlyEur,
+          });
+        }
+      } catch (err: unknown) {
+        logger.warn({
+          event: 'monthly_cap_auto_suspend_fail',
+          err: (err as Error).message,
+        });
+      }
+    }
+
     appendJsonl(jsonlPath, {
       ts: d.ended_at,
       event: 'call_cost_finalized',
@@ -96,12 +149,19 @@ export function makeVoiceFinalizeCallCost(
       turn_count: count,
       terminated_by: d.terminated_by,
       soft_warn_fired: d.soft_warn_fired,
+      auto_suspended,
+      month_eur_after: monthSumAfter,
       latency_ms: now() - start,
     });
 
     return {
       ok: true,
-      result: { finalized: true, cost_eur: sum_eur, turn_count: count },
+      result: {
+        finalized: true,
+        cost_eur: sum_eur,
+        turn_count: count,
+        auto_suspended,
+      },
     };
   };
 }
