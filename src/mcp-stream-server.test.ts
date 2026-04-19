@@ -211,6 +211,50 @@ describe('mcp-stream-server — AC-07 StreamableHTTP', () => {
     await doInit();
   });
 
+  it('initialize advertises capabilities.tools.listChanged=false (required for stateless mode)', async () => {
+    // Regression guard: SDK default after .tool() registration is
+    // listChanged:true. In stateless per-request mode we cannot deliver
+    // change-notifications (no persistent SSE channel). Clients like the
+    // Claude iOS App honor the capability by opening a long-running GET
+    // subscription and blocking user input until it is ready — resulting
+    // in the whole client UI becoming unresponsive while our MCP is
+    // connected. The fix: construct McpServer with explicit
+    // `capabilities: { tools: { listChanged: false } }`.
+    await startApp({ bearerToken: 'correct-token' });
+    const r = await fetch(`${baseUrl}/`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        authorization: 'Bearer correct-token',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1' },
+        },
+      }),
+    });
+    expect(r.status).toBe(200);
+    const text = await r.text();
+    const dataLine = text
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.startsWith('data: '));
+    expect(dataLine).toBeDefined();
+    const body = JSON.parse((dataLine as string).slice('data: '.length));
+    expect(body.result).toBeDefined();
+    // The critical assertion: listChanged MUST be false, not true, not
+    // missing. A missing `tools` key would mean we are advertising no tool
+    // capability at all — which would also break the client. We want
+    // {tools: {listChanged: false}}.
+    expect(body.result.capabilities?.tools?.listChanged).toBe(false);
+  });
+
   it('buildMcpStreamApp throws when MCP_STREAM_BEARER is unset (no insecure default)', () => {
     // With no bearerToken dep AND no env var, construction must throw.
     const prevEnv = process.env.MCP_STREAM_BEARER;

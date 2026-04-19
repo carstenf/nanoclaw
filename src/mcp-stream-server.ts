@@ -235,6 +235,20 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
       version: '1.0.0',
     });
     registerTools(mcp);
+    // Each .tool() call inside registerTools triggers the SDK to
+    // registerCapabilities({tools:{listChanged:true}}). That default would
+    // make Claude iOS / Claude.ai web open a persistent GET for
+    // `notifications/tools/list_changed` and block the user UI while
+    // waiting for the subscription to become ready. Stateless per-request
+    // servers cannot deliver those notifications — no persistent SSE
+    // channel. registerCapabilities uses a spread-merge
+    // ({...base, ...addValue}), so calling it AFTER .tool() with
+    // listChanged:false overrides the auto-set :true. Must be done before
+    // mcp.connect(transport) — registerCapabilities throws if the
+    // transport is already attached.
+    mcp.server.registerCapabilities({
+      tools: { listChanged: false },
+    });
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless — one transport per request
