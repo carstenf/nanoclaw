@@ -45,6 +45,7 @@ for r in "${ROOTS[@]}"; do
   find "$r" -type f \
     -not -path "$HOME/.local/share/systemd/*" \
     -not -path "*/node_modules/*" \
+    -not -path "*/site-packages/*" \
     -not -path "*/_archive*/*" \
     -not -path "*/spike/*" \
     -not -path "*/voice-stack/runs/*" \
