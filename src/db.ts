@@ -14,6 +14,18 @@ import {
 
 let db: Database.Database;
 
+/**
+ * Phase 4 (INFRA-06): read-only handle accessor for modules that need to run
+ * prepared statements against the same DB (e.g. src/cost-ledger.ts).
+ * Throws if called before initDatabase()/_initTestDatabase().
+ */
+export function getDatabase(): Database.Database {
+  if (!db) {
+    throw new Error('database not initialized — call initDatabase() first');
+  }
+  return db;
+}
+
 function createSchema(database: Database.Database): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS chats (
@@ -81,6 +93,47 @@ function createSchema(database: Database.Database): void {
       added_at TEXT NOT NULL,
       container_config TEXT,
       requires_trigger INTEGER DEFAULT 1
+    );
+
+    -- Phase 4 (INFRA-06, COST-01..05): voice cost ledger.
+    -- Schema mirror lives in src/cost-ledger.ts createSchema() for in-memory testing.
+    CREATE TABLE IF NOT EXISTS voice_call_costs (
+      call_id          TEXT PRIMARY KEY,
+      case_type        TEXT NOT NULL,
+      started_at       TEXT NOT NULL,
+      ended_at         TEXT,
+      cost_eur         REAL NOT NULL DEFAULT 0,
+      turn_count       INTEGER NOT NULL DEFAULT 0,
+      terminated_by    TEXT,
+      soft_warn_fired  INTEGER NOT NULL DEFAULT 0,
+      model            TEXT NOT NULL DEFAULT 'gpt-realtime-mini'
+    );
+    CREATE INDEX IF NOT EXISTS idx_voice_call_costs_started ON voice_call_costs(started_at);
+
+    CREATE TABLE IF NOT EXISTS voice_turn_costs (
+      call_id          TEXT NOT NULL,
+      turn_id          TEXT NOT NULL,
+      ts               TEXT NOT NULL,
+      audio_in_tokens  INTEGER NOT NULL DEFAULT 0,
+      audio_out_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_in_tokens INTEGER NOT NULL DEFAULT 0,
+      text_in_tokens   INTEGER NOT NULL DEFAULT 0,
+      text_out_tokens  INTEGER NOT NULL DEFAULT 0,
+      cost_eur         REAL NOT NULL,
+      PRIMARY KEY (call_id, turn_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_voice_turn_costs_call ON voice_turn_costs(call_id);
+
+    CREATE TABLE IF NOT EXISTS voice_price_snapshots (
+      ts               TEXT PRIMARY KEY,
+      model            TEXT NOT NULL,
+      audio_in_usd     REAL NOT NULL,
+      audio_out_usd    REAL NOT NULL,
+      audio_cached_usd REAL NOT NULL,
+      text_in_usd      REAL NOT NULL,
+      text_out_usd     REAL NOT NULL,
+      usd_to_eur       REAL NOT NULL,
+      source           TEXT NOT NULL
     );
   `);
 
