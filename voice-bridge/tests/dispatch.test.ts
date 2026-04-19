@@ -6,6 +6,7 @@ import type { Logger } from 'pino'
 import type { WebSocket as WSType } from 'ws'
 import { dispatchTool } from '../src/tools/dispatch.js'
 import { CoreMcpTimeoutError, CoreMcpError } from '../src/core-mcp-client.js'
+import { clearCall as clearIdempotencyCache } from '../src/idempotency.js'
 
 function makeLog(): Logger {
   return {
@@ -548,5 +549,110 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
       expect.objectContaining({ ok: false, error: 'hangup_not_wired' }),
       log,
     )
+  })
+})
+
+// Plan 04-02 Task 1: A12 closure — idempotency for mutating tools in dispatch.
+describe('tools/dispatch — A12 idempotency gate (04-02)', () => {
+  beforeEach(() => {
+    clearIdempotencyCache('*')
+  })
+
+  it('A12: wraps mutating tool (create_calendar_entry) via invokeIdempotent — second identical (call,turn,tool,args) hits cache', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const callCoreTool = vi
+      .fn()
+      .mockResolvedValue({ ok: true, id: 'evt_1' })
+    const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
+    const emitResponseCreate = vi.fn().mockReturnValue(true)
+    const opts = makeOpts({
+      callCoreTool,
+      emitFunctionCallOutput,
+      emitResponseCreate,
+    })
+
+    const args = {
+      title: 'Termin',
+      date: '2026-05-01',
+      time: '09:00',
+      duration: 30,
+    }
+
+    await dispatchTool(ws, 'c1', 't1', 'fc1', 'create_calendar_entry', args, log, opts)
+    await dispatchTool(ws, 'c1', 't1', 'fc2', 'create_calendar_entry', args, log, opts)
+
+    // Core MCP invoked exactly once for identical (call,turn,tool,args)
+    expect(callCoreTool).toHaveBeenCalledTimes(1)
+    // Both dispatches still emit a function_call_output (second from cached result)
+    expect(emitFunctionCallOutput).toHaveBeenCalledTimes(2)
+    expect(emitResponseCreate).toHaveBeenCalledTimes(2)
+    // idempotency_hit logged on second call
+    const infoCalls = (log.info as ReturnType<typeof vi.fn>).mock.calls
+    const hit = infoCalls.find((c) => c[0]?.event === 'idempotency_hit')
+    expect(hit).toBeDefined()
+  })
+
+  it('A12: does NOT wrap read-only tool (check_calendar) — two identical calls hit core twice', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const callCoreTool = vi.fn().mockResolvedValue({ ok: true, slots: [] })
+    const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
+    const emitResponseCreate = vi.fn().mockReturnValue(true)
+    const opts = makeOpts({
+      callCoreTool,
+      emitFunctionCallOutput,
+      emitResponseCreate,
+    })
+
+    const args = { date: '2026-05-01', duration_minutes: 30 }
+
+    await dispatchTool(ws, 'c2', 't1', 'fc1', 'check_calendar', args, log, opts)
+    await dispatchTool(ws, 'c2', 't1', 'fc2', 'check_calendar', args, log, opts)
+
+    // Read-only tools bypass idempotency cache — each call hits Core
+    expect(callCoreTool).toHaveBeenCalledTimes(2)
+  })
+
+  it('A12: different args for same mutating tool = separate Core invocations (no collision)', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const callCoreTool = vi
+      .fn()
+      .mockResolvedValue({ ok: true, id: 'evt_x' })
+    const opts = makeOpts({ callCoreTool })
+
+    await dispatchTool(
+      ws,
+      'c3',
+      't1',
+      'fc1',
+      'create_calendar_entry',
+      {
+        title: 'Termin A',
+        date: '2026-05-01',
+        time: '09:00',
+        duration: 30,
+      },
+      log,
+      opts,
+    )
+    await dispatchTool(
+      ws,
+      'c3',
+      't1',
+      'fc2',
+      'create_calendar_entry',
+      {
+        title: 'Termin B',
+        date: '2026-05-02',
+        time: '09:00',
+        duration: 30,
+      },
+      log,
+      opts,
+    )
+
+    expect(callCoreTool).toHaveBeenCalledTimes(2)
   })
 })
