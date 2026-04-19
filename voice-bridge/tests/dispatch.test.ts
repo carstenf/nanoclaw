@@ -595,6 +595,91 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
   })
 })
 
+// Plan 04-03 Task 4: smoke tests for Phase-4 TOOLS-01/02/04/05/06/07
+// end-to-end dispatch-path — verifies TOOL_TO_CORE_MCP mapping is intact
+// through the allowlist + A12-idempotency + dispatch changes.
+// The underlying Core handlers are Phase-3 shipped (and TOOLS-05 Plan 04-03
+// shipped) — here we only prove the Bridge routes each toolName to the
+// correct `voice.<name>` Core target.
+describe('tools/dispatch — Phase-4 TOOLS smoke (04-03)', () => {
+  beforeEach(() => {
+    clearIdempotencyCache('*')
+  })
+
+  const cases: Array<{
+    toolName: string
+    coreName: string
+    args: Record<string, unknown>
+  }> = [
+    {
+      toolName: 'check_calendar',
+      coreName: 'voice.check_calendar',
+      args: { date: '2026-05-01', duration_minutes: 30 },
+    },
+    {
+      toolName: 'create_calendar_entry',
+      coreName: 'voice.create_calendar_entry',
+      args: {
+        title: 'Termin',
+        date: '2026-05-01',
+        time: '09:00',
+        duration: 30,
+      },
+    },
+    {
+      toolName: 'get_contract',
+      coreName: 'voice.get_contract',
+      args: { provider_name: 'Telekom' },
+    },
+    {
+      toolName: 'search_competitors',
+      coreName: 'voice.search_competitors',
+      args: { category: 'insurance', criteria: { max: 50 } },
+    },
+    {
+      toolName: 'get_practice_profile',
+      coreName: 'voice.get_practice_profile',
+      args: { name: 'Dr. Schmidt' },
+    },
+    {
+      toolName: 'schedule_retry',
+      coreName: 'voice.schedule_retry',
+      args: {
+        case_type: 'case_2',
+        target_phone: '+4915112345678',
+        not_before_ts: new Date(Date.now() + 60_000).toISOString(),
+      },
+    },
+  ]
+
+  for (const c of cases) {
+    it(`${c.toolName} routes to callCoreTool('${c.coreName}')`, async () => {
+      const ws = makeMockWS()
+      const log = makeLog()
+      const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
+      const opts = makeOpts({ callCoreTool })
+
+      await dispatchTool(
+        ws,
+        `smoke-${c.toolName}`,
+        `turn-${c.toolName}`,
+        `fc-${c.toolName}`,
+        c.toolName,
+        c.args,
+        log,
+        opts,
+      )
+
+      expect(callCoreTool).toHaveBeenCalledTimes(1)
+      expect(callCoreTool).toHaveBeenCalledWith(
+        c.coreName,
+        expect.objectContaining(c.args),
+        expect.objectContaining({ timeoutMs: expect.any(Number) }),
+      )
+    })
+  }
+})
+
 // Plan 04-02 Task 1: A12 closure — idempotency for mutating tools in dispatch.
 describe('tools/dispatch — A12 idempotency gate (04-02)', () => {
   beforeEach(() => {
