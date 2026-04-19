@@ -35,8 +35,7 @@ export interface VoiceRecordTurnCostDeps {
 export function makeVoiceRecordTurnCost(
   deps: VoiceRecordTurnCostDeps,
 ): ToolHandler {
-  const jsonlPath =
-    deps.jsonlPath ?? path.join(DATA_DIR, 'voice-cost.jsonl');
+  const jsonlPath = deps.jsonlPath ?? path.join(DATA_DIR, 'voice-cost.jsonl');
   const now = deps.now ?? (() => Date.now());
 
   return async function voiceRecordTurnCost(args: unknown): Promise<unknown> {

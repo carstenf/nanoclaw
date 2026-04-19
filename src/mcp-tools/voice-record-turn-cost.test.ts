@@ -29,15 +29,16 @@ const BASE_NOW = new Date('2026-04-19T12:00:00Z').getTime();
 function makeDeps(
   overrides: Partial<VoiceRecordTurnCostDeps> = {},
 ): VoiceRecordTurnCostDeps & { captured: VoiceTurnCostRow | null } {
-  const deps: VoiceRecordTurnCostDeps & { captured: VoiceTurnCostRow | null } = {
-    captured: null,
-    insertTurnCost: (row) => {
-      deps.captured = row;
-    },
-    jsonlPath: JSONL_PATH(),
-    now: () => BASE_NOW,
-    ...overrides,
-  };
+  const deps: VoiceRecordTurnCostDeps & { captured: VoiceTurnCostRow | null } =
+    {
+      captured: null,
+      insertTurnCost: (row) => {
+        deps.captured = row;
+      },
+      jsonlPath: JSONL_PATH(),
+      now: () => BASE_NOW,
+      ...overrides,
+    };
   return deps;
 }
 

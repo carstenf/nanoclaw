@@ -29,9 +29,7 @@ const FinalizeCallCostSchema = z.object({
   started_at: z.string().min(1),
   ended_at: z.string().min(1),
   terminated_by: z.enum(TERMINATED_BY),
-  soft_warn_fired: z
-    .union([z.literal(0), z.literal(1)])
-    .default(0),
+  soft_warn_fired: z.union([z.literal(0), z.literal(1)]).default(0),
   model: z.string().default('gpt-realtime-mini'),
 });
 
@@ -50,8 +48,7 @@ export interface VoiceFinalizeCallCostDeps {
 export function makeVoiceFinalizeCallCost(
   deps: VoiceFinalizeCallCostDeps,
 ): ToolHandler {
-  const jsonlPath =
-    deps.jsonlPath ?? path.join(DATA_DIR, 'voice-cost.jsonl');
+  const jsonlPath = deps.jsonlPath ?? path.join(DATA_DIR, 'voice-cost.jsonl');
   const now = deps.now ?? (() => Date.now());
 
   return async function voiceFinalizeCallCost(args: unknown): Promise<unknown> {

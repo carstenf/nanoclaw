@@ -30,7 +30,9 @@ function makeDeps(
   overrides: Partial<VoiceFinalizeCallCostDeps> = {},
   sumResult: { sum_eur: number; count: number } = { sum_eur: 0.42, count: 7 },
 ): VoiceFinalizeCallCostDeps & { captured: VoiceCallCostRow | null } {
-  const deps: VoiceFinalizeCallCostDeps & { captured: VoiceCallCostRow | null } = {
+  const deps: VoiceFinalizeCallCostDeps & {
+    captured: VoiceCallCostRow | null;
+  } = {
     captured: null,
     upsertCallCost: (row) => {
       deps.captured = row;

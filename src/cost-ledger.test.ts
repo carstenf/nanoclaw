@@ -41,7 +41,10 @@ describe('cost-ledger — schema + SUMs', () => {
     const info = db
       .prepare('PRAGMA table_info(voice_turn_costs)')
       .all() as Array<{ name: string; pk: number }>;
-    const pkCols = info.filter((c) => c.pk > 0).map((c) => c.name).sort();
+    const pkCols = info
+      .filter((c) => c.pk > 0)
+      .map((c) => c.name)
+      .sort();
     expect(pkCols).toEqual(['call_id', 'turn_id']);
   });
 
@@ -122,7 +125,11 @@ describe('cost-ledger — schema + SUMs', () => {
     });
     const rows = db
       .prepare('SELECT * FROM voice_call_costs WHERE call_id = ?')
-      .all('c1') as Array<{ cost_eur: number; turn_count: number; soft_warn_fired: number }>;
+      .all('c1') as Array<{
+      cost_eur: number;
+      turn_count: number;
+      soft_warn_fired: number;
+    }>;
     expect(rows).toHaveLength(1);
     expect(rows[0].cost_eur).toBeCloseTo(0.75, 5);
     expect(rows[0].turn_count).toBe(5);
