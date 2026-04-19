@@ -49,6 +49,7 @@ for r in "${ROOTS[@]}"; do
     -not -path "*/spike/*" \
     -not -path "*/voice-stack/runs/*" \
     -not -name "audit-audio.*" \
+    -not -name "silence.wav" \
     \( -name "*.wav" -o -name "*.mp3" -o -name "*.opus" -o -name "*.flac" \) \
     2>/dev/null >> "$FINDINGS" || true
 done

@@ -155,4 +155,61 @@ touch "$TESTDIR/subdir/real-recording.wav"
   }
 )
 
+# ---------- test case 6: silence.wav is a config asset and must be excluded ----------
+# silence.wav files appear in drachtio/voip-config archives as codec-negotiation
+# placeholders — header-only WAVs that contain no voice data. Excluded by name
+# so the audit does not cry wolf on them. A *real* recording named anything else
+# must still fail.
+rm -f "$TESTDIR/subdir/real-recording.wav"
+mkdir -p "$TESTDIR/config"
+touch "$TESTDIR/config/silence.wav"
+
+(
+  export HOME="$TESTDIR"
+  export TMPDIR="$TESTDIR/tmp"
+  export DISCORD_AUDIT_WEBHOOK_URL=""
+  export AUDIT_AUDIO_ROOTS_OVERRIDE="$TESTDIR"
+  mkdir -p "$TMPDIR"
+
+  if ! bash "$AUDIT" > "$TESTDIR/out6.log" 2>&1; then
+    echo "FAIL: silence.wav was not excluded by name" >&2
+    cat "$TESTDIR/out6.log" >&2
+    exit 1
+  fi
+  grep -q "AUDIT PASS" "$TESTDIR/out6.log" || {
+    echo "FAIL: expected AUDIT PASS when only silence.wav present" >&2
+    cat "$TESTDIR/out6.log" >&2
+    exit 1
+  }
+)
+
+# ---------- test case 7: silence-named files other than silence.wav still flagged ----------
+# Only the exact filename is excluded — silence-prefix or silence.mp3 etc. stay
+# in scope so the narrow exclusion cannot be abused to hide real audio.
+touch "$TESTDIR/config/silence.mp3"
+
+(
+  export HOME="$TESTDIR"
+  export TMPDIR="$TESTDIR/tmp"
+  export DISCORD_AUDIT_WEBHOOK_URL=""
+  export AUDIT_AUDIO_ROOTS_OVERRIDE="$TESTDIR"
+  mkdir -p "$TMPDIR"
+
+  if bash "$AUDIT" > "$TESTDIR/out7.log" 2>&1; then
+    echo "FAIL: silence.mp3 should NOT be excluded (only exact name silence.wav)" >&2
+    cat "$TESTDIR/out7.log" >&2
+    exit 1
+  fi
+  grep -q "silence.mp3" "$TESTDIR/out7.log" || {
+    echo "FAIL: expected silence.mp3 in findings" >&2
+    cat "$TESTDIR/out7.log" >&2
+    exit 1
+  }
+  grep -q "AUDIT FAIL: 1 files" "$TESTDIR/out7.log" || {
+    echo "FAIL: expected exactly 1 finding (silence.mp3)" >&2
+    cat "$TESTDIR/out7.log" >&2
+    exit 1
+  }
+)
+
 echo "audit-audio.sh test PASS"
