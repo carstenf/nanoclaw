@@ -163,6 +163,54 @@ describe('mcp-stream-server — AC-07 StreamableHTTP', () => {
     expect(r.status).toBe(403);
   });
 
+  it('two sequential initialize requests both succeed (no "Server already initialized" regression)', async () => {
+    // Regression guard for Phase 4 Wave 3: the original implementation reused
+    // a single McpServer+Transport across requests, so the second client's
+    // initialize JSON-RPC call failed with -32600 "Server already initialized".
+    // Fix: per-request Server+Transport (stateless mode). Both posts must
+    // reach the transport and return a JSON-RPC 2.0 result (not an error with
+    // -32600).
+    await startApp({ bearerToken: 'correct-token' });
+    const initBody = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2025-06-18',
+        capabilities: {},
+        clientInfo: { name: 'test', version: '1' },
+      },
+    };
+    const doInit = async () => {
+      const r = await fetch(`${baseUrl}/mcp/stream`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          authorization: 'Bearer correct-token',
+        },
+        body: JSON.stringify(initBody),
+      });
+      expect(r.status).toBe(200);
+      const text = await r.text();
+      // SSE-style framed response: the transport writes
+      //   event: message
+      //   data: {...json...}
+      //
+      // on a 200. We extract the first `data: ` line and JSON.parse it.
+      const dataLine = text
+        .split('\n')
+        .map((line) => line.trim())
+        .find((line) => line.startsWith('data: '));
+      expect(dataLine).toBeDefined();
+      const body = JSON.parse((dataLine as string).slice('data: '.length));
+      expect(body.error?.code).not.toBe(-32600);
+      expect(body.result).toBeDefined();
+    };
+    await doInit();
+    await doInit();
+  });
+
   it('buildMcpStreamApp throws when MCP_STREAM_BEARER is unset (no insecure default)', () => {
     // With no bearerToken dep AND no env var, construction must throw.
     const prevEnv = process.env.MCP_STREAM_BEARER;

@@ -121,56 +121,65 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
   );
 
   // -------------------------------------------------------------------------
-  // Mount MCP server with Pitfall-8-safe handler wrappers.
+  // MCP server + transport are built PER REQUEST (stateless mode).
   //
-  // The registered tool callbacks do NOT re-validate args (the Core handler
-  // has its own zod schema). We just prefix synthetic chat-<uuid> call_id /
-  // turn_id so the Phase-2 idempotency cache stays disjoint.
+  // Per MCP SDK spec, an McpServer instance can only be connected to one
+  // transport at a time, and a transport can only be initialized once.
+  // Reusing a single instance across requests makes the second client's
+  // `initialize` JSON-RPC call fail with "Server already initialized"
+  // (-32600). The canonical fix is to spawn a fresh Server+Transport pair
+  // inside the request handler and tear them down when the response closes.
+  //
+  // Tool registration is factored out so the per-request build stays cheap
+  // (no network I/O, no zod re-compilation).
+  //
+  // Handler wrappers are Pitfall-8-safe: they do NOT re-validate args (the
+  // Core handler has its own zod schema), they just prefix synthetic
+  // chat-<uuid> call_id / turn_id so the Phase-2 idempotency cache stays
+  // disjoint from live voice calls.
   // -------------------------------------------------------------------------
-  const mcp = new McpServer({
-    name: 'nanoclaw-voice',
-    version: '1.0.0',
-  });
-
-  for (const name of deps.registry.listNames()) {
-    mcp.tool(name, async (args: unknown) => {
-      const synthetic =
-        args && typeof args === 'object' && !Array.isArray(args)
-          ? {
-              ...(args as Record<string, unknown>),
-              call_id: `chat-${crypto.randomUUID()}`,
-              turn_id: `chat-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
-            }
-          : // non-object args — forward as-is; handler's zod will reject or
-            // accept on its own terms.
-            args;
-      const result = await deps.registry.invoke(name, synthetic);
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(result),
-          },
-        ],
-      };
-    });
-  }
-
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => crypto.randomUUID(),
-  });
-  // Fire-and-forget connect — the transport becomes ready before the first
-  // request is served in practice. If connect rejects, we log; production
-  // will restart via systemd.
-  void mcp.connect(transport).catch((err: unknown) => {
-    log.error(
-      { event: 'mcp_stream_connect_failed', err },
-      'MCP stream transport failed to connect',
-    );
-  });
+  const registerTools = (server: McpServer): void => {
+    for (const name of deps.registry.listNames()) {
+      server.tool(name, async (args: unknown) => {
+        const synthetic =
+          args && typeof args === 'object' && !Array.isArray(args)
+            ? {
+                ...(args as Record<string, unknown>),
+                call_id: `chat-${crypto.randomUUID()}`,
+                turn_id: `chat-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+              }
+            : args;
+        const result = await deps.registry.invoke(name, synthetic);
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(result),
+            },
+          ],
+        };
+      });
+    }
+  };
 
   app.all('/mcp/stream', async (req: Request, res: Response) => {
+    const mcp = new McpServer({
+      name: 'nanoclaw-voice',
+      version: '1.0.0',
+    });
+    registerTools(mcp);
+
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // stateless — one transport per request
+    });
+
+    res.on('close', () => {
+      void transport.close().catch(() => undefined);
+      void mcp.close().catch(() => undefined);
+    });
+
     try {
+      await mcp.connect(transport);
       await transport.handleRequest(req, res, req.body);
     } catch (err) {
       log.warn(
