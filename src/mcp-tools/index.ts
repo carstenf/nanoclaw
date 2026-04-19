@@ -27,10 +27,13 @@ import { makeVoiceGetPracticeProfile } from './voice-get-practice-profile.js';
 import { makeVoiceScheduleRetry } from './voice-schedule-retry.js';
 import { makeVoiceAskCore } from './voice-ask-core.js';
 import { makeVoiceRequestOutboundCall } from './voice-request-outbound-call.js';
+import { makeVoiceRecordTurnCost } from './voice-record-turn-cost.js';
+import { makeVoiceFinalizeCallCost } from './voice-finalize-call-cost.js';
 import { loadSkill } from './skill-loader.js';
 import { callClaudeViaOneCli } from './claude-client.js';
 import { runAndyForVoice } from './andy-agent-runner.js';
-import { createTask, getAllTasks } from '../db.js';
+import { createTask, getAllTasks, getDatabase } from '../db.js';
+import { insertTurnCost, upsertCallCost } from '../cost-ledger.js';
 import {
   SKILLS_DIR,
   ASK_CORE_CLAUDE_TIMEOUT_MS,
@@ -327,6 +330,37 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       bridgeAuthToken: BRIDGE_OUTBOUND_AUTH_TOKEN || undefined,
       jsonlPath: deps.dataDir
         ? `${deps.dataDir}/voice-outbound.jsonl`
+        : undefined,
+    }),
+  );
+
+  // Phase 4 (INFRA-06): Bridge-internal cost housekeeping tools.
+  // Always registered — no external prereq. Bridge posts per-turn and per-call
+  // rows as it observes response.done / session.closed events.
+  registry.register(
+    'voice.record_turn_cost',
+    makeVoiceRecordTurnCost({
+      insertTurnCost: (row) => insertTurnCost(getDatabase(), row),
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-cost.jsonl`
+        : undefined,
+    }),
+  );
+
+  registry.register(
+    'voice.finalize_call_cost',
+    makeVoiceFinalizeCallCost({
+      upsertCallCost: (row) => upsertCallCost(getDatabase(), row),
+      sumTurnCosts: (call_id) => {
+        const r = getDatabase()
+          .prepare(
+            'SELECT COALESCE(SUM(cost_eur), 0) AS s, COUNT(*) AS n FROM voice_turn_costs WHERE call_id = ?',
+          )
+          .get(call_id) as { s: number; n: number };
+        return { sum_eur: r.s, count: r.n };
+      },
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-cost.jsonl`
         : undefined,
     }),
   );
