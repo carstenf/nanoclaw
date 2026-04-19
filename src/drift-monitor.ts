@@ -101,16 +101,15 @@ export function computeP50RollingWindow(
             : NaN;
       if (!Number.isFinite(tsMs) || tsMs < cutoff) continue;
 
-      const lat = (e.t4_first_tts_audio_ms as number) - (e.t0_vad_end_ms as number);
+      const lat =
+        (e.t4_first_tts_audio_ms as number) - (e.t0_vad_end_ms as number);
       if (lat > 0) latencies.push(lat);
     }
   }
 
   latencies.sort((a, b) => a - b);
   const p50 =
-    latencies.length === 0
-      ? 0
-      : latencies[Math.floor(latencies.length / 2)];
+    latencies.length === 0 ? 0 : latencies[Math.floor(latencies.length / 2)];
   return { samples: latencies, p50_ms: p50 };
 }
 

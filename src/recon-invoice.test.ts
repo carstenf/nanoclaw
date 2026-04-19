@@ -29,7 +29,11 @@ afterEach(() => {
 const BASE_NOW = new Date('2026-04-19T04:00:00Z').getTime();
 const LAST_MONTH_DATE = '2026-03-15T12:00:00Z';
 
-function seedCallCost(callId: string, startedAt: string, costEur: number): void {
+function seedCallCost(
+  callId: string,
+  startedAt: string,
+  costEur: number,
+): void {
   db.prepare(
     `INSERT INTO voice_call_costs (call_id, case_type, started_at, ended_at, cost_eur, turn_count, terminated_by, soft_warn_fired, model)
      VALUES (?, 'unknown', ?, ?, ?, 1, 'counterpart_bye', 0, 'gpt-realtime-mini')`,

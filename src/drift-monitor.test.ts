@@ -7,10 +7,7 @@ import path from 'node:path';
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-import {
-  computeP50RollingWindow,
-  runDriftMonitor,
-} from './drift-monitor.js';
+import { computeP50RollingWindow, runDriftMonitor } from './drift-monitor.js';
 
 let tmpDir: string;
 
@@ -25,7 +22,10 @@ afterEach(() => {
 const BASE_NOW = new Date('2026-04-19T12:00:00Z').getTime();
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
-function writeTurns(fileName: string, entries: Array<Record<string, unknown>>): void {
+function writeTurns(
+  fileName: string,
+  entries: Array<Record<string, unknown>>,
+): void {
   const body = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
   fs.writeFileSync(path.join(tmpDir, fileName), body);
 }
@@ -93,7 +93,11 @@ describe('computeP50RollingWindow', () => {
   it('tolerates missing t0/t4 fields without throwing (Pitfall 9)', () => {
     writeTurns('turns-c1.jsonl', [
       entry(BASE_NOW - ONE_HOUR_MS, 0, 1000),
-      { ts_iso: new Date(BASE_NOW - ONE_HOUR_MS).toISOString(), call_id: 'c1', turn_id: 'x' }, // no timings
+      {
+        ts_iso: new Date(BASE_NOW - ONE_HOUR_MS).toISOString(),
+        call_id: 'c1',
+        turn_id: 'x',
+      }, // no timings
       { random: 'junk' }, // no fields at all
       entry(BASE_NOW - ONE_HOUR_MS, 100, null), // t4 null → barge-in
     ]);

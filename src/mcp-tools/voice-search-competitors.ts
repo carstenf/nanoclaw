@@ -82,8 +82,7 @@ export function makeVoiceSearchCompetitors(
   deps: VoiceSearchCompetitorsDeps,
 ): ToolHandler {
   const now = deps.now ?? (() => Date.now());
-  const jsonlPath =
-    deps.jsonlPath ?? path.join(DATA_DIR, 'voice-lookup.jsonl');
+  const jsonlPath = deps.jsonlPath ?? path.join(DATA_DIR, 'voice-lookup.jsonl');
   const provider =
     deps.provider ?? process.env.SEARCH_COMPETITORS_PROVIDER ?? '';
 

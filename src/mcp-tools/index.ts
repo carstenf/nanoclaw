@@ -36,7 +36,13 @@ import { makeVoiceInsertPriceSnapshot } from './voice-insert-price-snapshot.js';
 import { loadSkill } from './skill-loader.js';
 import { callClaudeViaOneCli } from './claude-client.js';
 import { runAndyForVoice } from './andy-agent-runner.js';
-import { createTask, getAllTasks, getDatabase, getRouterState, setRouterState } from '../db.js';
+import {
+  createTask,
+  getAllTasks,
+  getDatabase,
+  getRouterState,
+  setRouterState,
+} from '../db.js';
 import {
   insertTurnCost,
   upsertCallCost,
@@ -351,9 +357,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     'voice.record_turn_cost',
     makeVoiceRecordTurnCost({
       insertTurnCost: (row) => insertTurnCost(getDatabase(), row),
-      jsonlPath: deps.dataDir
-        ? `${deps.dataDir}/voice-cost.jsonl`
-        : undefined,
+      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-cost.jsonl` : undefined,
     }),
   );
 
@@ -373,9 +377,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       // cap reached, triggered inside finalize — atomic with the upsert.
       sumCostCurrentMonth: () => sumCostCurrentMonth(getDatabase()),
       setRouterState,
-      jsonlPath: deps.dataDir
-        ? `${deps.dataDir}/voice-cost.jsonl`
-        : undefined,
+      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-cost.jsonl` : undefined,
     }),
   );
 
@@ -397,9 +399,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     makeVoiceResetMonthlyCap({
       getRouterState,
       setRouterState,
-      jsonlPath: deps.dataDir
-        ? `${deps.dataDir}/voice-cost.jsonl`
-        : undefined,
+      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-cost.jsonl` : undefined,
     }),
   );
 
@@ -411,9 +411,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     'voice.insert_price_snapshot',
     makeVoiceInsertPriceSnapshot({
       insertPriceSnapshot: (row) => insertPriceSnapshot(getDatabase(), row),
-      jsonlPath: deps.dataDir
-        ? `${deps.dataDir}/voice-cost.jsonl`
-        : undefined,
+      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-cost.jsonl` : undefined,
     }),
   );
 

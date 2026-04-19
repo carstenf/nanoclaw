@@ -120,9 +120,9 @@ describe('makeVoiceInsertPriceSnapshot (INFRA-07)', () => {
     const deps = makeDeps();
     const handler = makeVoiceInsertPriceSnapshot(deps);
 
-    await expect(
-      handler({ ...VALID_ARGS, source: '' }),
-    ).rejects.toBeInstanceOf(BadRequestError);
+    await expect(handler({ ...VALID_ARGS, source: '' })).rejects.toBeInstanceOf(
+      BadRequestError,
+    );
   });
 
   it('graceful-degrades on DB error — returns ok:true and logs JSONL', async () => {

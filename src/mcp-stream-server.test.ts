@@ -18,14 +18,7 @@ import os from 'os';
 import path from 'path';
 import type { AddressInfo } from 'net';
 
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { buildMcpStreamApp } from './mcp-stream-server.js';
 import { ToolRegistry } from './mcp-tools/index.js';

@@ -119,7 +119,10 @@ export async function runRecon3Way(
           continue;
         }
         if (!e || !READBACK_EVENT_NAMES.includes(String(e.event))) continue;
-        const cid = typeof e.call_id === 'string' && e.call_id.length > 0 ? e.call_id : fileCallId;
+        const cid =
+          typeof e.call_id === 'string' && e.call_id.length > 0
+            ? e.call_id
+            : fileCallId;
         readbackCalls.add(cid);
       }
     }

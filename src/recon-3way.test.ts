@@ -28,14 +28,21 @@ afterEach(() => {
 const BASE_NOW = new Date('2026-04-19T12:00:00Z').getTime();
 const SIX_HOURS_AGO = new Date(BASE_NOW - 6 * 60 * 60 * 1000).toISOString();
 
-function seedCall(callId: string, startedAt: string, terminatedBy: string | null = 'counterpart_bye'): void {
+function seedCall(
+  callId: string,
+  startedAt: string,
+  terminatedBy: string | null = 'counterpart_bye',
+): void {
   db.prepare(
     `INSERT INTO voice_call_costs (call_id, case_type, started_at, ended_at, cost_eur, turn_count, terminated_by, soft_warn_fired, model)
      VALUES (?, 'unknown', ?, ?, 0.10, 3, ?, 0, 'gpt-realtime-mini')`,
   ).run(callId, startedAt, startedAt, terminatedBy);
 }
 
-function writeTurns(callId: string, entries: Array<Record<string, unknown>>): void {
+function writeTurns(
+  callId: string,
+  entries: Array<Record<string, unknown>>,
+): void {
   const body = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
   fs.writeFileSync(path.join(tmpDir, `turns-${callId}.jsonl`), body);
 }
@@ -44,8 +51,12 @@ describe('runRecon3Way', () => {
   it('no drift when all 3 sources agree on every call', async () => {
     seedCall('call-A', SIX_HOURS_AGO);
     seedCall('call-B', SIX_HOURS_AGO);
-    writeTurns('call-A', [{ event: 'tool_dispatch_ok', call_id: 'call-A', turn_id: 't1' }]);
-    writeTurns('call-B', [{ event: 'tool_dispatch_ok', call_id: 'call-B', turn_id: 't1' }]);
+    writeTurns('call-A', [
+      { event: 'tool_dispatch_ok', call_id: 'call-A', turn_id: 't1' },
+    ]);
+    writeTurns('call-B', [
+      { event: 'tool_dispatch_ok', call_id: 'call-B', turn_id: 't1' },
+    ]);
 
     const alertSpy = vi.fn().mockResolvedValue(undefined);
     const openPointSpy = vi.fn();
@@ -118,7 +129,9 @@ describe('runRecon3Way', () => {
     seedCall('call-V3', SIX_HOURS_AGO);
 
     // Multiple candidate event names all indicate readback passed.
-    writeTurns('call-V1', [{ event: 'readback_confirmed', call_id: 'call-V1' }]);
+    writeTurns('call-V1', [
+      { event: 'readback_confirmed', call_id: 'call-V1' },
+    ]);
     writeTurns('call-V2', [{ event: 'tool_dispatch_ok', call_id: 'call-V2' }]);
     writeTurns('call-V3', [{ event: 'readback_ok', call_id: 'call-V3' }]);
 

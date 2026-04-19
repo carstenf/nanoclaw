@@ -120,14 +120,21 @@ export async function runReconInvoice(
     const msg = `Recon-invoice: parse-error on ${csvPath}: ${emsg}. Carsten: verify CSV is <month,usage_usd> with a single data row.`;
     await deps.sendDiscordAlert(msg);
     try {
-      deps.writeStateRepoOpenPoint(`## Recon-invoice: CSV parse fail ${monthKey}\n\n${msg}\n`);
-    } catch { /* best-effort */ }
+      deps.writeStateRepoOpenPoint(
+        `## Recon-invoice: CSV parse fail ${monthKey}\n\n${msg}\n`,
+      );
+    } catch {
+      /* best-effort */
+    }
     return { ledger_eur, invoice_eur: 0, drift: 0, alerted: true };
   }
 
-  const drift = invoice_eur === 0 && ledger_eur === 0 ? 0
-    : invoice_eur === 0 ? Number.POSITIVE_INFINITY
-    : (ledger_eur - invoice_eur) / invoice_eur;
+  const drift =
+    invoice_eur === 0 && ledger_eur === 0
+      ? 0
+      : invoice_eur === 0
+        ? Number.POSITIVE_INFINITY
+        : (ledger_eur - invoice_eur) / invoice_eur;
   const driftAbs = Math.abs(drift);
   const alerted = driftAbs > threshold;
 

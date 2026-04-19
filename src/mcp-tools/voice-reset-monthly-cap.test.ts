@@ -31,16 +31,17 @@ function makeDeps(
   routerStore: Map<string, string>;
 } {
   const store = new Map<string, string>();
-  const deps: VoiceResetMonthlyCapDeps & { routerStore: Map<string, string> } = {
-    routerStore: store,
-    getRouterState: (k) => store.get(k),
-    setRouterState: (k, v) => {
-      store.set(k, v);
-    },
-    jsonlPath: JSONL_PATH(),
-    now: () => BASE_NOW,
-    ...overrides,
-  };
+  const deps: VoiceResetMonthlyCapDeps & { routerStore: Map<string, string> } =
+    {
+      routerStore: store,
+      getRouterState: (k) => store.get(k),
+      setRouterState: (k, v) => {
+        store.set(k, v);
+      },
+      jsonlPath: JSONL_PATH(),
+      now: () => BASE_NOW,
+      ...overrides,
+    };
   return deps;
 }
 
@@ -89,9 +90,9 @@ describe('makeVoiceResetMonthlyCap (04-02 COST-03 manual reset)', () => {
   it('missing authorized_by → BadRequestError', async () => {
     const deps = makeDeps();
     const handler = makeVoiceResetMonthlyCap(deps);
-    await expect(
-      handler({ reason: 'something' } as unknown),
-    ).rejects.toThrow(BadRequestError);
+    await expect(handler({ reason: 'something' } as unknown)).rejects.toThrow(
+      BadRequestError,
+    );
   });
 
   it('JSONL: writes monthly_cap_reset audit row with before/after/reason/authorized_by', async () => {

@@ -34,7 +34,9 @@ describe('voice.search_competitors (TOOLS-05)', () => {
   }
 
   it('returns {ok:false, error:not_configured} when provider absent (Phase-4 gate)', async () => {
-    const handler = makeVoiceSearchCompetitors(makeDeps({ provider: undefined }));
+    const handler = makeVoiceSearchCompetitors(
+      makeDeps({ provider: undefined }),
+    );
     const res = await handler({
       category: 'physiotherapy',
       criteria: { zip: '80339' },
@@ -94,9 +96,9 @@ describe('voice.search_competitors (TOOLS-05)', () => {
     const handler = makeVoiceSearchCompetitors(
       makeDeps({ provider: 'claude_web' }),
     );
-    await expect(
-      handler({ criteria: { x: 1 } }),
-    ).rejects.toMatchObject({ name: 'BadRequestError' });
+    await expect(handler({ criteria: { x: 1 } })).rejects.toMatchObject({
+      name: 'BadRequestError',
+    });
   });
 
   it('throws BadRequestError on non-object criteria', async () => {

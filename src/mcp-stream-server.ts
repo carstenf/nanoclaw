@@ -117,10 +117,7 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
   // Layer 2: Peer allowlist — identical policy to port 3200.
   // -------------------------------------------------------------------------
   app.use(
-    peerAllowlistMiddleware(
-      allowlist,
-      log as Pick<typeof logger, 'warn'>,
-    ),
+    peerAllowlistMiddleware(allowlist, log as Pick<typeof logger, 'warn'>),
   );
 
   // -------------------------------------------------------------------------
@@ -142,9 +139,7 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
           ? {
               ...(args as Record<string, unknown>),
               call_id: `chat-${crypto.randomUUID()}`,
-              turn_id: `chat-${Date.now()}-${crypto
-                .randomUUID()
-                .slice(0, 8)}`,
+              turn_id: `chat-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
             }
           : // non-object args — forward as-is; handler's zod will reject or
             // accept on its own terms.
@@ -199,9 +194,7 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
  * MCP_STREAM_BEARER is unset — that is a deliberate degrade mode for dev
  * hosts without secrets provisioned.
  */
-export function startMcpStreamServer(
-  deps: McpStreamDeps,
-): HttpServer | null {
+export function startMcpStreamServer(deps: McpStreamDeps): HttpServer | null {
   if (!MCP_STREAM_BEARER) {
     logger.warn(
       {
