@@ -42,8 +42,8 @@ export interface OutboundTask {
   created_at: number
   started_at?: number
   ended_at?: number
-  /** FreeSWITCH-side channel UUID returned by originate +OK. */
-  fs_uuid?: string
+  /** Provider-side reference (Sipgate sessionId or FS-channel-uuid for ESL fallback). */
+  provider_ref?: string
   /** OpenAI-side call_id, set by webhook /accept once the bridged INVITE arrives. */
   openai_call_id?: string
   status: 'queued' | 'active' | 'done' | 'failed' | 'escalated'
@@ -58,18 +58,25 @@ export interface EnqueueRequest {
   call_id?: string
 }
 
-export interface EslClientLike {
-  /** Issue a FreeSWITCH originate, return the FS-side UUID on success. */
+/**
+ * Provider-agnostic outbound originate. Plan 03-11 pivot 2026-04-19: prod
+ * implementation uses Sipgate REST-API (sipgate-rest-client.ts). The ESL/
+ * FreeSWITCH-trunk implementation (freeswitch-esl-client.ts) is retained as
+ * v2 fallback if the Sipgate account is upgraded from Basic to Trunking.
+ */
+export interface OutboundOriginatorLike {
+  /** Issue an outbound call to `targetPhone`. Return an opaque provider-side
+   *  reference (Sipgate sessionId or FS-channel-uuid) for traceability. */
   originate: (opts: {
     targetPhone: string
     taskId: string
-  }) => Promise<{ fsUuid: string }>
+  }) => Promise<{ providerRef: string }>
 }
 
 // DI surface for tests
 export interface OutboundRouterDeps {
-  /** Plan 03-11 rewrite: ESL client replaces the old openaiClient.realtime.calls.create attempt. */
-  eslClient: EslClientLike
+  /** Plan 03-11 pivot 2026-04-19: provider-agnostic outbound originator (was eslClient). */
+  outboundOriginator: OutboundOriginatorLike
   callRouter: {
     _size: () => number
   }
@@ -77,6 +84,11 @@ export interface OutboundRouterDeps {
   reportBack: (task: OutboundTask) => Promise<void>
   /** Optional hard hangup (used at max-duration cap). */
   hangupCall?: (openaiCallId: string) => Promise<void>
+  /** Optional pino-style logger for execute-path observability. */
+  log?: {
+    info: (o: Record<string, unknown>, msg?: string) => void
+    warn: (o: Record<string, unknown>, msg?: string) => void
+  }
   timers: {
     setTimeout: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
     clearTimeout: (id: ReturnType<typeof setTimeout>) => void
@@ -168,18 +180,42 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
     }, maxDurationMs)
     durationTimers.set(next.task_id, durTimer)
 
-    // Issue FreeSWITCH originate via ESL.
+    // Plan 03-11 pivot 2026-04-19: outbound via Sipgate REST-API (was ESL).
+    deps.log?.info(
+      {
+        event: 'outbound_originate_start',
+        task_id: next.task_id,
+        target_phone: next.target_phone,
+      },
+      'submitting outbound originate',
+    )
     try {
-      const result = await deps.eslClient.originate({
+      const result = await deps.outboundOriginator.originate({
         targetPhone: next.target_phone,
         taskId: next.task_id,
       })
-      next.fs_uuid = result.fsUuid
+      next.provider_ref = result.providerRef
+      deps.log?.info(
+        {
+          event: 'outbound_originate_ok',
+          task_id: next.task_id,
+          provider_ref: result.providerRef,
+        },
+        'outbound originate accepted',
+      )
     } catch (err) {
       next.status = 'failed'
       next.error = err instanceof Error ? err.message : String(err)
       next.ended_at = now()
       activeTaskId = null
+      deps.log?.warn(
+        {
+          event: 'outbound_originate_failed',
+          task_id: next.task_id,
+          err: next.error,
+        },
+        'outbound originate failed — task marked failed',
+      )
       const dt = durationTimers.get(next.task_id)
       if (dt !== undefined) {
         deps.timers.clearTimeout(dt)

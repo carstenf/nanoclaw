@@ -97,10 +97,38 @@ export const GREET_TRIGGER_DELAY_MS = Number(
   process.env.GREET_TRIGGER_DELAY_MS ?? 1000,
 )
 
-// ----- Plan 03-11 rewrite: ESL outbound (briefing 22:18, ESL verified) -----
-// FreeSWITCH event-socket connection on Hetzner via WireGuard. iptables blocks
-// public; only 10.0.0.0/24 reachable. Password is non-default Adagio11ESL,
-// stored in .env (NEVER commit a real value).
+// Plan 03-11 fix 09:58 PSTN: outbound calls need a longer delay than inbound
+// because Sipgate's two-leg bridge takes ~1.5-2s extra to settle the caller
+// audio path after pickup. Carsten reported greet was 1-2s too early. Without
+// this, the bot starts speaking before the callee can hear it.
+export const GREET_TRIGGER_DELAY_OUTBOUND_MS = Number(
+  process.env.GREET_TRIGGER_DELAY_OUTBOUND_MS ?? 2500,
+)
+
+// ----- Plan 03-11 pivot 2026-04-19: Sipgate REST-API outbound -----
+// Sipgate Basic accounts do not support trunk-outbound (paid Trunking product
+// only). REST-API is the officially-supported path for all account types.
+// Decision-doc: ~/nanoclaw-state/decisions/2026-04-19-outbound-rest-api-pivot.md
+export const SIPGATE_TOKEN_ID = process.env.SIPGATE_TOKEN_ID ?? ''
+export const SIPGATE_TOKEN = process.env.SIPGATE_TOKEN ?? ''
+/** Sipgate device id. Default 'e5' = "VoIP-Telefon NanoClaw" (the SIP device
+ *  Hetzner-FS registers as). Verified live 2026-04-19 via /v2/w0/devices —
+ *  device e0 from earlier code (commit 7ad0cce, April) no longer exists. */
+export const SIPGATE_DEVICE_ID = process.env.SIPGATE_DEVICE_ID ?? 'e5'
+/** Sipgate `caller` = phoneline-id (e.g. 'p2' = "Anschluss NanoClaw").
+ *  Mandatory — without it Sipgate's API throws java.lang.NullPointerException
+ *  (verified live 2026-04-19). NOT a phone number, NOT a SIP user-id. Find via
+ *  GET /v2/<userId>/devices → device.activePhonelines[].id. */
+export const SIPGATE_CALLER = process.env.SIPGATE_CALLER ?? 'p2'
+export const SIPGATE_REST_TIMEOUT_MS = Number(
+  process.env.SIPGATE_REST_TIMEOUT_MS ?? 5000,
+)
+
+// ----- Plan 03-11 rewrite ESL outbound (DEPRECATED 2026-04-19, kept as v2 fallback) -----
+// FreeSWITCH event-socket connection — was the original 03-11 implementation
+// path before pivoting to REST-API. Sipgate Basic does not support trunk
+// outbound; if the account is upgraded to Trunking later, we can flip back.
+// All ESL code is retained but inactive.
 export const ESL_HOST = process.env.ESL_HOST ?? '10.0.0.1'
 export const ESL_PORT = Number(process.env.ESL_PORT ?? 8021)
 export const ESL_PASSWORD = process.env.ESL_PASSWORD ?? ''

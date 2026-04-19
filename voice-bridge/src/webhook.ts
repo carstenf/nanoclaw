@@ -14,7 +14,10 @@ import { maybeInjectPreGreet } from './pre-greet.js'
 import { callCoreTool } from './core-mcp-client.js'
 import type { CoreClientLike } from './slow-brain.js'
 import { requestResponse } from './sideband.js'
-import { GREET_TRIGGER_DELAY_MS } from './config.js'
+import {
+  GREET_TRIGGER_DELAY_MS,
+  GREET_TRIGGER_DELAY_OUTBOUND_MS,
+} from './config.js'
 
 export function registerWebhookRoute(
   app: FastifyInstance,
@@ -183,17 +186,19 @@ export function registerAcceptRoute(
           outbound_task_id: activeOutbound.task_id,
         })
         // Outbound greet: skip pre-greet (no Slow-Brain context yet) but
-        // still trigger the proactive response.create after the same delay
-        // so the model emits its opening greeting based on OUTBOUND_PERSONA.
+        // still trigger the proactive response.create. Outbound uses a longer
+        // delay (GREET_TRIGGER_DELAY_OUTBOUND_MS, default 2500ms) because
+        // Sipgate's two-leg bridge needs ~1.5-2s extra for the caller-side
+        // audio path to settle after pickup. Inbound uses GREET_TRIGGER_DELAY_MS.
         setTimeout(() => {
           requestResponse(ctx.sideband.state, log)
           log.info({
             event: 'greet_response_create_sent',
             call_id: callId,
-            delay_ms: GREET_TRIGGER_DELAY_MS,
+            delay_ms: GREET_TRIGGER_DELAY_OUTBOUND_MS,
             outbound: true,
           })
-        }, GREET_TRIGGER_DELAY_MS)
+        }, GREET_TRIGGER_DELAY_OUTBOUND_MS)
       } catch (e: unknown) {
         const err = e as Error
         log.error({

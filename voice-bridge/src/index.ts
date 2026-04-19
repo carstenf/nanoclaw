@@ -14,7 +14,10 @@ import { startHeartbeat } from './heartbeat.js'
 import { createCallRouter, type CallRouter } from './call-router.js'
 import { createOutboundRouter, type OutboundRouter } from './outbound-router.js'
 import { setHangupCallback } from './tools/dispatch.js'
-import { eslOriginate } from './freeswitch-esl-client.js'
+import { sipgateRestOriginate } from './sipgate-rest-client.js'
+// ESL client kept as inactive v2 fallback (Plan 03-11 pivot 2026-04-19).
+// Will be re-wired if Sipgate account is upgraded from Basic to Trunking.
+// import { eslOriginate } from './freeswitch-esl-client.js'
 
 export interface BuildAppOptions {
   /** Optional OpenAI client injection for tests (mock). If omitted, real client is constructed. */
@@ -92,13 +95,18 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   outboundRouter =
     opts.outboundRouterOverride ??
     createOutboundRouter({
-      eslClient: {
-        originate: async ({ targetPhone, taskId }) =>
-          eslOriginate({ targetPhone, taskId }),
+      outboundOriginator: {
+        originate: async ({ targetPhone, taskId }) => {
+          const r = await sipgateRestOriginate({ callee: targetPhone, taskId })
+          return { providerRef: r.sessionId }
+        },
       },
       callRouter: router,
-      reportBack: async () => {
-        /* report-back wired in main() via log; no-op in buildApp */
+      reportBack: async (task) => {
+        log.info(
+          { event: 'outbound_task_done', task_id: task.task_id, status: task.status, error: task.error },
+          'outbound task completed',
+        )
       },
       hangupCall: async (callId: string) => {
         await (
@@ -107,6 +115,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
           }
         ).realtime.calls.hangup(callId)
       },
+      log,
       timers: { setTimeout, clearTimeout },
     })
 
