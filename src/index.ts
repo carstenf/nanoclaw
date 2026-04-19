@@ -68,6 +68,8 @@ import { recallMemory, retainMemory } from './hindsight.js';
 import { makeCall, startVoiceServer } from './voice-server.js';
 import { makeFreeswitchCall, initFreeswitchVoice } from './freeswitch-voice.js';
 import { startMcpServer } from './mcp-server.js';
+import { startMcpStreamServer } from './mcp-stream-server.js';
+import { buildDefaultRegistry } from './mcp-tools/index.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -845,7 +847,19 @@ async function main(): Promise<void> {
         }
       : null;
   };
-  startMcpServer({ deps: { sendDiscordMessage, getMainGroupAndJid } });
+  // Single-source ToolRegistry shared between the legacy REST fassade
+  // (port 3200, Bridge consumer) and the Phase-4 Plan-04-03 StreamableHTTP
+  // transport (port 3201, Chat-Claude consumer). AC-07 invariant.
+  const sharedRegistry = buildDefaultRegistry({
+    sendDiscordMessage,
+    getMainGroupAndJid,
+  });
+  startMcpServer({
+    registry: sharedRegistry,
+    deps: { sendDiscordMessage, getMainGroupAndJid },
+  });
+  // startMcpStreamServer is a no-op when MCP_STREAM_BEARER env is unset.
+  startMcpStreamServer({ registry: sharedRegistry });
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {

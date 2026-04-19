@@ -194,6 +194,19 @@ export const BRIDGE_OUTBOUND_URL =
 export const BRIDGE_OUTBOUND_AUTH_TOKEN =
   process.env.BRIDGE_OUTBOUND_AUTH_TOKEN ?? '';
 
+// ----- Plan 04-03 (AC-07): StreamableHTTP MCP transport -----
+// Second MCP surface on port 3201 exposes the SAME ToolRegistry via the
+// @modelcontextprotocol/sdk StreamableHTTPServerTransport. Port 3200 stays
+// for the home-grown Bridge REST fassade (Phase 3 unchanged).
+// Pitfall 6: bind explicitly to 10.0.0.2 (WG interface), never 0.0.0.0.
+// Pitfall 8: handler wrapper synthesizes chat-prefixed call_id/turn_id so
+// debug invocations never collide with live-call idempotency keys.
+export const MCP_STREAM_PORT = Number(process.env.MCP_STREAM_PORT ?? 3201);
+export const MCP_STREAM_BIND = process.env.MCP_STREAM_BIND ?? '10.0.0.2';
+// MCP_STREAM_BEARER is provisioned via OneCLI (onecli add-secret). When empty
+// the server does NOT start (fail-loud — no insecure default).
+export const MCP_STREAM_BEARER = process.env.MCP_STREAM_BEARER ?? '';
+
 // Timezone for scheduled tasks, message formatting, etc.
 // Validates each candidate is a real IANA identifier before accepting.
 function resolveConfigTimezone(): string {
