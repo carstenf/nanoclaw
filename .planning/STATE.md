@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-11-PLAN.md — Case-6b end-to-end ready, awaiting Carsten PSTN test
-last_updated: "2026-04-19T14:39:29.789Z"
-last_activity: 2026-04-19 -- Phase 4 planning complete
+stopped_at: Phase 04 Waves 1-4 merged (cost-ledger, enforcement+A12, search_competitors+StreamableHTTP, scheduled workers+timers); Wave 5 gate deferred for live deploy+verify
+last_updated: "2026-04-19T16:10:00.000Z"
+last_activity: 2026-04-19 -- Phase 04 Waves 1-4 complete; Wave 5 (gate) pending
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 36
-  completed_plans: 29
-  percent: 81
+  completed_plans: 33
+  percent: 92
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-16)
 
 **Core value:** Carsten can delegate telephone tasks without being present, with zero unauthorized commitments.
-**Current focus:** Phase 1 (Infrastructure & Webhook Path) — plans verified, ready to execute
+**Current focus:** Phase 04 — core-tool-integration-cost-observability
 
 ## Current Position
 
-Phase: 1 of 7 (Infrastructure & Webhook Path)
-Plan: 6 of 6 in current phase
-Status: Ready to execute
-Last activity: 2026-04-19 -- Phase 4 planning complete
+Phase: 04 (core-tool-integration-cost-observability) — EXECUTING (Wave 5 gate pending)
+Plan: 4 of 5 complete; 05 (gate) deferred for live deploy+verify
+Status: Waves 1-4 merged to main; awaiting Carsten manual gate run
+Last activity: 2026-04-19 -- Phase 04 Waves 1-4 complete
 
-Progress: [█░░░░░░░░░] 12%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
