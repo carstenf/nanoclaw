@@ -410,3 +410,277 @@ describe('openSidebandSession — function_call_arguments.done handler (02-11)',
     expect(log.warn).not.toHaveBeenCalled()
   })
 })
+
+// Plan 04-02 Task 3: response.done → cost accumulator + voice.record_turn_cost
+// + 80% soft-warn + 100% hard-stop (instructions-only farewell + ws.close).
+describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () => {
+  beforeEach(() => {
+    process.env.OPENAI_SIP_API_KEY = 'sk-test-sideband'
+  })
+  afterEach(() => {
+    delete process.env.OPENAI_SIP_API_KEY
+  })
+
+  function makeMockAccumulator(initTotal = 0) {
+    const s = { total: initTotal, warned: false, enforced: false }
+    return {
+      add: vi.fn((_callId: string, _turnId: string, _u: unknown, cost: number) => {
+        s.total += cost
+      }),
+      totalEur: vi.fn(() => s.total),
+      warned: vi.fn(() => s.warned),
+      enforced: vi.fn(() => s.enforced),
+      markWarned: vi.fn(() => {
+        s.warned = true
+      }),
+      markEnforced: vi.fn(() => {
+        s.enforced = true
+      }),
+      clearCall: vi.fn(),
+      costOfResponseDone: vi.fn((evt: { _cost_eur?: number }) => evt._cost_eur ?? 0),
+      _state: s,
+    }
+  }
+
+  function mkResponseDone(costEur: number, responseId = 'resp_1') {
+    return JSON.stringify({
+      type: 'response.done',
+      // test hook: our mock costOfResponseDone reads this directly
+      _cost_eur: costEur,
+      response: {
+        id: responseId,
+        usage: {
+          input_token_details: { audio_tokens: 100, cached_tokens: 0, text_tokens: 0 },
+          output_token_details: { audio_tokens: 50, text_tokens: 0 },
+        },
+      },
+    })
+  }
+
+  it('accumulates cost on response.done and fires voice.record_turn_cost (INFRA-06 live)', async () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const acc = makeMockAccumulator()
+    const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
+    const sendDiscordAlert = vi.fn().mockResolvedValue(undefined)
+    openSidebandSession('rtc-cost-1', log, {
+      wsFactory: () => ws as unknown as WSType,
+      costAccumulator: acc,
+      callCoreTool,
+      sendDiscordAlert,
+      capPerCallEur: 1.0,
+      softWarnFraction: 0.8,
+    })
+    ws.simulateOpen()
+    ws.emit('message', mkResponseDone(0.1, 'resp_a'))
+
+    // accumulator.add invoked once with cost=0.1
+    expect(acc.add).toHaveBeenCalledTimes(1)
+    const addCall = acc.add.mock.calls[0]
+    expect(addCall[0]).toBe('rtc-cost-1')
+    expect(addCall[1]).toBe('resp_a')
+    expect(addCall[3]).toBeCloseTo(0.1, 5)
+
+    await new Promise((r) => setImmediate(r))
+    // Core record_turn_cost fire-and-forget
+    expect(callCoreTool).toHaveBeenCalledWith(
+      'voice.record_turn_cost',
+      expect.objectContaining({
+        call_id: 'rtc-cost-1',
+        turn_id: 'resp_a',
+        cost_eur: expect.any(Number),
+      }),
+      expect.objectContaining({ timeoutMs: 3000 }),
+    )
+    // Below soft-warn: no Discord alert
+    expect(sendDiscordAlert).not.toHaveBeenCalled()
+    // No hard-stop log
+    const warnCalls = (log.warn as ReturnType<typeof vi.fn>).mock.calls
+    expect(warnCalls.some((c) => c[0]?.event === 'cost_hard_stop')).toBe(false)
+  })
+
+  it('fires soft-warn Discord alert ONCE at 80% (Pitfall 2 — guard flag)', async () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const acc = makeMockAccumulator()
+    const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
+    const sendDiscordAlert = vi.fn().mockResolvedValue(undefined)
+    openSidebandSession('rtc-warn', log, {
+      wsFactory: () => ws as unknown as WSType,
+      costAccumulator: acc,
+      callCoreTool,
+      sendDiscordAlert,
+      capPerCallEur: 1.0,
+      softWarnFraction: 0.8,
+    })
+    ws.simulateOpen()
+
+    // Three response.done events at 0.3 each → cumulative 0.3, 0.6, 0.9
+    // Crossing 0.8 threshold on the 3rd event (totalEur just reads s.total)
+    ws.emit('message', mkResponseDone(0.3))
+    ws.emit('message', mkResponseDone(0.3))
+    ws.emit('message', mkResponseDone(0.3))
+    // 4th event still above threshold but markWarned was set → no double-fire
+    ws.emit('message', mkResponseDone(0.01))
+
+    await new Promise((r) => setImmediate(r))
+
+    // Discord soft-warn fired exactly once
+    const warnMessages = sendDiscordAlert.mock.calls
+      .map((c) => String(c[0]))
+      .filter((m) => m.includes('80%'))
+    expect(warnMessages.length).toBe(1)
+    expect(warnMessages[0]).toContain('⚠')
+    expect(acc.markWarned).toHaveBeenCalledTimes(1)
+  })
+
+  it('fires hard-stop at 100% — instructions-only session.update + response.create + ws.close after hold', async () => {
+    const ws = new MockWS()
+    ws.readyState = 1
+    const log = mockLog()
+    const acc = makeMockAccumulator()
+    const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
+    const sendDiscordAlert = vi.fn().mockResolvedValue(undefined)
+    const setTimeoutFn = vi.fn((fn: () => void, _ms: number) => {
+      fn()
+      return 0
+    })
+    openSidebandSession('rtc-stop', log, {
+      wsFactory: () => ws as unknown as WSType,
+      costAccumulator: acc,
+      callCoreTool,
+      sendDiscordAlert,
+      capPerCallEur: 1.0,
+      softWarnFraction: 0.8,
+      farewellTtsHoldMs: 4000,
+      setTimeoutFn,
+      caseType: 'case_6a',
+    })
+    ws.simulateOpen()
+
+    // Cross 100% with a single 1.0 event
+    ws.emit('message', mkResponseDone(1.0))
+    // Follow-up events MUST NOT re-fire (enforced guard)
+    ws.emit('message', mkResponseDone(0.5))
+
+    await new Promise((r) => setImmediate(r))
+
+    // session.update instructions-only (NO tools field)
+    const sessionUpdates = ws.sent
+      .map((s) => JSON.parse(s))
+      .filter((m) => m.type === 'session.update')
+    expect(sessionUpdates.length).toBe(1)
+    expect(sessionUpdates[0].session.instructions).toContain('Zeitbudget')
+    expect(sessionUpdates[0].session.tools).toBeUndefined()
+
+    // response.create fired
+    const createMsgs = ws.sent
+      .map((s) => JSON.parse(s))
+      .filter((m) => m.type === 'response.create')
+    expect(createMsgs.length).toBe(1)
+
+    // setTimeoutFn invoked with 4000ms, triggering ws.close(1000)
+    expect(setTimeoutFn).toHaveBeenCalledTimes(1)
+    expect(setTimeoutFn.mock.calls[0][1]).toBe(4000)
+    expect(ws.readyState).toBe(3) // closed
+
+    // Discord hard-stop alert once
+    const hardStopMsgs = sendDiscordAlert.mock.calls
+      .map((c) => String(c[0]))
+      .filter((m) => m.includes('hard-stopped'))
+    expect(hardStopMsgs.length).toBe(1)
+
+    // Core finalize_call_cost with terminated_by=cost_cap_call
+    const finalizeCalls = callCoreTool.mock.calls.filter(
+      (c) => c[0] === 'voice.finalize_call_cost',
+    )
+    expect(finalizeCalls.length).toBe(1)
+    expect(finalizeCalls[0][1]).toMatchObject({
+      call_id: 'rtc-stop',
+      case_type: 'case_6a',
+      terminated_by: 'cost_cap_call',
+    })
+
+    // Guard: markEnforced invoked once; second response.done does not re-fire
+    expect(acc.markEnforced).toHaveBeenCalledTimes(1)
+    expect(hardStopMsgs.length).toBe(1)
+  })
+
+  it('session.closed calls voice.finalize_call_cost (counterpart_bye) + clearCall when not enforced', async () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const acc = makeMockAccumulator()
+    const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
+    openSidebandSession('rtc-close', log, {
+      wsFactory: () => ws as unknown as WSType,
+      costAccumulator: acc,
+      callCoreTool,
+      caseType: 'case_6b',
+    })
+    ws.simulateOpen()
+    ws.emit('message', JSON.stringify({ type: 'session.closed' }))
+
+    await new Promise((r) => setImmediate(r))
+
+    const finalizeCalls = callCoreTool.mock.calls.filter(
+      (c) => c[0] === 'voice.finalize_call_cost',
+    )
+    expect(finalizeCalls.length).toBe(1)
+    expect(finalizeCalls[0][1]).toMatchObject({
+      call_id: 'rtc-close',
+      case_type: 'case_6b',
+      terminated_by: 'counterpart_bye',
+    })
+    expect(acc.clearCall).toHaveBeenCalledWith('rtc-close')
+  })
+
+  it('session.closed after hard-stop does NOT re-call finalize (enforced guard)', async () => {
+    const ws = new MockWS()
+    ws.readyState = 1
+    const log = mockLog()
+    const acc = makeMockAccumulator()
+    const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
+    openSidebandSession('rtc-dup', log, {
+      wsFactory: () => ws as unknown as WSType,
+      costAccumulator: acc,
+      callCoreTool,
+      capPerCallEur: 1.0,
+      softWarnFraction: 0.8,
+      farewellTtsHoldMs: 4000,
+      setTimeoutFn: () => 0,
+    })
+    ws.simulateOpen()
+    ws.emit('message', mkResponseDone(1.0))
+    ws.emit('message', JSON.stringify({ type: 'session.closed' }))
+
+    await new Promise((r) => setImmediate(r))
+
+    // Only one finalize — from the hard-stop path, not from session.closed
+    const finalizeCalls = callCoreTool.mock.calls.filter(
+      (c) => c[0] === 'voice.finalize_call_cost',
+    )
+    expect(finalizeCalls.length).toBe(1)
+    expect(finalizeCalls[0][1]).toMatchObject({ terminated_by: 'cost_cap_call' })
+    // clearCall still fires
+    expect(acc.clearCall).toHaveBeenCalledWith('rtc-dup')
+  })
+
+  it('response.done with no usage block is silently ignored (0-cost skip)', async () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const acc = makeMockAccumulator()
+    const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
+    openSidebandSession('rtc-empty', log, {
+      wsFactory: () => ws as unknown as WSType,
+      costAccumulator: acc,
+      callCoreTool,
+    })
+    ws.simulateOpen()
+    ws.emit('message', JSON.stringify({ type: 'response.done', response: {} }))
+
+    await new Promise((r) => setImmediate(r))
+
+    expect(acc.add).not.toHaveBeenCalled()
+    expect(callCoreTool).not.toHaveBeenCalled()
+  })
+})

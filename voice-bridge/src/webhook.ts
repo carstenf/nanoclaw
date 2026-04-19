@@ -18,6 +18,12 @@ import {
   GREET_TRIGGER_DELAY_MS,
   GREET_TRIGGER_DELAY_OUTBOUND_MS,
 } from './config.js'
+import {
+  checkCostCaps,
+  CAP_DAILY_EUR,
+  CAP_MONTHLY_EUR,
+} from './cost/gate.js'
+import { sendDiscordAlert } from './alerts.js'
 
 export function registerWebhookRoute(
   app: FastifyInstance,
@@ -137,6 +143,49 @@ export function registerAcceptRoute(
 
     if (!callId) {
       log.warn({ event: 'accept_missing_call_id' })
+      return reply.code(200).send({ ok: true })
+    }
+
+    // Plan 04-02 Task 3 (COST-02, COST-03): /accept-time cost gate.
+    // Query Core SUM, reject with SIP 503 if daily (€3) / monthly (€25) cap
+    // hit or suspension flag set. Pitfall 2-safe: gate fires ONCE per call,
+    // before openai.realtime.calls.accept. Fail-open on Core outage (logged).
+    const gate = await checkCostCaps(log)
+    if (gate.decision !== 'allow') {
+      log.warn({
+        event: 'cost_gate_reject',
+        call_id: callId,
+        decision: gate.decision,
+        today_eur: gate.today_eur,
+        month_eur: gate.month_eur,
+        suspended: gate.suspended,
+      })
+      if (gate.decision === 'reject_monthly') {
+        // Suspension flag was already set by Core-side auto-suspend path
+        // (variant b, locked per Plan 04-02 WARNING-2 resolution).
+        void sendDiscordAlert(
+          `🛑 Voice channel SUSPENDED: monthly cap €${CAP_MONTHLY_EUR.toFixed(2)} reached (current €${gate.month_eur.toFixed(2)}). Run voice.reset_monthly_cap to resume.`,
+        )
+      } else if (gate.decision === 'reject_daily') {
+        void sendDiscordAlert(
+          `🛑 Daily cap €${CAP_DAILY_EUR.toFixed(2)} reached (€${gate.today_eur.toFixed(2)}). No more calls accepted until midnight.`,
+        )
+      } else if (gate.decision === 'reject_suspended') {
+        void sendDiscordAlert(
+          `🛑 Call ${callId} rejected: voice channel is SUSPENDED. Run voice.reset_monthly_cap to resume.`,
+        )
+      }
+      try {
+        await openai.realtime.calls.reject(callId, { status_code: 503 })
+      } catch (e: unknown) {
+        const err = e as Error
+        log.warn({
+          event: 'reject_failed',
+          call_id: callId,
+          reason: 'cost_cap',
+          err: err?.message,
+        })
+      }
       return reply.code(200).send({ ok: true })
     }
 

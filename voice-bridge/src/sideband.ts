@@ -3,6 +3,12 @@
 // Opens a per-call WebSocket to the OpenAI Realtime sideband, tracks the
 // connect SLA, sends instructions-only session.update messages. Graceful
 // degrade on error; hot-path never blocks on this module.
+//
+// Plan 04-02 Task 3: response.done → cost accumulator + voice.record_turn_cost
+// fire-and-forget + 80% soft-warn + 100% hard-stop (instructions-only farewell
+// + ws.close after FAREWELL_TTS_HOLD_MS). session.closed → finalize_call_cost
+// + clearCall. Guard flags `warned` / `enforced` are check-and-mark atomic
+// (Pitfall 2 — single-threaded event loop).
 import type { Logger } from 'pino'
 import WebSocketLib, { type WebSocket as WSType } from 'ws'
 import {
@@ -15,6 +21,21 @@ import {
   emitResponseCreate,
 } from './tools/tool-output-emitter.js'
 import { dispatchTool as realDispatchTool } from './tools/dispatch.js'
+import * as defaultAccumulator from './cost/accumulator.js'
+import type { ResponseDoneEvent, ResponseDoneUsage } from './cost/accumulator.js'
+import {
+  CAP_PER_CALL_EUR as DEFAULT_CAP_PER_CALL_EUR,
+  SOFT_WARN_FRACTION as DEFAULT_SOFT_WARN_FRACTION,
+} from './cost/gate.js'
+import { callCoreTool as defaultCallCoreTool } from './core-mcp-client.js'
+import { sendDiscordAlert as defaultSendDiscordAlert } from './alerts.js'
+
+/** Plan 04-02: farewell hold before ws.close after hard-stop. */
+export const FAREWELL_TTS_HOLD_MS = 4000
+
+/** Plan 04-02: hard-stop session.update instructions — instructions-only (AC-04/AC-05). */
+export const FAREWELL_INSTR =
+  "Dein Zeitbudget für dieses Gespräch ist aufgebraucht. Verabschiede dich jetzt höflich mit einem einzigen Satz, z.B. 'Vielen Dank, ich melde mich später erneut. Auf Wiederhören.' und sage danach nichts mehr."
 
 export interface SidebandState {
   callId: string
@@ -22,6 +43,31 @@ export interface SidebandState {
   ws: WSType | null
   openedAt: number
   lastUpdateAt: number
+  /** Plan 04-02: surfaced by router when a call opens — finalize_call_cost uses it. */
+  caseType?: string
+  /** Plan 04-02: ISO string of call start, for finalize_call_cost.started_at. */
+  startedAtIso?: string
+}
+
+/**
+ * Plan 04-02 Task 3: DI for the per-call cost accumulator. Production
+ * callers leave this unset — the accumulator.ts module is used. Tests pass
+ * a mock that captures add() / markWarned() / markEnforced() calls.
+ */
+export interface CostAccumulatorLike {
+  add: (
+    callId: string,
+    turnId: string,
+    usage: ResponseDoneUsage | undefined,
+    costEur: number,
+  ) => void
+  totalEur: (callId: string) => number
+  warned: (callId: string) => boolean
+  enforced: (callId: string) => boolean
+  markWarned: (callId: string) => void
+  markEnforced: (callId: string) => void
+  clearCall: (callId: string) => void
+  costOfResponseDone?: (evt: ResponseDoneEvent) => number
 }
 
 export interface SidebandHandle {
@@ -49,6 +95,26 @@ export interface SidebandOpenOpts {
   wsFactory?: (url: string, headers: Record<string, string>) => WSType
   urlTemplate?: string
   apiKey?: string
+  /** Plan 04-02: accumulator DI (production default → src/cost/accumulator.ts). */
+  costAccumulator?: CostAccumulatorLike
+  /** Plan 04-02: Core MCP client DI (production default → src/core-mcp-client.ts callCoreTool). */
+  callCoreTool?: (
+    name: string,
+    args: unknown,
+    opts: { timeoutMs: number },
+  ) => Promise<unknown>
+  /** Plan 04-02: Discord alert DI (production default → src/alerts.ts sendDiscordAlert). */
+  sendDiscordAlert?: (message: string) => Promise<void>
+  /** Plan 04-02: per-call cap (€). Default CAP_PER_CALL_EUR from gate.ts. */
+  capPerCallEur?: number
+  /** Plan 04-02: soft-warn fraction. Default SOFT_WARN_FRACTION from gate.ts. */
+  softWarnFraction?: number
+  /** Plan 04-02: hold time (ms) between farewell response.create and ws.close. */
+  farewellTtsHoldMs?: number
+  /** Plan 04-02: case_type for finalize_call_cost. Default 'unknown'. */
+  caseType?: string
+  /** Plan 04-02: test-only override for setTimeout (farewell hold timer). */
+  setTimeoutFn?: (fn: () => void, ms: number) => unknown
   /**
    * Invoked when the sideband WS closes. This is the authoritative call-end
    * signal: OpenAI's Realtime API does NOT emit a `realtime.call.completed`
@@ -106,7 +172,28 @@ export function openSidebandSession(
     ws,
     openedAt: t0,
     lastUpdateAt: 0,
+    caseType: opts.caseType ?? 'unknown',
+    startedAtIso: new Date(t0).toISOString(),
   }
+
+  // Plan 04-02 Task 3: cost-enforcement DI. Production defaults to the real
+  // accumulator/core-mcp/alerts modules; tests inject mocks to assert calls.
+  const accumulator: CostAccumulatorLike =
+    opts.costAccumulator ?? (defaultAccumulator as unknown as CostAccumulatorLike)
+  const costOfResponseDone =
+    accumulator.costOfResponseDone ??
+    ((defaultAccumulator.costOfResponseDone as unknown) as (
+      evt: ResponseDoneEvent,
+    ) => number)
+  const callCoreToolFn = opts.callCoreTool ?? defaultCallCoreTool
+  const sendDiscordAlertFn = opts.sendDiscordAlert ?? defaultSendDiscordAlert
+  const capPerCallEur = opts.capPerCallEur ?? DEFAULT_CAP_PER_CALL_EUR
+  const softWarnFraction = opts.softWarnFraction ?? DEFAULT_SOFT_WARN_FRACTION
+  const farewellTtsHoldMs = opts.farewellTtsHoldMs ?? FAREWELL_TTS_HOLD_MS
+  const setTimeoutFn =
+    opts.setTimeoutFn ??
+    ((fn: () => void, ms: number) => setTimeout(fn, ms))
+
   let timedOut = false
   const timer = setTimeout(() => {
     if (!state.ready) {
@@ -219,6 +306,152 @@ export function openSidebandSession(
             })
           },
         )
+        return
+      }
+
+      // Plan 04-02 Task 3 (COST-01/COST-04 + INFRA-06 live):
+      // response.done → accumulate + fire-and-forget voice.record_turn_cost
+      // + soft-warn at 80% + hard-stop at 100% (instructions-only farewell).
+      if (parsed?.type === 'response.done') {
+        try {
+          const evt = parsed as ResponseDoneEvent
+          const usage = evt?.response?.usage
+          // No usage block = no billable tokens reported. Skip silently to
+          // avoid (a) cluttering the ledger with 0-cost rows and (b) noisy
+          // voice_record_turn_cost_fail logs when Core is unreachable in
+          // test fixtures that emit a bare `{type: 'response.done'}`.
+          if (!usage) {
+            return
+          }
+          const turnId = String(evt?.response?.id ?? 'unknown')
+          const costEur = costOfResponseDone(evt)
+          accumulator.add(callId, turnId, usage, costEur)
+
+          // Mirror to Core — fire-and-forget. Never throw from WS handler.
+          const i = usage?.input_token_details ?? {}
+          const o = usage?.output_token_details ?? {}
+          void callCoreToolFn(
+            'voice.record_turn_cost',
+            {
+              call_id: callId,
+              turn_id: turnId,
+              audio_in_tokens: i.audio_tokens ?? 0,
+              audio_out_tokens: o.audio_tokens ?? 0,
+              cached_in_tokens: i.cached_tokens ?? 0,
+              text_in_tokens: i.text_tokens ?? 0,
+              text_out_tokens: o.text_tokens ?? 0,
+              cost_eur: costEur,
+            },
+            { timeoutMs: 3000 },
+          ).catch((err: unknown) => {
+            log.warn({
+              event: 'voice_record_turn_cost_fail',
+              call_id: callId,
+              turn_id: turnId,
+              err: (err as Error).message,
+            })
+          })
+
+          // Pitfall 2: check-and-mark is atomic within one tick — the
+          // single-threaded event loop guarantees no concurrent response.done
+          // handler can observe the same `enforced(callId)===false` twice.
+          const perCall = accumulator.totalEur(callId)
+          if (perCall >= capPerCallEur && !accumulator.enforced(callId)) {
+            accumulator.markEnforced(callId)
+            log.warn({ event: 'cost_hard_stop', call_id: callId, eur: perCall })
+            updateInstructions(state, FAREWELL_INSTR, log)
+            try {
+              state.ws?.send(JSON.stringify({ type: 'response.create' }))
+            } catch {
+              /* best-effort */
+            }
+            setTimeoutFn(() => {
+              try {
+                state.ws?.close(1000)
+              } catch {
+                /* already closed */
+              }
+            }, farewellTtsHoldMs)
+            void sendDiscordAlertFn(
+              `🛑 Call ${callId} hard-stopped at €${perCall.toFixed(2)}`,
+            ).catch(() => {
+              /* swallow */
+            })
+            void callCoreToolFn(
+              'voice.finalize_call_cost',
+              {
+                call_id: callId,
+                case_type: state.caseType ?? 'unknown',
+                started_at: state.startedAtIso,
+                ended_at: new Date().toISOString(),
+                terminated_by: 'cost_cap_call',
+                soft_warn_fired: accumulator.warned(callId) ? 1 : 0,
+              },
+              { timeoutMs: 5000 },
+            ).catch((err: unknown) => {
+              log.warn({
+                event: 'voice_finalize_call_cost_fail',
+                call_id: callId,
+                err: (err as Error).message,
+              })
+            })
+          } else if (
+            perCall >= softWarnFraction * capPerCallEur &&
+            !accumulator.warned(callId)
+          ) {
+            accumulator.markWarned(callId)
+            log.info({ event: 'cost_soft_warn', call_id: callId, eur: perCall })
+            void sendDiscordAlertFn(
+              `⚠️ Call ${callId} at 80% (€${perCall.toFixed(2)})`,
+            ).catch(() => {
+              /* swallow */
+            })
+          }
+        } catch (err: unknown) {
+          log.warn({
+            event: 'response_done_handler_fail',
+            call_id: callId,
+            err: (err as Error).message,
+          })
+        }
+        return
+      }
+
+      // Plan 04-02 Task 3 (COST-01 teardown): session.closed / terminated
+      // → finalize_call_cost (if not already enforced) + clearCall.
+      if (
+        parsed?.type === 'session.closed' ||
+        parsed?.type === 'session.terminated'
+      ) {
+        try {
+          if (!accumulator.enforced(callId)) {
+            void callCoreToolFn(
+              'voice.finalize_call_cost',
+              {
+                call_id: callId,
+                case_type: state.caseType ?? 'unknown',
+                started_at: state.startedAtIso,
+                ended_at: new Date().toISOString(),
+                terminated_by: 'counterpart_bye',
+                soft_warn_fired: accumulator.warned(callId) ? 1 : 0,
+              },
+              { timeoutMs: 5000 },
+            ).catch((err: unknown) => {
+              log.warn({
+                event: 'voice_finalize_call_cost_fail',
+                call_id: callId,
+                err: (err as Error).message,
+              })
+            })
+          }
+          accumulator.clearCall(callId)
+        } catch (err: unknown) {
+          log.warn({
+            event: 'session_closed_handler_fail',
+            call_id: callId,
+            err: (err as Error).message,
+          })
+        }
         return
       }
 

@@ -382,3 +382,156 @@ describe('POST /accept — Phase 2 full-wiring', () => {
     expect(router.endCall).not.toHaveBeenCalled()
   })
 })
+
+// Plan 04-02 Task 3: /accept-time cost gate integration.
+// Fetch is stubbed so the gate's callCoreTool returns a controlled payload
+// without a real Core server. Decisions = reject_daily / reject_monthly /
+// reject_suspended → openai.realtime.calls.reject(callId, { status_code: 503 })
+// allow → existing Phase-2 accept path.
+describe('POST /accept — cost gate (04-02 Task 3)', () => {
+  let logDir: string
+  let originalFetch: typeof globalThis.fetch
+  let originalCoreUrl: string | undefined
+
+  beforeEach(() => {
+    logDir = mkdtempSync(join(tmpdir(), 'bridge-gate-'))
+    process.env.OPENAI_WEBHOOK_SECRET =
+      'whsec_test_04_02_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    process.env.BRIDGE_BIND = '127.0.0.1'
+    process.env.BRIDGE_PORT = '0'
+    process.env.BRIDGE_LOG_DIR = logDir
+    originalCoreUrl = process.env.CORE_MCP_URL
+    process.env.CORE_MCP_URL = 'http://core-test:3200'
+    originalFetch = globalThis.fetch
+    // Modules under test cache CORE_MCP_URL at import time (see config.ts);
+    // resetModules so buildApp + gate pick up CORE_MCP_URL=http://core-test.
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    rmSync(logDir, { recursive: true, force: true })
+    delete process.env.OPENAI_WEBHOOK_SECRET
+    delete process.env.BRIDGE_BIND
+    delete process.env.BRIDGE_PORT
+    delete process.env.BRIDGE_LOG_DIR
+    if (originalCoreUrl) {
+      process.env.CORE_MCP_URL = originalCoreUrl
+    } else {
+      delete process.env.CORE_MCP_URL
+    }
+    globalThis.fetch = originalFetch
+  })
+
+  function stubFetchWithCostSum(body: {
+    today_eur: number
+    month_eur: number
+    suspended: boolean
+  }) {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, result: body }),
+    }) as unknown as typeof fetch
+  }
+
+  function makeRouter() {
+    return {
+      startCall: vi.fn(),
+      endCall: vi.fn(),
+      getCall: vi.fn(),
+      _size: vi.fn().mockReturnValue(0),
+    }
+  }
+
+  function makeMockOpenAI() {
+    const acceptSpy = vi.fn().mockResolvedValue({})
+    const rejectSpy = vi.fn().mockResolvedValue({})
+    const unwrapSpy = vi.fn().mockResolvedValue({
+      type: 'realtime.call.incoming',
+      data: {
+        call_id: 'rtc_gate',
+        sip_headers: [
+          {
+            name: 'From',
+            value: '"Caller" <sip:+491708036426@sipgate.de>',
+          },
+        ],
+      },
+    })
+    return {
+      openai: {
+        webhooks: { unwrap: unwrapSpy },
+        realtime: { calls: { accept: acceptSpy, reject: rejectSpy } },
+      },
+      acceptSpy,
+      rejectSpy,
+    }
+  }
+
+  async function postAccept(openai: unknown, router: ReturnType<typeof makeRouter>) {
+    const { buildApp } = await import('../src/index.js')
+    const app = await buildApp({
+      openaiOverride: openai as never,
+      whitelistOverride: new Set(['+491708036426']),
+      routerOverride: router as never,
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/accept',
+      headers: {
+        'content-type': 'application/json',
+        'webhook-id': 'gate-1',
+        'webhook-timestamp': String(Math.floor(Date.now() / 1000)),
+        'webhook-signature': 'v1,xxx',
+      },
+      payload: JSON.stringify({
+        type: 'realtime.call.incoming',
+        data: { call_id: 'rtc_gate' },
+      }),
+    })
+    await app.close()
+    return res
+  }
+
+  it('decision=reject_daily (today=3.00) → reject(status 503), accept not called', async () => {
+    stubFetchWithCostSum({ today_eur: 3.0, month_eur: 10, suspended: false })
+    const router = makeRouter()
+    const { openai, acceptSpy, rejectSpy } = makeMockOpenAI()
+    const res = await postAccept(openai, router)
+    expect(res.statusCode).toBe(200)
+    expect(rejectSpy).toHaveBeenCalledWith('rtc_gate', { status_code: 503 })
+    expect(acceptSpy).not.toHaveBeenCalled()
+    expect(router.startCall).not.toHaveBeenCalled()
+  })
+
+  it('decision=reject_monthly (month=25) → reject 503', async () => {
+    stubFetchWithCostSum({ today_eur: 0, month_eur: 25.0, suspended: false })
+    const router = makeRouter()
+    const { openai, acceptSpy, rejectSpy } = makeMockOpenAI()
+    const res = await postAccept(openai, router)
+    expect(res.statusCode).toBe(200)
+    expect(rejectSpy).toHaveBeenCalledWith('rtc_gate', { status_code: 503 })
+    expect(acceptSpy).not.toHaveBeenCalled()
+  })
+
+  it('decision=reject_suspended (flag set) → reject 503', async () => {
+    stubFetchWithCostSum({ today_eur: 0, month_eur: 0, suspended: true })
+    const router = makeRouter()
+    const { openai, acceptSpy, rejectSpy } = makeMockOpenAI()
+    const res = await postAccept(openai, router)
+    expect(res.statusCode).toBe(200)
+    expect(rejectSpy).toHaveBeenCalledWith('rtc_gate', { status_code: 503 })
+    expect(acceptSpy).not.toHaveBeenCalled()
+  })
+
+  it('decision=allow (today=2.50, month=10) → accept path proceeds (happy)', async () => {
+    stubFetchWithCostSum({ today_eur: 2.5, month_eur: 10, suspended: false })
+    const router = makeRouter()
+    const { openai, acceptSpy, rejectSpy } = makeMockOpenAI()
+    const res = await postAccept(openai, router)
+    expect(res.statusCode).toBe(200)
+    // No cost-driven reject; accept fires
+    expect(rejectSpy).not.toHaveBeenCalled()
+    expect(acceptSpy).toHaveBeenCalledTimes(1)
+  })
+})
