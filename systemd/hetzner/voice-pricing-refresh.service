@@ -1,0 +1,12 @@
+[Unit]
+Description=OpenAI gpt-realtime-mini pricing scraper (REQ-INFRA-07)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/nanoclaw/pricing.env
+# Hetzner layout: nanoclaw repo cloned to %h/nanoclaw
+ExecStart=%h/nanoclaw/scripts/pricing-refresh.sh
+StandardOutput=journal
+StandardError=journal

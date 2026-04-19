@@ -32,6 +32,7 @@ import { makeVoiceFinalizeCallCost } from './voice-finalize-call-cost.js';
 import { makeVoiceGetDayMonthCostSum } from './voice-get-day-month-cost-sum.js';
 import { makeVoiceResetMonthlyCap } from './voice-reset-monthly-cap.js';
 import { makeVoiceSearchCompetitors } from './voice-search-competitors.js';
+import { makeVoiceInsertPriceSnapshot } from './voice-insert-price-snapshot.js';
 import { loadSkill } from './skill-loader.js';
 import { callClaudeViaOneCli } from './claude-client.js';
 import { runAndyForVoice } from './andy-agent-runner.js';
@@ -41,6 +42,7 @@ import {
   upsertCallCost,
   sumCostCurrentDay,
   sumCostCurrentMonth,
+  insertPriceSnapshot,
 } from '../cost-ledger.js';
 import {
   SKILLS_DIR,
@@ -395,6 +397,20 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     makeVoiceResetMonthlyCap({
       getRouterState,
       setRouterState,
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-cost.jsonl`
+        : undefined,
+    }),
+  );
+
+  // Phase 4 Plan 04-04 (INFRA-07): voice.insert_price_snapshot — written by
+  // the Hetzner pricing-refresh cron via Core MCP bearer auth. Feeds the
+  // voice_price_snapshots table that recon-invoice + manual drift review
+  // consume. Pitfall 5: NEVER auto-mutates prices.ts — snapshot + alert only.
+  registry.register(
+    'voice.insert_price_snapshot',
+    makeVoiceInsertPriceSnapshot({
+      insertPriceSnapshot: (row) => insertPriceSnapshot(getDatabase(), row),
       jsonlPath: deps.dataDir
         ? `${deps.dataDir}/voice-cost.jsonl`
         : undefined,

@@ -1,0 +1,11 @@
+[Unit]
+Description=OpenAI pricing refresh — daily (Hetzner, 02:00 UTC)
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+RandomizedDelaySec=15min
+Persistent=true
+Unit=voice-pricing-refresh.service
+
+[Install]
+WantedBy=timers.target
