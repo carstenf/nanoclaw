@@ -32,6 +32,7 @@ import crypto from 'node:crypto';
 import express from 'express';
 import type { Request, Response } from 'express';
 import type { Server as HttpServer } from 'node:http';
+import { z } from 'zod';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -138,9 +139,67 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
   // chat-<uuid> call_id / turn_id so the Phase-2 idempotency cache stays
   // disjoint from live voice calls.
   // -------------------------------------------------------------------------
+  // Tool metadata for MCP clients (iOS Claude app, Claude Desktop).
+  // Without description + paramsSchema, `tools/list` returns empty input
+  // schemas and MCP clients cannot construct a valid tools/call request.
+  // Only tools iOS is expected to invoke directly need full metadata here;
+  // others register with a generic description and a permissive passthrough
+  // schema so the client at least sees them in the list.
+  const TOOL_META: Record<
+    string,
+    { description: string; shape?: z.ZodRawShape }
+  > = {
+    'voice.check_calendar': {
+      description:
+        'Check calendar availability for a given date and duration. Returns available/conflict + free slots.',
+      shape: {
+        date: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .describe('ISO date YYYY-MM-DD'),
+        duration_minutes: z
+          .number()
+          .int()
+          .min(1)
+          .max(1440)
+          .describe('Requested duration in minutes'),
+      },
+    },
+    'voice.get_day_month_cost_sum': {
+      description:
+        'Return today and this-month voice-call cost totals in EUR, plus whether the channel is suspended by the monthly cap.',
+      // no parameters
+    },
+    'voice.get_travel_time': {
+      description:
+        'Google Maps travel time between origin and destination in seconds.',
+      shape: {
+        origin: z
+          .string()
+          .describe('Origin address or lat,lng (e.g. "Marienplatz, München")'),
+        destination: z
+          .string()
+          .describe('Destination address or lat,lng'),
+        mode: z
+          .enum(['driving', 'transit', 'walking', 'bicycling'])
+          .optional()
+          .describe('Travel mode, default "driving"'),
+      },
+    },
+    'voice.ask_core': {
+      description:
+        'Ask the Core (Slow-Brain) a free-form question. Returns a voice-short answer plus optional Discord-long context.',
+      shape: {
+        question: z.string().describe('Natural-language question for Core'),
+      },
+    },
+  };
+
   const registerTools = (server: McpServer): void => {
     for (const name of deps.registry.listNames()) {
-      server.tool(name, async (args: unknown) => {
+      const meta = TOOL_META[name];
+      const description = meta?.description ?? `Voice MCP tool: ${name}`;
+      const handler = async (args: unknown) => {
         const synthetic =
           args && typeof args === 'object' && !Array.isArray(args)
             ? {
@@ -158,7 +217,12 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
             },
           ],
         };
-      });
+      };
+      if (meta?.shape) {
+        server.tool(name, description, meta.shape, handler);
+      } else {
+        server.tool(name, description, handler);
+      }
     }
   };
 
