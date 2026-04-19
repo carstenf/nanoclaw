@@ -990,26 +990,31 @@ See §Pattern 4 above.
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does OpenAI expose a project-level usage API?**
    - What we know: usage appears in dashboard.
    - What's unclear: programmatic/CSV export endpoint, daily granularity.
+   - **RESOLVED:** fallback = monthly manual CSV export from OpenAI dashboard; automated API probe deferred to Phase 4 execution (Task 04-04-T3 subtask 3d runbook note). Recon path uses CSV only for Phase 4.
    - Recommendation: plan-time `curl` probe; fallback = monthly manual CSV.
 
 2. **Where do OpenAI Realtime pricing constants live between refreshes?**
    - What we know: `voice-bridge/src/cost/prices.ts` as TypeScript constants.
    - What's unclear: whether to mirror to `~/nanoclaw-state/voice-pricing.json`.
+   - **RESOLVED:** YES — mirror to `~/nanoclaw-state/voice-pricing.json`. Bridge reads code-repo constants only at startup; state-repo mirror is a human-readable audit artifact written by `scripts/pricing-refresh.sh` on Hetzner. Covered in Plan 04-04 Task 2 subtask 2a.
    - Recommendation: Yes — state-repo mirror so Chat/carsten can see current prices without touching code repo. Bridge reads code-repo constants only (no runtime file loads mid-call).
 
 3. **Should monthly caps reset AUTO or MANUAL?**
+   - **RESOLVED:** manual only — admin MCP tool `voice.reset_monthly_cap` (implemented in Plan 04-02 Task 2 subtask 2b). No auto-reset path.
    - COST-03 says "manual reset". Confirmed — no auto reset. Plan must include admin CLI command `onecli nanoclaw voice-reset-monthly-cap` or similar.
 
 4. **How does Chat-Claude discover the StreamableHTTP endpoint?**
    - iPhone Chat config? MCP registry? One-time manual add via `claude mcp add`?
+   - **RESOLVED:** one-time manual `claude mcp add` on iPhone; URL + bearer documented in state-repo `voice-channel-spec/README.md` during Plan 04-05 Task 3 (human-verify checkpoint).
    - Recommendation: manual add in the iPhone Claude app once, document in state-repo.
 
 5. **Phase-0 pre-existing audit tooling: what is it?**
+   - **RESOLVED:** inventory step added as Plan 04-04 Task 1 subtask 1a — pre-existing tooling (if any) replaced wholesale by systemd-managed `audit-audio.service`. No parallel runs.
    - Needs inventory at plan time before replacement.
 
 ---
