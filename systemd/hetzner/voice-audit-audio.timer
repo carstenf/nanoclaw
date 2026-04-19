@@ -1,0 +1,12 @@
+[Unit]
+Description=§201 audio filesystem audit — monthly (Hetzner, staggered +30 min)
+
+[Timer]
+# Run 30 min after the Lenovo1 audit so Discord alerts do not collide.
+OnCalendar=*-*-01 02:30:00
+RandomizedDelaySec=10min
+Persistent=true
+Unit=voice-audit-audio.service
+
+[Install]
+WantedBy=timers.target

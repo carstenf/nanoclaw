@@ -1,0 +1,12 @@
+[Unit]
+Description=Voice-stack §201 filesystem audio audit on Hetzner (REQ-QUAL-04 / REQ-LEGAL-03)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/nanoclaw/audit.env
+# Hetzner layout: nanoclaw repo cloned to %h/nanoclaw
+ExecStart=%h/nanoclaw/scripts/audit-audio.sh
+StandardOutput=journal
+StandardError=journal
