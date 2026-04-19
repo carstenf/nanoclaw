@@ -14,6 +14,7 @@ import {
   CoreMcpTimeoutError,
   CoreMcpError,
 } from '../core-mcp-client.js'
+import { invokeIdempotent } from '../idempotency.js'
 import {
   emitFunctionCallOutput as _emitFunctionCallOutput,
   emitResponseCreate as _emitResponseCreate,
@@ -260,13 +261,20 @@ export async function dispatchTool(
     )
   }
 
-  // 4. Call Core MCP with timeout
+  // 4. Call Core MCP with timeout.
+  // Plan 04-02 Task 1 (A12 closure): mutating tools are routed through
+  // invokeIdempotent() so that the same (call_id, turn_id, tool, args)
+  // only hits Core once per call-lifetime. Read-only tools bypass the cache.
   const t0 = Date.now()
   let mcpStatus: 'ok' | 'err' | 'timeout' | 'not_implemented' = 'ok'
   let resultPayload: unknown
 
   try {
-    const result = await callCore(coreName, args, { timeoutMs })
+    const invoke = (): Promise<unknown> =>
+      callCore(coreName, args, { timeoutMs })
+    const result = entry.mutating
+      ? await invokeIdempotent(callId, turnId, toolName, args, invoke, log)
+      : await invoke()
     const latency = Date.now() - t0
     mcpStatus = 'ok'
     resultPayload = result
