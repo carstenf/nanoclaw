@@ -32,7 +32,10 @@ describe('loadSkill', () => {
       readFile: async () => '# Test Skill\nYou are a test skill.',
     });
 
-    const result = await loadSkill('test', { skillsDir: '/skills', fs: fakeFs });
+    const result = await loadSkill('test', {
+      skillsDir: '/skills',
+      fs: fakeFs,
+    });
 
     expect(result.exists).toBe(true);
     expect(result.body).toBe('# Test Skill\nYou are a test skill.');
@@ -47,7 +50,10 @@ describe('loadSkill', () => {
       },
     });
 
-    const result = await loadSkill('nope', { skillsDir: '/skills', fs: fakeFs });
+    const result = await loadSkill('nope', {
+      skillsDir: '/skills',
+      fs: fakeFs,
+    });
 
     expect(result.exists).toBe(false);
     expect(result.body).toBeNull();
@@ -65,7 +71,10 @@ describe('loadSkill', () => {
     });
 
     const first = await loadSkill('echo', { skillsDir: '/skills', fs: fakeFs });
-    const second = await loadSkill('echo', { skillsDir: '/skills', fs: fakeFs });
+    const second = await loadSkill('echo', {
+      skillsDir: '/skills',
+      fs: fakeFs,
+    });
 
     expect(readCount).toBe(1);
     expect(first.body).toBe('call-1');
@@ -85,7 +94,10 @@ describe('loadSkill', () => {
 
     const first = await loadSkill('echo', { skillsDir: '/skills', fs: fakeFs });
     mtime = 2000; // simulate file edit
-    const second = await loadSkill('echo', { skillsDir: '/skills', fs: fakeFs });
+    const second = await loadSkill('echo', {
+      skillsDir: '/skills',
+      fs: fakeFs,
+    });
 
     expect(readCount).toBe(2);
     expect(first.body).toBe('version-1');

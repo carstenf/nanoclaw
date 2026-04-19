@@ -11,7 +11,9 @@ const SYSTEM_PROMPT = 'Du bist ein Test-Koordinator.';
 
 describe('SlowBrainSessionManager.getOrCreate', () => {
   it('creates a new session for a new call_id', () => {
-    const mgr = new SlowBrainSessionManager({ claudeClient: makeClaudeClientMock('null') });
+    const mgr = new SlowBrainSessionManager({
+      claudeClient: makeClaudeClientMock('null'),
+    });
     const session = mgr.getOrCreate('call-1');
     expect(session.callId).toBe('call-1');
     expect(session.messages).toEqual([]);
@@ -19,14 +21,18 @@ describe('SlowBrainSessionManager.getOrCreate', () => {
   });
 
   it('returns the same session for the same call_id (dedup)', () => {
-    const mgr = new SlowBrainSessionManager({ claudeClient: makeClaudeClientMock('null') });
+    const mgr = new SlowBrainSessionManager({
+      claudeClient: makeClaudeClientMock('null'),
+    });
     const s1 = mgr.getOrCreate('call-2');
     const s2 = mgr.getOrCreate('call-2');
     expect(s1).toBe(s2);
   });
 
   it('creates distinct sessions for different call_ids', () => {
-    const mgr = new SlowBrainSessionManager({ claudeClient: makeClaudeClientMock('null') });
+    const mgr = new SlowBrainSessionManager({
+      claudeClient: makeClaudeClientMock('null'),
+    });
     const s1 = mgr.getOrCreate('call-a');
     const s2 = mgr.getOrCreate('call-b');
     expect(s1).not.toBe(s2);
@@ -38,7 +44,11 @@ describe('SlowBrainSessionManager.recordTurn', () => {
     const mockClaude = makeClaudeClientMock('null');
     const mgr = new SlowBrainSessionManager({ claudeClient: mockClaude });
     const session = mgr.getOrCreate('call-3');
-    const result = await mgr.recordTurn(session, 'turn-1', 'Hallo, wer bist du?');
+    const result = await mgr.recordTurn(
+      session,
+      'turn-1',
+      'Hallo, wer bist du?',
+    );
     expect(result).toBeNull();
   });
 
@@ -57,7 +67,10 @@ describe('SlowBrainSessionManager.recordTurn', () => {
 
     await mgr.recordTurn(session, 'turn-1', 'Erster Satz.');
     expect(session.messages).toHaveLength(2); // user + assistant
-    expect(session.messages[0]).toEqual({ role: 'user', content: 'Erster Satz.' });
+    expect(session.messages[0]).toEqual({
+      role: 'user',
+      content: 'Erster Satz.',
+    });
     expect(session.messages[1].role).toBe('assistant');
 
     await mgr.recordTurn(session, 'turn-2', 'Zweiter Satz.');

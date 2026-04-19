@@ -79,7 +79,9 @@ describe('makeVoiceCheckCalendar (REQ-TOOLS-01)', () => {
     const events = Array.from({ length: 24 }, (_, i) => ({
       id: `evt-${i}`,
       summary: `Block ${i}`,
-      start: { dateTime: `2026-04-20T${String(i).padStart(2, '0')}:00:00+02:00` },
+      start: {
+        dateTime: `2026-04-20T${String(i).padStart(2, '0')}:00:00+02:00`,
+      },
       end: { dateTime: `2026-04-20T${String(i).padStart(2, '0')}:59:00+02:00` },
     }));
 
@@ -180,7 +182,11 @@ describe('makeVoiceCheckCalendar (REQ-TOOLS-01)', () => {
       jsonlPath,
     });
 
-    await handler({ call_id: 'pii-test', date: '2026-04-20', duration_minutes: 30 });
+    await handler({
+      call_id: 'pii-test',
+      date: '2026-04-20',
+      duration_minutes: 30,
+    });
 
     const logContent = fs.readFileSync(jsonlPath, 'utf8').trim();
     const entry = JSON.parse(logContent);

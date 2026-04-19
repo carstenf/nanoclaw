@@ -151,8 +151,7 @@ export async function getTravelTime(
 
   // Check top-level status
   if (data.status !== 'OK') {
-    const code: MapsClientErrorCode =
-      TOP_STATUS_MAP[data.status] ?? 'unknown';
+    const code: MapsClientErrorCode = TOP_STATUS_MAP[data.status] ?? 'unknown';
     throw new MapsClientError(code, `Google Maps status: ${data.status}`);
   }
 

@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { readFlatDb, clearFlatDbCache, FlatDbNotFound, FlatDbParseError } from './flat-db-reader.js';
+import {
+  readFlatDb,
+  clearFlatDbCache,
+  FlatDbNotFound,
+  FlatDbParseError,
+} from './flat-db-reader.js';
 
 // Minimal fs/promises shape used by readFlatDb
 interface FakeFsStats {
@@ -24,14 +29,13 @@ describe('readFlatDb', () => {
   it('returns parsed JSON from file on first read', async () => {
     const fakeFs = makeFakeFs({
       stat: async () => ({ mtimeMs: 1000 }),
-      readFile: async () => JSON.stringify({ contracts: [{ id: 'test', provider: 'Test AG' }] }),
+      readFile: async () =>
+        JSON.stringify({ contracts: [{ id: 'test', provider: 'Test AG' }] }),
     });
 
-    const result = await readFlatDb<{ contracts: Array<{ id: string; provider: string }> }>(
-      '/fake/contracts.json',
-      { contracts: [] },
-      { fs: fakeFs },
-    );
+    const result = await readFlatDb<{
+      contracts: Array<{ id: string; provider: string }>;
+    }>('/fake/contracts.json', { contracts: [] }, { fs: fakeFs });
 
     expect(result.contracts).toHaveLength(1);
     expect(result.contracts[0].provider).toBe('Test AG');
@@ -43,7 +47,9 @@ describe('readFlatDb', () => {
       stat: async () => ({ mtimeMs: 5000 }),
       readFile: async () => {
         readCount++;
-        return JSON.stringify({ contracts: [{ id: `call-${readCount}`, provider: 'AG' }] });
+        return JSON.stringify({
+          contracts: [{ id: `call-${readCount}`, provider: 'AG' }],
+        });
       },
     });
 
@@ -64,9 +70,17 @@ describe('readFlatDb', () => {
       },
     });
 
-    const first = await readFlatDb<{ v: number }>('/fake/c.json', { v: 0 }, { fs: fakeFs });
+    const first = await readFlatDb<{ v: number }>(
+      '/fake/c.json',
+      { v: 0 },
+      { fs: fakeFs },
+    );
     mtime = 2000; // simulate file edit
-    const second = await readFlatDb<{ v: number }>('/fake/c.json', { v: 0 }, { fs: fakeFs });
+    const second = await readFlatDb<{ v: number }>(
+      '/fake/c.json',
+      { v: 0 },
+      { fs: fakeFs },
+    );
 
     expect(first.v).toBe(1);
     expect(second.v).toBe(2);
@@ -76,7 +90,9 @@ describe('readFlatDb', () => {
   it('throws FlatDbNotFound when file does not exist (ENOENT)', async () => {
     const enoentErr = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     const fakeFs = makeFakeFs({
-      stat: async () => { throw enoentErr; },
+      stat: async () => {
+        throw enoentErr;
+      },
     });
 
     await expect(

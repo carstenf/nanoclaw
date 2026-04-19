@@ -7,7 +7,12 @@ import { DATA_DIR } from '../config.js';
 import { logger } from '../logger.js';
 
 import { BadRequestError } from './voice-on-transcript-turn.js';
-import { getTravelTime, GetTravelTimeOpts, TravelTimeResult, MapsClientError } from './maps-client.js';
+import {
+  getTravelTime,
+  GetTravelTimeOpts,
+  TravelTimeResult,
+  MapsClientError,
+} from './maps-client.js';
 
 const TravelTimeSchema = z.object({
   call_id: z.string().optional(),
@@ -36,8 +41,7 @@ export interface VoiceGetTravelTimeDeps {
  */
 export function makeVoiceGetTravelTime(deps: VoiceGetTravelTimeDeps) {
   const getTravelTimeFn = deps.getTravelTime ?? getTravelTime;
-  const jsonlPath =
-    deps.jsonlPath ?? path.join(DATA_DIR, 'voice-maps.jsonl');
+  const jsonlPath = deps.jsonlPath ?? path.join(DATA_DIR, 'voice-maps.jsonl');
   const now = deps.now ?? (() => Date.now());
 
   return async function voiceGetTravelTime(args: unknown): Promise<unknown> {
@@ -94,8 +98,7 @@ export function makeVoiceGetTravelTime(deps: VoiceGetTravelTimeDeps) {
     } catch (err) {
       if (err instanceof BadRequestError) throw err;
 
-      const errorCode =
-        err instanceof MapsClientError ? err.code : 'unknown';
+      const errorCode = err instanceof MapsClientError ? err.code : 'unknown';
 
       logger.warn({
         event: 'voice_get_travel_time_error',

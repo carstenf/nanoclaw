@@ -42,7 +42,8 @@ function makeDeps(
         discord_long: null,
         container_latency_ms: 100,
       })),
-    sendDiscord: overrides.sendDiscord ?? vi.fn().mockResolvedValue({ ok: true }),
+    sendDiscord:
+      overrides.sendDiscord ?? vi.fn().mockResolvedValue({ ok: true }),
     andyDiscordChannel: overrides.andyDiscordChannel ?? '1234567890',
     jsonlPath: overrides.jsonlPath ?? '/tmp/test-voice-ask-core.jsonl',
     timeoutMs: overrides.timeoutMs ?? 1000,
@@ -179,9 +180,16 @@ describe('voice.ask_core', () => {
       discord_long: 'Detaillierte Erklaerung fuer Discord.',
       container_latency_ms: 2000,
     });
-    const deps = makeDeps({ runAndy, sendDiscord, andyDiscordChannel: 'ch-999' });
+    const deps = makeDeps({
+      runAndy,
+      sendDiscord,
+      andyDiscordChannel: 'ch-999',
+    });
     const handler = makeVoiceAskCore(deps);
-    const result = (await handler({ topic: 'andy', request: 'erklaere mir X' })) as {
+    const result = (await handler({
+      topic: 'andy',
+      request: 'erklaere mir X',
+    })) as {
       ok: true;
       result: { answer: string };
     };
@@ -234,7 +242,9 @@ describe('voice.ask_core', () => {
 
     const lines = fs.default.readFileSync(jsonlPath, 'utf8').trim().split('\n');
     const events = lines.map((l) => JSON.parse(l));
-    expect(events.some((e: { event: string }) => e.event === 'ask_core_andy_done')).toBe(true);
+    expect(
+      events.some((e: { event: string }) => e.event === 'ask_core_andy_done'),
+    ).toBe(true);
   });
 
   it('topic=test (echo-path regression): does NOT call runAndy', async () => {

@@ -39,8 +39,12 @@ function makeSuccessResponse(
 
   return {
     status: overrides.topStatus ?? 'OK',
-    origin_addresses: [overrides.originAddr ?? 'München Hauptbahnhof, Bayern, Deutschland'],
-    destination_addresses: [overrides.destAddr ?? 'Flughafen München, Nordallee 25, 85356 München'],
+    origin_addresses: [
+      overrides.originAddr ?? 'München Hauptbahnhof, Bayern, Deutschland',
+    ],
+    destination_addresses: [
+      overrides.destAddr ?? 'Flughafen München, Nordallee 25, 85356 München',
+    ],
     rows: [{ elements: [element] }],
   };
 }
@@ -75,7 +79,7 @@ describe('getTravelTime', () => {
     expect(result.destination_resolved).toContain('Flughafen');
 
     // Verify URL contains distancematrix endpoint
-    const calledUrl = (mockFetch.mock.calls[0][0] as string);
+    const calledUrl = mockFetch.mock.calls[0][0] as string;
     expect(calledUrl).toContain('distancematrix');
     expect(calledUrl).toContain('origins=');
     expect(calledUrl).toContain('destinations=');
@@ -101,7 +105,9 @@ describe('getTravelTime', () => {
   });
 
   it('OVER_QUERY_LIMIT: throws MapsClientError with code over_query_limit', async () => {
-    const mockFetch = makeFetch(makeSuccessResponse({ topStatus: 'OVER_QUERY_LIMIT' }));
+    const mockFetch = makeFetch(
+      makeSuccessResponse({ topStatus: 'OVER_QUERY_LIMIT' }),
+    );
 
     await expect(
       getTravelTime({
@@ -129,13 +135,15 @@ describe('getTravelTime', () => {
         fetch: mockFetch as unknown as typeof globalThis.fetch,
       }),
     ).rejects.toSatisfy(
-      (e: unknown) =>
-        e instanceof MapsClientError && e.code === 'zero_results',
+      (e: unknown) => e instanceof MapsClientError && e.code === 'zero_results',
     );
   });
 
   it('timeout: throws MapsClientError with code timeout when AbortError fires', async () => {
-    const abortError = new DOMException('The operation was aborted', 'AbortError');
+    const abortError = new DOMException(
+      'The operation was aborted',
+      'AbortError',
+    );
     const mockFetch = vi.fn().mockRejectedValue(abortError);
 
     await expect(
@@ -159,8 +167,7 @@ describe('getTravelTime', () => {
         apiKey: '',
       }),
     ).rejects.toSatisfy(
-      (e: unknown) =>
-        e instanceof MapsClientError && e.code === 'missing_key',
+      (e: unknown) => e instanceof MapsClientError && e.code === 'missing_key',
     );
   });
 
@@ -180,7 +187,9 @@ describe('getTravelTime', () => {
   });
 
   it('REQUEST_DENIED: throws MapsClientError with code request_denied', async () => {
-    const mockFetch = makeFetch(makeSuccessResponse({ topStatus: 'REQUEST_DENIED' }));
+    const mockFetch = makeFetch(
+      makeSuccessResponse({ topStatus: 'REQUEST_DENIED' }),
+    );
 
     await expect(
       getTravelTime({

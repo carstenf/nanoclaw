@@ -117,7 +117,11 @@ export function makeVoiceAskCore(deps: VoiceAskCoreDeps) {
           const result = await deps.runAndy(request);
 
           // Fire-and-forget Discord long-form if present
-          if (result.discord_long && deps.sendDiscord && deps.andyDiscordChannel) {
+          if (
+            result.discord_long &&
+            deps.sendDiscord &&
+            deps.andyDiscordChannel
+          ) {
             void deps
               .sendDiscord(deps.andyDiscordChannel, result.discord_long)
               .catch((err: unknown) =>
@@ -134,7 +138,11 @@ export function makeVoiceAskCore(deps: VoiceAskCoreDeps) {
             request_len: request.length,
             container_latency_ms: result.container_latency_ms,
             voice_short_len: result.voice_short.length,
-            discord_long_sent: !!(result.discord_long && deps.sendDiscord && deps.andyDiscordChannel),
+            discord_long_sent: !!(
+              result.discord_long &&
+              deps.sendDiscord &&
+              deps.andyDiscordChannel
+            ),
             discord_long_len: result.discord_long?.length ?? null,
           });
 

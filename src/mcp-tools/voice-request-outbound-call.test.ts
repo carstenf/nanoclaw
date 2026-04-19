@@ -53,7 +53,7 @@ describe('voice.request_outbound_call', () => {
       fetch: mockFetch,
       jsonlPath: join(tmpDir, 'out.jsonl'),
     });
-    const result = await handler(VALID_ARGS) as Record<string, unknown>;
+    const result = (await handler(VALID_ARGS)) as Record<string, unknown>;
     expect(result.ok).toBe(true);
     const res = result.result as Record<string, unknown>;
     expect(res.queued).toBe(true);
@@ -71,8 +71,9 @@ describe('voice.request_outbound_call', () => {
       bridgeUrl: 'http://10.0.0.2:4402',
       fetch: makeOkFetch(),
     });
-    await expect(handler({ ...VALID_ARGS, target_phone: '0891234567' }))
-      .rejects.toThrow(BadRequestError);
+    await expect(
+      handler({ ...VALID_ARGS, target_phone: '0891234567' }),
+    ).rejects.toThrow(BadRequestError);
   });
 
   it('zod: rejects empty goal', async () => {
@@ -80,18 +81,23 @@ describe('voice.request_outbound_call', () => {
       bridgeUrl: 'http://10.0.0.2:4402',
       fetch: makeOkFetch(),
     });
-    await expect(handler({ ...VALID_ARGS, goal: '' }))
-      .rejects.toThrow(BadRequestError);
+    await expect(handler({ ...VALID_ARGS, goal: '' })).rejects.toThrow(
+      BadRequestError,
+    );
   });
 
   it('bridge-400: maps to bad_request error response', async () => {
-    const mockFetch = makeErrorFetch(400, { error: 'bad_request', field: 'target_phone', message: 'invalid' });
+    const mockFetch = makeErrorFetch(400, {
+      error: 'bad_request',
+      field: 'target_phone',
+      message: 'invalid',
+    });
     const handler = makeVoiceRequestOutboundCall({
       bridgeUrl: 'http://10.0.0.2:4402',
       fetch: mockFetch,
       jsonlPath: join(tmpDir, 'out.jsonl'),
     });
-    const result = await handler(VALID_ARGS) as Record<string, unknown>;
+    const result = (await handler(VALID_ARGS)) as Record<string, unknown>;
     expect(result.ok).toBe(false);
     expect(result.error).toBe('bad_request');
   });
@@ -103,14 +109,16 @@ describe('voice.request_outbound_call', () => {
       fetch: mockFetch,
       jsonlPath: join(tmpDir, 'out.jsonl'),
     });
-    const result = await handler(VALID_ARGS) as Record<string, unknown>;
+    const result = (await handler(VALID_ARGS)) as Record<string, unknown>;
     expect(result.ok).toBe(false);
     expect(result.error).toBe('queue_full');
   });
 
   it('timeout: AbortError maps to tool_unavailable', async () => {
     const abortFetch = vi.fn().mockRejectedValue(
-      Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+      Object.assign(new Error('The operation was aborted'), {
+        name: 'AbortError',
+      }),
     );
     const handler = makeVoiceRequestOutboundCall({
       bridgeUrl: 'http://10.0.0.2:4402',
@@ -118,7 +126,7 @@ describe('voice.request_outbound_call', () => {
       timeoutMs: 100,
       jsonlPath: join(tmpDir, 'out.jsonl'),
     });
-    const result = await handler(VALID_ARGS) as Record<string, unknown>;
+    const result = (await handler(VALID_ARGS)) as Record<string, unknown>;
     expect(result.ok).toBe(false);
     expect(result.error).toBe('tool_unavailable');
   });
@@ -130,7 +138,7 @@ describe('voice.request_outbound_call', () => {
       fetch: networkFetch,
       jsonlPath: join(tmpDir, 'out.jsonl'),
     });
-    const result = await handler(VALID_ARGS) as Record<string, unknown>;
+    const result = (await handler(VALID_ARGS)) as Record<string, unknown>;
     expect(result.ok).toBe(false);
     expect(result.error).toBe('tool_unavailable');
   });

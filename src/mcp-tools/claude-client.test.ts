@@ -39,7 +39,10 @@ const MESSAGES: Array<{ role: 'user' | 'assistant'; content: string }> = [
 describe('callClaudeViaOneCli', () => {
   it('posts to api.anthropic.com/v1/messages and returns text', async () => {
     const capturedRequests: Array<{ url: string; init: RequestInit }> = [];
-    const mockFetch = async (url: string, init?: RequestInit): Promise<Response> => {
+    const mockFetch = async (
+      url: string,
+      init?: RequestInit,
+    ): Promise<Response> => {
       capturedRequests.push({ url, init: init ?? {} });
       return {
         ok: true,
@@ -68,9 +71,15 @@ describe('callClaudeViaOneCli', () => {
 
   it('sends correct anthropic-version header', async () => {
     let capturedHeaders: Record<string, string> = {};
-    const mockFetch = async (_url: string, init?: RequestInit): Promise<Response> => {
+    const mockFetch = async (
+      _url: string,
+      init?: RequestInit,
+    ): Promise<Response> => {
       capturedHeaders = Object.fromEntries(
-        Object.entries(init?.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]),
+        Object.entries(init?.headers ?? {}).map(([k, v]) => [
+          k.toLowerCase(),
+          v,
+        ]),
       );
       return {
         ok: true,
@@ -79,7 +88,9 @@ describe('callClaudeViaOneCli', () => {
       } as unknown as Response;
     };
 
-    await callClaudeViaOneCli(SYSTEM, MESSAGES, { fetch: mockFetch as unknown as typeof fetch });
+    await callClaudeViaOneCli(SYSTEM, MESSAGES, {
+      fetch: mockFetch as unknown as typeof fetch,
+    });
 
     expect(capturedHeaders['anthropic-version']).toBe('2023-06-01');
     expect(capturedHeaders['content-type']).toBe('application/json');
@@ -89,13 +100,19 @@ describe('callClaudeViaOneCli', () => {
     const mockFetch = makeMockFetch(500, { error: 'internal server error' });
 
     await expect(
-      callClaudeViaOneCli(SYSTEM, MESSAGES, { fetch: mockFetch as unknown as typeof fetch }),
+      callClaudeViaOneCli(SYSTEM, MESSAGES, {
+        fetch: mockFetch as unknown as typeof fetch,
+      }),
     ).rejects.toThrow(/500/);
   });
 
   it('throws on timeout (AbortController)', async () => {
     // delay > timeoutMs → AbortError or timeout-derived error
-    const mockFetch = makeMockFetch(200, { content: [{ type: 'text', text: 'late' }] }, 500);
+    const mockFetch = makeMockFetch(
+      200,
+      { content: [{ type: 'text', text: 'late' }] },
+      500,
+    );
 
     await expect(
       callClaudeViaOneCli(SYSTEM, MESSAGES, {
@@ -109,13 +126,18 @@ describe('callClaudeViaOneCli', () => {
     const mockFetch = makeMockFetch(200, { content: [] });
 
     await expect(
-      callClaudeViaOneCli(SYSTEM, MESSAGES, { fetch: mockFetch as unknown as typeof fetch }),
+      callClaudeViaOneCli(SYSTEM, MESSAGES, {
+        fetch: mockFetch as unknown as typeof fetch,
+      }),
     ).rejects.toThrow();
   });
 
   it('respects opts.model override', async () => {
     let capturedBody: Record<string, unknown> = {};
-    const mockFetch = async (_url: string, init?: RequestInit): Promise<Response> => {
+    const mockFetch = async (
+      _url: string,
+      init?: RequestInit,
+    ): Promise<Response> => {
       capturedBody = JSON.parse(init?.body as string);
       return {
         ok: true,

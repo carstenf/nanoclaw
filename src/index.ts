@@ -836,7 +836,14 @@ async function main(): Promise<void> {
   const getMainGroupAndJid = (): { folder: string; jid: string } | null => {
     const groups = Object.values(registeredGroups);
     const main = groups.find((g) => g.isMain);
-    return main ? { folder: main.folder, jid: Object.entries(registeredGroups).find(([, g]) => g.isMain)?.[0] ?? '' } : null;
+    return main
+      ? {
+          folder: main.folder,
+          jid:
+            Object.entries(registeredGroups).find(([, g]) => g.isMain)?.[0] ??
+            '',
+        }
+      : null;
   };
   startMcpServer({ deps: { sendDiscordMessage, getMainGroupAndJid } });
   queue.setProcessMessagesFn(processGroupMessages);

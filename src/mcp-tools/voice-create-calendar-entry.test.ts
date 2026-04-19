@@ -31,7 +31,10 @@ function makeCalendarClient(
 
 describe('makeVoiceCreateCalendarEntry (REQ-TOOLS-02)', () => {
   it('happy path: new event created, returns {id}', async () => {
-    const { client, insertMock, listMock } = makeCalendarClient([], 'evt-new-1');
+    const { client, insertMock, listMock } = makeCalendarClient(
+      [],
+      'evt-new-1',
+    );
 
     const handler = makeVoiceCreateCalendarEntry({
       calendarClient: vi.fn().mockResolvedValue(client),

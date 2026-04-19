@@ -92,7 +92,10 @@ describe('makeVoiceUpdateCalendarEntry (REQ-TOOLS-12)', () => {
     });
 
     const call = patchMock.mock.calls[0]?.[0] as {
-      requestBody: { start?: { dateTime?: string }; end?: { dateTime?: string } };
+      requestBody: {
+        start?: { dateTime?: string };
+        end?: { dateTime?: string };
+      };
     };
     // start emitted as Berlin-local with offset; verify the absolute instant.
     const startMs = new Date(call.requestBody.start?.dateTime ?? '').getTime();
@@ -125,7 +128,10 @@ describe('makeVoiceUpdateCalendarEntry (REQ-TOOLS-12)', () => {
     });
 
     const call = patchMock.mock.calls[0]?.[0] as {
-      requestBody: { start?: { dateTime?: string }; end?: { dateTime?: string } };
+      requestBody: {
+        start?: { dateTime?: string };
+        end?: { dateTime?: string };
+      };
     };
     const startMs = new Date(call.requestBody.start?.dateTime ?? '').getTime();
     const endMs = new Date(call.requestBody.end?.dateTime ?? '').getTime();
@@ -199,9 +205,9 @@ describe('makeVoiceUpdateCalendarEntry (REQ-TOOLS-12)', () => {
       calendarClient: vi.fn().mockResolvedValue(client),
       jsonlPath: JSONL_PATH(),
     });
-    await expect(
-      handler({ fields_to_update: { title: 'X' } }),
-    ).rejects.toThrow(BadRequestError);
+    await expect(handler({ fields_to_update: { title: 'X' } })).rejects.toThrow(
+      BadRequestError,
+    );
   });
 
   it('zod rejects invalid time format', async () => {
@@ -242,11 +248,7 @@ describe('makeVoiceUpdateCalendarEntry (REQ-TOOLS-12)', () => {
     });
 
     const last = JSON.parse(
-      fs
-        .readFileSync(jsonlPath, 'utf8')
-        .trim()
-        .split('\n')
-        .pop() ?? '{}',
+      fs.readFileSync(jsonlPath, 'utf8').trim().split('\n').pop() ?? '{}',
     );
     expect(last.event).toBe('calendar_update_done');
     expect(last.tool).toBe('voice.update_calendar_entry');

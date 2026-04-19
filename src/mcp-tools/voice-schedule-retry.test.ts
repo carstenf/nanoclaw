@@ -119,7 +119,10 @@ describe('makeVoiceScheduleRetry (REQ-TOOLS-07)', () => {
         target_phone: '+491708036426',
         not_before_ts: NOT_BEFORE_PAST,
       }),
-    ).rejects.toMatchObject({ field: 'not_before_ts', expected: 'retry_at_in_past' });
+    ).rejects.toMatchObject({
+      field: 'not_before_ts',
+      expected: 'retry_at_in_past',
+    });
   });
 
   it('not_before_ts too far in future → throws BadRequestError', async () => {
@@ -132,7 +135,10 @@ describe('makeVoiceScheduleRetry (REQ-TOOLS-07)', () => {
         target_phone: '+491708036426',
         not_before_ts: NOT_BEFORE_FAR,
       }),
-    ).rejects.toMatchObject({ field: 'not_before_ts', expected: 'retry_at_too_far' });
+    ).rejects.toMatchObject({
+      field: 'not_before_ts',
+      expected: 'retry_at_too_far',
+    });
   });
 
   it('invalid E164 phone → throws BadRequestError', async () => {

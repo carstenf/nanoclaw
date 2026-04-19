@@ -13,7 +13,9 @@ import type { ToolHandler } from './index.js';
 
 const Schema = z.object({
   call_id: z.string().optional(),
-  target_phone: z.string().regex(/^\+[1-9]\d{1,14}$/, 'target_phone must be E.164'),
+  target_phone: z
+    .string()
+    .regex(/^\+[1-9]\d{1,14}$/, 'target_phone must be E.164'),
   goal: z.string().min(1).max(500),
   context: z.string().max(2000).default(''),
   report_to_jid: z.string().min(1),
@@ -58,7 +60,9 @@ export function makeVoiceRequestOutboundCall(
   const now = deps.now ?? (() => Date.now());
   const timeoutMs = deps.timeoutMs ?? 5000;
 
-  return async function voiceRequestOutboundCall(args: unknown): Promise<unknown> {
+  return async function voiceRequestOutboundCall(
+    args: unknown,
+  ): Promise<unknown> {
     const start = now();
 
     // Zod parse
@@ -71,7 +75,8 @@ export function makeVoiceRequestOutboundCall(
       );
     }
 
-    const { call_id, target_phone, goal, context, report_to_jid } = parseResult.data;
+    const { call_id, target_phone, goal, context, report_to_jid } =
+      parseResult.data;
 
     const phoneMask = maskPhone(target_phone);
     const phoneHash = crypto
@@ -98,7 +103,13 @@ export function makeVoiceRequestOutboundCall(
       const res = await fetchFn(`${deps.bridgeUrl}/outbound`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ call_id, target_phone, goal, context, report_to_jid }),
+        body: JSON.stringify({
+          call_id,
+          target_phone,
+          goal,
+          context,
+          report_to_jid,
+        }),
         signal: ctrl.signal,
       });
 

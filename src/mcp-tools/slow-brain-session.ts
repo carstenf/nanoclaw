@@ -5,7 +5,11 @@
  * Sessions are kept in RAM only — no disk state.
  * Idle sessions are evicted by idleSweep() called on a setInterval.
  */
-import { callClaudeViaOneCli, type ClaudeMessage, type CallClaudeOpts } from './claude-client.js';
+import {
+  callClaudeViaOneCli,
+  type ClaudeMessage,
+  type CallClaudeOpts,
+} from './claude-client.js';
 import { SLOW_BRAIN_SESSION_IDLE_MS } from '../config.js';
 
 /** The system prompt template for Slow-Brain inference. */
@@ -88,7 +92,10 @@ export class SlowBrainSessionManager {
     session.lastTurnAt = this.now();
 
     // Call Claude with full history
-    const rawResponse = await this.claudeClient(this.systemPrompt, session.messages);
+    const rawResponse = await this.claudeClient(
+      this.systemPrompt,
+      session.messages,
+    );
 
     // Append assistant response to history
     session.messages.push({ role: 'assistant', content: rawResponse });

@@ -26,11 +26,13 @@ function makeContainerOutput(result: string): ContainerOutput {
 
 function makeDeps(overrides: Partial<AndyRunnerDeps> = {}): AndyRunnerDeps {
   return {
-    runContainer: vi.fn().mockResolvedValue(
-      makeContainerOutput(
-        'Some text before.\n{"voice_short": "Neil Armstrong war der erste.", "discord_long": null}',
+    runContainer: vi
+      .fn()
+      .mockResolvedValue(
+        makeContainerOutput(
+          'Some text before.\n{"voice_short": "Neil Armstrong war der erste.", "discord_long": null}',
+        ),
       ),
-    ),
     loadMainGroup: vi.fn().mockReturnValue(FAKE_MAIN),
     loadSkill: vi.fn().mockResolvedValue({
       exists: true,
@@ -46,7 +48,10 @@ function makeDeps(overrides: Partial<AndyRunnerDeps> = {}): AndyRunnerDeps {
 describe('runAndyForVoice', () => {
   it('happy path: parses voice_short and discord_long from container output', async () => {
     const deps = makeDeps();
-    const result = await runAndyForVoice('wer war der erste Mensch auf dem Mond', deps);
+    const result = await runAndyForVoice(
+      'wer war der erste Mensch auf dem Mond',
+      deps,
+    );
 
     expect(result.voice_short).toBe('Neil Armstrong war der erste.');
     expect(result.discord_long).toBeNull();
@@ -55,11 +60,13 @@ describe('runAndyForVoice', () => {
 
   it('passes discord_long when non-null in container output', async () => {
     const deps = makeDeps({
-      runContainer: vi.fn().mockResolvedValue(
-        makeContainerOutput(
-          '{"voice_short": "Kurze Antwort.", "discord_long": "Detaillierte Beschreibung fuer Discord."}',
+      runContainer: vi
+        .fn()
+        .mockResolvedValue(
+          makeContainerOutput(
+            '{"voice_short": "Kurze Antwort.", "discord_long": "Detaillierte Beschreibung fuer Discord."}',
+          ),
         ),
-      ),
     });
     const result = await runAndyForVoice('erklaere die Photosynthese', deps);
 
@@ -103,9 +110,22 @@ describe('runAndyForVoice', () => {
 
   it('timeout fires: returns timeout fallback voice_short', async () => {
     const deps = makeDeps({
-      runContainer: vi.fn().mockImplementation(
-        () => new Promise<ContainerOutput>((resolve) => setTimeout(() => resolve(makeContainerOutput('{"voice_short":"delayed","discord_long":null}')), 200)),
-      ),
+      runContainer: vi
+        .fn()
+        .mockImplementation(
+          () =>
+            new Promise<ContainerOutput>((resolve) =>
+              setTimeout(
+                () =>
+                  resolve(
+                    makeContainerOutput(
+                      '{"voice_short":"delayed","discord_long":null}',
+                    ),
+                  ),
+                200,
+              ),
+            ),
+        ),
       timeoutMs: 10, // Very short timeout
     });
     const result = await runAndyForVoice('test', deps);
@@ -116,9 +136,13 @@ describe('runAndyForVoice', () => {
 
   it('JSON-parse fail: returns first-200-chars fallback', async () => {
     const deps = makeDeps({
-      runContainer: vi.fn().mockResolvedValue(
-        makeContainerOutput('This is not JSON at all, just plain text output from container.'),
-      ),
+      runContainer: vi
+        .fn()
+        .mockResolvedValue(
+          makeContainerOutput(
+            'This is not JSON at all, just plain text output from container.',
+          ),
+        ),
     });
     const result = await runAndyForVoice('test', deps);
 
@@ -131,11 +155,13 @@ describe('runAndyForVoice', () => {
     const fiveSentences =
       'Satz eins. Satz zwei. Satz drei. Satz vier. Satz fuenf.';
     const deps = makeDeps({
-      runContainer: vi.fn().mockResolvedValue(
-        makeContainerOutput(
-          `{"voice_short": "${fiveSentences}", "discord_long": null}`,
+      runContainer: vi
+        .fn()
+        .mockResolvedValue(
+          makeContainerOutput(
+            `{"voice_short": "${fiveSentences}", "discord_long": null}`,
+          ),
         ),
-      ),
     });
     const result = await runAndyForVoice('test', deps);
 

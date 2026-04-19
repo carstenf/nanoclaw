@@ -82,10 +82,9 @@ export async function readFlatDb<T>(
       return cached.content;
     }
 
-    const text = await (fs.readFile as (p: string, enc: string) => Promise<string>)(
-      filePath,
-      'utf8',
-    );
+    const text = await (
+      fs.readFile as (p: string, enc: string) => Promise<string>
+    )(filePath, 'utf8');
     const parsed = JSON.parse(text) as T;
     CACHE.set(filePath, { content: parsed, mtimeMs });
     return parsed;

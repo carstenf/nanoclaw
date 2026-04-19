@@ -221,11 +221,11 @@ export function makeVoiceUpdateCalendarEntry(
 
       const newDate = fields_to_update.date ?? existParts?.date ?? null;
       const newTime = fields_to_update.time ?? existParts?.time ?? null;
-      const newDuration =
-        fields_to_update.duration ?? existDuration ?? null;
+      const newDuration = fields_to_update.duration ?? existDuration ?? null;
 
       const patch: calendar_v3.Schema$Event = {};
-      if (fields_to_update.title !== undefined) patch.summary = fields_to_update.title;
+      if (fields_to_update.title !== undefined)
+        patch.summary = fields_to_update.title;
       if (fields_to_update.location !== undefined)
         patch.location = fields_to_update.location;
 

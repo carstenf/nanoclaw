@@ -210,8 +210,7 @@ export async function runAndyForVoice(
       'No main group found in DB',
     );
     return {
-      voice_short:
-        'Andy ist gerade nicht erreichbar. Bitte nochmal versuchen.',
+      voice_short: 'Andy ist gerade nicht erreichbar. Bitte nochmal versuchen.',
       discord_long: null,
       container_latency_ms: now() - startTs,
     };

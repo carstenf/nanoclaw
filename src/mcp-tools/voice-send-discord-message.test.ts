@@ -102,7 +102,10 @@ describe('makeVoiceSendDiscordMessage (REQ-TOOLS-03)', () => {
 
     await expect(
       handler({ channel: '999999999999999999', content: 'blocked' }),
-    ).rejects.toMatchObject({ field: 'channel', expected: 'channel_not_allowed' });
+    ).rejects.toMatchObject({
+      field: 'channel',
+      expected: 'channel_not_allowed',
+    });
   });
 
   it('invalid snowflake → throws BadRequestError', async () => {
@@ -172,9 +175,17 @@ describe('makeVoiceSendDiscordMessage (REQ-TOOLS-03)', () => {
       dedupTtlMs: 300000,
     });
 
-    await handler({ call_id: 'first', channel: ALLOWED_CHANNEL, content: 'dedup-log-test' });
+    await handler({
+      call_id: 'first',
+      channel: ALLOWED_CHANNEL,
+      content: 'dedup-log-test',
+    });
     fakeNow = 2000;
-    await handler({ call_id: 'second', channel: ALLOWED_CHANNEL, content: 'dedup-log-test' });
+    await handler({
+      call_id: 'second',
+      channel: ALLOWED_CHANNEL,
+      content: 'dedup-log-test',
+    });
 
     const lines = fs.readFileSync(jsonlPath, 'utf8').trim().split('\n');
     const events = lines.map((l) => JSON.parse(l).event);

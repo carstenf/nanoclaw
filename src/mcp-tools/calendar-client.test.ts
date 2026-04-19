@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Track instances created by OAuth2 constructor across tests
-let oauthInstances: Array<{ setCredentials: ReturnType<typeof vi.fn>; on: ReturnType<typeof vi.fn> }> = [];
+let oauthInstances: Array<{
+  setCredentials: ReturnType<typeof vi.fn>;
+  on: ReturnType<typeof vi.fn>;
+}> = [];
 
 // Mock googleapis before any imports that use it
 vi.mock('googleapis', () => {
@@ -12,9 +15,10 @@ vi.mock('googleapis', () => {
     },
   };
 
-  function OAuth2Mock(
-    this: { setCredentials: ReturnType<typeof vi.fn>; on: ReturnType<typeof vi.fn> },
-  ) {
+  function OAuth2Mock(this: {
+    setCredentials: ReturnType<typeof vi.fn>;
+    on: ReturnType<typeof vi.fn>;
+  }) {
     this.setCredentials = vi.fn();
     this.on = vi.fn();
     oauthInstances.push(this);
@@ -99,7 +103,10 @@ describe('getCalendarClient', () => {
     expect(oauthInstances).toHaveLength(1);
     const oauthInstance = oauthInstances[0];
     // 'on' listener registered for 'tokens' event
-    expect(oauthInstance.on).toHaveBeenCalledWith('tokens', expect.any(Function));
+    expect(oauthInstance.on).toHaveBeenCalledWith(
+      'tokens',
+      expect.any(Function),
+    );
   });
 
   it('token-refresh-triggered: tokens event triggers atomic tmp+rename', async () => {
@@ -129,16 +136,21 @@ describe('getCalendarClient', () => {
     expect(fakeFs.rename).toHaveBeenCalled();
 
     // The renamed file should be the original tokens path
-    const [tmpPath, finalPath] = fakeFs.rename.mock.calls[0] as [string, string];
+    const [tmpPath, finalPath] = fakeFs.rename.mock.calls[0] as [
+      string,
+      string,
+    ];
     expect(tmpPath).toMatch(/\.tmp$/);
     expect(finalPath).not.toMatch(/\.tmp$/);
   });
 
   it('throws CalendarClientError(creds_missing) when credential file missing', async () => {
     const fakeFs = {
-      readFile: vi.fn().mockRejectedValue(
-        Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
-      ),
+      readFile: vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+        ),
       writeFile: vi.fn(),
       rename: vi.fn(),
     };

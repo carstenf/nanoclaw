@@ -27,10 +27,12 @@ afterEach(() => {
 });
 
 // Helper: create a SlowBrainSessionManager that always returns a fixed value
-function makeSessionManager(returnValue: string | null): SlowBrainSessionManager {
-  const claudeClient = vi.fn().mockResolvedValue(
-    returnValue === null ? 'null' : returnValue,
-  );
+function makeSessionManager(
+  returnValue: string | null,
+): SlowBrainSessionManager {
+  const claudeClient = vi
+    .fn()
+    .mockResolvedValue(returnValue === null ? 'null' : returnValue);
   return new SlowBrainSessionManager({ claudeClient });
 }
 
@@ -171,7 +173,10 @@ describe('voiceOnTranscriptTurn handler', () => {
       path.join(tmpDir, 'voice-slow-brain.jsonl'),
       'utf-8',
     );
-    const lines = jsonl.trim().split('\n').map((l) => JSON.parse(l));
+    const lines = jsonl
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l));
     const inferenceEvent = lines.find(
       (l) => l.event === 'slow_brain_inference_done',
     );
@@ -187,7 +192,9 @@ describe('voiceOnTranscriptTurn handler', () => {
 
   it('returns null and logs warn when sessionManager throws', async () => {
     const log = { info: vi.fn(), warn: vi.fn() };
-    const failingClient = vi.fn().mockRejectedValue(new Error('Claude offline'));
+    const failingClient = vi
+      .fn()
+      .mockRejectedValue(new Error('Claude offline'));
     const sessionManager = new SlowBrainSessionManager({
       claudeClient: failingClient,
     });
@@ -215,15 +222,19 @@ describe('ToolRegistry', () => {
   });
 
   it('buildDefaultRegistry registers voice.on_transcript_turn', async () => {
-    const registry = buildDefaultRegistry({ dataDir: tmpDir });
+    // Inject a no-op session manager to avoid real OneCLI calls in tests
+    const mockSessionManager = makeSessionManager(null);
+    const registry = buildDefaultRegistry({
+      dataDir: tmpDir,
+      sessionManager: mockSessionManager,
+      sweepIntervalMs: 0,
+    });
     expect(registry.has('voice.on_transcript_turn')).toBe(true);
     const out = await registry.invoke('voice.on_transcript_turn', {
       call_id: 'c',
       turn_id: 't',
       transcript: 'hi',
     });
-    // With no OneCLI proxy in test environment, sessionManager may fail or not be wired
-    // The registry test just checks it returns {ok:true} shape
-    expect((out as { ok: boolean }).ok).toBe(true);
+    expect(out).toEqual({ ok: true, instructions_update: null });
   });
 });

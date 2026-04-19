@@ -141,7 +141,11 @@ describe('makeVoiceDeleteCalendarEntry (REQ-TOOLS-11)', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      result: { deleted: true, event_id: 'gone-already', was_already_deleted: true },
+      result: {
+        deleted: true,
+        event_id: 'gone-already',
+        was_already_deleted: true,
+      },
     });
   });
 
@@ -186,9 +190,9 @@ describe('makeVoiceDeleteCalendarEntry (REQ-TOOLS-11)', () => {
       jsonlPath: JSONL_PATH(),
     });
 
-    await expect(
-      handler({ title: 'X', date: '20.04.2026' }),
-    ).rejects.toThrow(BadRequestError);
+    await expect(handler({ title: 'X', date: '20.04.2026' })).rejects.toThrow(
+      BadRequestError,
+    );
   });
 
   it('JSONL: calendar_delete_done logged with deleted flag, no PII summary', async () => {
