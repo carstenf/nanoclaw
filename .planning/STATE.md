@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 04 Waves 1-4 merged (cost-ledger, enforcement+A12, search_competitors+StreamableHTTP, scheduled workers+timers); Wave 5 gate deferred for live deploy+verify
-last_updated: "2026-04-19T16:10:00.000Z"
-last_activity: 2026-04-19 -- Phase 04 Waves 1-4 complete; Wave 5 (gate) pending
+stopped_at: Phase 04 GOLD — all 5 waves complete, deployed on both hosts, AC-07 curl-verified. COST-01 live verify + iOS UI-compat deferred as documented follow-ups.
+last_updated: "2026-04-19T21:15:00.000Z"
+last_activity: 2026-04-19 -- Phase 04 complete (gate PASS with 2 deferred follow-ups)
 progress:
   total_phases: 8
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 36
-  completed_plans: 33
-  percent: 92
+  completed_plans: 34
+  percent: 94
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-16)
 
 **Core value:** Carsten can delegate telephone tasks without being present, with zero unauthorized commitments.
-**Current focus:** Phase 04 — core-tool-integration-cost-observability
+**Current focus:** Phase 04 complete (GOLD with 2 deferred follow-ups). Next: Phase 5 or Phase 0 (legal gate).
 
 ## Current Position
 
-Phase: 04 (core-tool-integration-cost-observability) — EXECUTING (Wave 5 gate pending)
-Plan: 4 of 5 complete; 05 (gate) deferred for live deploy+verify
-Status: Waves 1-4 merged to main; awaiting Carsten manual gate run
-Last activity: 2026-04-19 -- Phase 04 Waves 1-4 complete
+Phase: 04 (core-tool-integration-cost-observability) — COMPLETE
+Plan: 5 of 5 merged (04-01..04-04 full, 04-05 gate via pragmatic evidence + 2 documented follow-ups)
+Status: Phase 4 GOLD
+Last activity: 2026-04-19 -- Phase 04 gate closed (pragmatic)
 
-Progress: [█████████░] 92%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -111,10 +111,19 @@ Recent decisions affecting current work:
 - [Phase 02-director-bridge-v0-hotpath-safety]: CASE6B_PERSONA uses ASCII umlauts per Plan truths[8] strict template
 - [Phase 02-director-bridge-v0-hotpath-safety]: emitFiller awaited before callCoreTool — filler on wire before 90s container wait, failure does not block dispatch
 - [Phase 03-voice-mcp-endpoint]: OutboundRouter: DI timers mock + in-memory queue; 10.0.0.2 in peer allowlist (Core+Bridge colocated); buildOutboundPersona plain string.replace; tools_count 11→12
+- [Phase 04-core-tool-integration]: A12 idempotency closed — dispatch.ts routes mutating tools through invokeIdempotent (per-tool `mutating: true` flag drives the branch); read-only tools bypass
+- [Phase 04-core-tool-integration]: state.db schema extended — voice_call_costs + voice_turn_costs + voice_price_snapshots tables; PRIMARY KEY (call_id, turn_id) SQL-level dedup for voice.record_turn_cost
+- [Phase 04-core-tool-integration]: Hard-stop via `session.update { instructions }` only — NEVER mutate tools mid-call (AC-04/AC-05 compliance); followed by response.create + 4s hold + ws.close(1000)
+- [Phase 04-core-tool-integration]: StreamableHTTP MCP on port 3201 (bearer + peer-allowlist) — disjoint key space via synthetic `chat-<uuid>` call_id/turn_id prefix; Pitfall 6 enforced bind 10.0.0.2 not 0.0.0.0
+- [Phase 04-core-tool-integration]: MCP SDK per-request Server+Transport pattern — singleton `connect()` breaks on second client with -32600; stateless mode (`sessionIdGenerator: undefined`) is the canonical fix
+- [Phase 04-core-tool-integration]: audit-audio.sh dev-artefact exclusions — `*/node_modules/*`, `*/_archive*/*`, `*/spike/*`, `*/voice-stack/runs/*`, `*/site-packages/*`, `-not -name silence.wav`; production call recordings never land in those roots
+- [Phase 04-core-tool-integration]: Hetzner Caddy route `/nanoclaw-voice/*` uses forward_auth + `header_up Authorization "Bearer ..."` rewrite — OAuth at edge, static bearer internal, no app-code change for consistency with existing /hetzner /discord /lenovo1 pattern
 
 ### Pending Todos
 
-None yet.
+- **Phase 4 follow-up:** spike-replay-harness for COST-01 live verification — drives accumulator with 10 synthetic usage events, asserts soft-warn + hard-stop + session.update flow, posts Discord results.
+- **Phase 4 follow-up:** iOS Claude App UI-compat fix — session-based MCP transport-map (replace stateless per-request) OR set `capabilities.tools.listChanged:false`. iOS currently hangs app while MCP connected.
+- **Phase 4 low-prio:** recon-invoice.ts "append-only" bug — 3 duplicate "missing CSV for 2026-03" entries in `~/nanoclaw-state/open_points.md`; add write-if-not-present check.
 
 ### Blockers/Concerns
 

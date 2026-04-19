@@ -28,8 +28,8 @@ Hard prerequisite. Must PASS before any real PSTN call with non-informed counter
 - [x] **INFRA-03**: OpenAI webhook URL configured in OpenAI project; signature verification end-to-end green
 - [x] **INFRA-04**: WireGuard MTU tuned to 1380; heartbeat monitor in Director Bridge detects tunnel drops ≤2s
 - [ ] **INFRA-05**: Per-turn timing logged as structured JSONL (T0 VAD-end, T2 LLM-first-token, T4 TTS-first-byte) to `~/nanoclaw/voice-container/runs/turns-*.jsonl`
-- [ ] **INFRA-06**: Cost accumulator sums `response.done.usage` per call; cost stored in `state.db`
-- [ ] **INFRA-07**: Daily and monthly pricing-refresh cron fetches OpenAI Realtime price tiers
+- [x] **INFRA-06**: Cost accumulator sums `response.done.usage` per call; cost stored in `state.db`
+- [x] **INFRA-07**: Daily and monthly pricing-refresh cron fetches OpenAI Realtime price tiers
 - [x] **INFRA-08**: Director Bridge systemd unit on Lenovo1 under `carsten_bot` with auto-restart
 
 ### SIP — SIP Routing
@@ -81,7 +81,7 @@ Hard prerequisite. Must PASS before any real PSTN call with non-informed counter
 - [x] **TOOLS-02**: `create_calendar_entry(title, date, time, duration, location, travel_buffer_before_min, travel_buffer_after_min)` returns `{id}` — idempotent
 - [x] **TOOLS-03**: `send_discord_message(channel, content)` returns `{ok}` — idempotent via content-hash
 - [x] **TOOLS-04**: `get_contract(provider_name)` returns `{current_conditions, expiry_date, last_review}`
-- [ ] **TOOLS-05**: `search_competitors(category, criteria)` returns `{offers[]}`
+- [x] **TOOLS-05**: `search_competitors(category, criteria)` returns `{offers[]}`
 - [x] **TOOLS-06**: `get_practice_profile(name)` returns `{phone, patient_id, insurance_type, last_visit, authorized_data_fields[]}`
 - [x] **TOOLS-07**: `schedule_retry(case_type, target_phone, not_before_ts)` returns `{scheduled}` — idempotent
 - [x] **TOOLS-08**: `transfer_call(target)` triggers FreeSWITCH SIP REFER via ESL (Case 4 takeover)
@@ -133,11 +133,11 @@ Hard prerequisite. Must PASS before any real PSTN call with non-informed counter
 
 ### COST — Cost Caps & Monitoring
 
-- [ ] **COST-01**: Per-call hard cap €1.00; on reach → polite farewell + Discord alert
-- [ ] **COST-02**: Daily hard cap €3.00; on reach → no new outbound until next day + Discord alert
-- [ ] **COST-03**: Monthly hard cap €25.00; on reach → Voice channel suspended + Discord alert (manual reset)
-- [ ] **COST-04**: Soft-warning Discord notification at 80% of each cap level
-- [ ] **COST-05**: Monthly reconciliation job compares Director Bridge accumulator vs OpenAI invoice; drift >5% alerts Carsten
+- [~] **COST-01**: Per-call hard cap €1.00; on reach → polite farewell + Discord alert
+- [x] **COST-02**: Daily hard cap €3.00; on reach → no new outbound until next day + Discord alert
+- [x] **COST-03**: Monthly hard cap €25.00; on reach → Voice channel suspended + Discord alert (manual reset)
+- [x] **COST-04**: Soft-warning Discord notification at 80% of each cap level
+- [x] **COST-05**: Monthly reconciliation job compares Director Bridge accumulator vs OpenAI invoice; drift >5% alerts Carsten
 
 ### DISC — Disclosure & Rights Compliance
 
@@ -150,8 +150,8 @@ Hard prerequisite. Must PASS before any real PSTN call with non-informed counter
 
 - [ ] **QUAL-01**: Every phase-declare-PASS requires ≥3-turn E2E test with real German PSTN call
 - [ ] **QUAL-02**: P50/P95 turn-latency measured over ≥10 real PSTN turns per phase gate
-- [ ] **QUAL-03**: Production drift monitor: P50 >1200ms rolling 24h → Discord alert
-- [ ] **QUAL-04**: Monthly filesystem scan for audio files on all Voice-Stack hosts (LEGAL-03 implementation)
+- [x] **QUAL-03**: Production drift monitor: P50 >1200ms rolling 24h → Discord alert
+- [x] **QUAL-04**: Monthly filesystem scan for audio files on all Voice-Stack hosts (LEGAL-03 implementation)
 - [ ] **QUAL-05**: Spike-replay harness (offline WebSocket mock from turns-*.jsonl) runs in CI on every Director Bridge commit
 
 ---
@@ -223,8 +223,8 @@ Phase mappings established by the roadmapper on 2026-04-16. Every v1 requirement
 | INFRA-03 | Phase 1 | Complete |
 | INFRA-04 | Phase 1 | Complete |
 | INFRA-05 | Phase 2 | Pending |
-| INFRA-06 | Phase 4 | Pending |
-| INFRA-07 | Phase 4 | Pending |
+| INFRA-06 | Phase 4 | Complete |
+| INFRA-07 | Phase 4 | Complete |
 | INFRA-08 | Phase 1 | Complete |
 | SIP-01 | Phase 1 | Complete |
 | SIP-02 | Phase 1 | Complete |
@@ -264,7 +264,7 @@ Phase mappings established by the roadmapper on 2026-04-16. Every v1 requirement
 | TOOLS-02 | Phase 4 | Complete |
 | TOOLS-03 | Phase 3 | Complete |
 | TOOLS-04 | Phase 4 | Complete |
-| TOOLS-05 | Phase 4 | Pending |
+| TOOLS-05 | Phase 4 | Complete |
 | TOOLS-06 | Phase 4 | Complete |
 | TOOLS-07 | Phase 4 | Complete |
 | TOOLS-08 | Phase 7 | Complete |
@@ -301,19 +301,19 @@ Phase mappings established by the roadmapper on 2026-04-16. Every v1 requirement
 | C4-09 | Phase 7 | Pending |
 | C4-10 | Phase 7 | Pending |
 | C4-11 | Phase 7 | Pending |
-| COST-01 | Phase 4 | Pending |
-| COST-02 | Phase 4 | Pending |
-| COST-03 | Phase 4 | Pending |
-| COST-04 | Phase 4 | Pending |
-| COST-05 | Phase 4 | Pending |
+| COST-01 | Phase 4 | Complete (live verify deferred) |
+| COST-02 | Phase 4 | Complete |
+| COST-03 | Phase 4 | Complete |
+| COST-04 | Phase 4 | Complete |
+| COST-05 | Phase 4 | Complete |
 | DISC-01 | Phase 3 | Pending |
 | DISC-02 | Phase 3 | Pending |
 | DISC-03 | Phase 3 | Pending |
 | DISC-04 | Phase 2 | Pending |
 | QUAL-01 | Phase 5 | Pending |
 | QUAL-02 | Phase 5 | Pending |
-| QUAL-03 | Phase 4 | Pending |
-| QUAL-04 | Phase 4 | Pending |
+| QUAL-03 | Phase 4 | Complete |
+| QUAL-04 | Phase 4 | Complete |
 | QUAL-05 | Phase 2 | Pending |
 
 **Coverage:**

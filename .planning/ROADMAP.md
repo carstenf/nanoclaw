@@ -16,7 +16,7 @@ Granularity: standard (8 phases, 3-5 plans each). Eight phases cover all 101 v1 
 - [ ] **Phase 1: Infrastructure & Webhook Path** - FreeSWITCH/Sipgate REGED, Caddy + webhook relay + stub Bridge, WG MTU tuned; signature-verified webhook arrives end-to-end
 - [x] **Phase 2: Director Bridge v0 + Hot-Path Safety** - Idempotency keys, two-form readback, schema allowlist, teardown assertion, turn-timing JSONL, RAM-only audio hygiene (completed 2026-04-18)
 - [x] **Phase 3: Case 6 MVP — Carsten ↔ NanoClaw voice working** - First end-to-end PSTN call, Discord tool wired, 6a inbound + 6b outbound, confirm-action gate (completed 2026-04-17)
-- [ ] **Phase 4: Core Tool Integration + Cost/Observability** - Calendar/contract/practice/competitor tools, real-time cost accumulator, hard caps, reconciliation jobs, filesystem audit
+- [x] **Phase 4: Core Tool Integration + Cost/Observability** - Calendar/contract/practice/competitor tools, real-time cost accumulator, hard caps, reconciliation jobs, filesystem audit
 - [ ] **Phase 5: Case 2 — Restaurant Reservation Outbound** - First counterpart-facing call; voicemail gate, VAD calibration, tolerance window, retry scheduler
 - [ ] **Phase 6: Case 3 — Medical/Hair Appointment Outbound** - Practice profile, travel-time-aware slot selection, IVR hold-music passive listening, authorized-disclosure schema
 - [ ] **Phase 7: Case 4 — Inbound Negotiation** - Whitelist inbound routing, contract repo + live competitor search, phishing heuristic, Carsten takeover hotword via SIP REFER
@@ -106,11 +106,11 @@ Plans:
   5. A 3-way reconciliation job (calendar-entry ↔ transcript confirmation-id ↔ Discord summary) runs nightly and alerts on any 2-of-3 inconsistency from the prior day's Case 6 calls
 **Plans:** 5 plans across 5 waves
 Plans:
-- [ ] 04-01-PLAN.md — Wave 1 — Cost ledger skeleton (state.db migration, prices.ts, accumulator.ts, voice.record_turn_cost + voice.finalize_call_cost) — INFRA-06
-- [ ] 04-02-PLAN.md — Wave 2 — Cost enforcement (sideband.ts response.done hook, 80% soft-warn, 100% hard-stop via instructions-only, /accept gate, voice.get_day_month_cost_sum, voice.reset_monthly_cap) + A12 fix: invokeIdempotent wrapper in dispatch.ts for mutating tools — COST-01..04
-- [ ] 04-03-PLAN.md — Wave 3 — TOOLS-05 voice.search_competitors (graceful not_configured fallback) + @modelcontextprotocol/sdk StreamableHTTP MCP server on port 3201 (bearer + peer-allowlist + Pitfall-8 disjoint key space) + TOOLS-01/02/04/06/07 dispatch smoke tests — TOOLS-01, TOOLS-02, TOOLS-04, TOOLS-05, TOOLS-06, TOOLS-07
-- [ ] 04-04-PLAN.md — Wave 4 — Cron jobs: audit-audio.sh (both hosts, QUAL-04/LEGAL-03), pricing-refresh.sh (Hetzner, INFRA-07, Pitfall 5 no-auto-update), drift-monitor.ts (QUAL-03 rolling-24h P50), recon-3way.ts (calendar↔transcript↔Discord), recon-invoice.ts (COST-05 monthly vs invoice CSV) + 6 systemd --user timer units — INFRA-07, COST-05, QUAL-03, QUAL-04
-- [ ] 04-05-PLAN.md — Wave 5 — Phase-gate verification: deploy systemd timers both hosts, human-verify synthetic cost-cap test, human-verify iPhone Chat-Claude StreamableHTTP, seeded §201 audit fail-loud test, full test suite + REQUIREMENTS/ROADMAP/STATE updates
+- [x] 04-01-PLAN.md — Wave 1 — Cost ledger skeleton (state.db migration, prices.ts, accumulator.ts, voice.record_turn_cost + voice.finalize_call_cost) — INFRA-06
+- [x] 04-02-PLAN.md — Wave 2 — Cost enforcement (sideband.ts response.done hook, 80% soft-warn, 100% hard-stop via instructions-only, /accept gate, voice.get_day_month_cost_sum, voice.reset_monthly_cap) + A12 fix: invokeIdempotent wrapper in dispatch.ts for mutating tools — COST-01..04
+- [x] 04-03-PLAN.md — Wave 3 — TOOLS-05 voice.search_competitors (graceful not_configured fallback) + @modelcontextprotocol/sdk StreamableHTTP MCP server on port 3201 (bearer + peer-allowlist + Pitfall-8 disjoint key space) + TOOLS-01/02/04/06/07 dispatch smoke tests — TOOLS-01, TOOLS-02, TOOLS-04, TOOLS-05, TOOLS-06, TOOLS-07
+- [x] 04-04-PLAN.md — Wave 4 — Cron jobs: audit-audio.sh (both hosts, QUAL-04/LEGAL-03), pricing-refresh.sh (Hetzner, INFRA-07, Pitfall 5 no-auto-update), drift-monitor.ts (QUAL-03 rolling-24h P50), recon-3way.ts (calendar↔transcript↔Discord), recon-invoice.ts (COST-05 monthly vs invoice CSV) + 6 systemd --user timer units — INFRA-07, COST-05, QUAL-03, QUAL-04
+- [x] 04-05-PLAN.md — Wave 5 — Phase-gate verification: deploy systemd timers both hosts, human-verify synthetic cost-cap test, human-verify iPhone Chat-Claude StreamableHTTP, seeded §201 audit fail-loud test, full test suite + REQUIREMENTS/ROADMAP/STATE updates
 **UI hint**: no
 **Scope note**: All `carsten_bot` scope (Hetzner deploys under `carsten` via SSH per MASTER.md §2). Core MCP tools mostly already exist in NanoClaw Core; this phase adds the Bridge-side wiring, cost ledger, reconciliation, and StreamableHTTP transport. Pricing-refresh + §201 audit install as systemd --user timers. A12 idempotency-wrapper gap in dispatch.ts closed as part of Plan 02.
 

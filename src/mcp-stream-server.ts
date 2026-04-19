@@ -177,9 +177,7 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
         origin: z
           .string()
           .describe('Origin address or lat,lng (e.g. "Marienplatz, München")'),
-        destination: z
-          .string()
-          .describe('Destination address or lat,lng'),
+        destination: z.string().describe('Destination address or lat,lng'),
         mode: z
           .enum(['driving', 'transit', 'walking', 'bicycling'])
           .optional()
