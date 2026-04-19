@@ -98,11 +98,13 @@ touch "$TESTDIR/subdir/three.flac"
 rm -f "$TESTDIR/subdir/one.mp3" "$TESTDIR/subdir/two.opus" "$TESTDIR/subdir/three.flac"
 mkdir -p \
   "$TESTDIR/node_modules/node-wav" \
+  "$TESTDIR/.local/lib/python3.12/site-packages/litellm/resources" \
   "$TESTDIR/_archive-2025/vault" \
   "$TESTDIR/spike/candidate-a" \
   "$TESTDIR/voice-stack/runs"
 touch \
   "$TESTDIR/node_modules/node-wav/fixture.wav" \
+  "$TESTDIR/.local/lib/python3.12/site-packages/litellm/resources/audio_health_check.wav" \
   "$TESTDIR/_archive-2025/vault/old.wav" \
   "$TESTDIR/spike/candidate-a/sample.wav" \
   "$TESTDIR/voice-stack/runs/test.wav"
