@@ -88,11 +88,15 @@ export function buildOriginateCommand(opts: {
   gatewayName: string
   openaiProfile: string
 }): string {
+  // No origination_caller_id_number override: sipgate's gateway-status check
+  // showed CallsOUT=4/FailedCallsOUT=4 when we presented +49308687022345 as
+  // CLI. Sipgate auths the FROM header against the registered SIP user-id
+  // (8702234e5) and rejects mismatched CLIs. Letting FS use the gateway's
+  // default From (sip:8702234e5@sipgate.de) is what sipgate accepts.
   const aLegVars = [
     `call_uuid=${opts.taskId}`,
     'absolute_codec_string=PCMA',
     'codec_string=PCMA',
-    'origination_caller_id_number=+4930868702234e5',
     'hangup_after_bridge=true',
     'continue_on_fail=NORMAL_TEMPORARY_FAILURE,USER_BUSY,NO_ANSWER,ALLOTTED_TIMEOUT,NO_USER_RESPONSE',
   ].join(',')
