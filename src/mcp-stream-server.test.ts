@@ -81,9 +81,9 @@ afterEach(async () => {
 });
 
 describe('mcp-stream-server — AC-07 StreamableHTTP', () => {
-  it('GET /mcp/stream/health returns 200 ok + tool list WITHOUT auth', async () => {
+  it('GET /health returns 200 ok + tool list WITHOUT auth', async () => {
     await startApp({});
-    const r = await fetch(`${baseUrl}/mcp/stream/health`);
+    const r = await fetch(`${baseUrl}/health`);
     expect(r.status).toBe(200);
     const body = (await r.json()) as {
       ok: boolean;
@@ -96,9 +96,9 @@ describe('mcp-stream-server — AC-07 StreamableHTTP', () => {
     expect(body.tools).toContain('voice.health_probe');
   });
 
-  it('POST /mcp/stream without Authorization returns 401', async () => {
+  it('POST / without Authorization returns 401', async () => {
     await startApp({});
-    const r = await fetch(`${baseUrl}/mcp/stream`, {
+    const r = await fetch(`${baseUrl}/`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({}),
@@ -106,9 +106,9 @@ describe('mcp-stream-server — AC-07 StreamableHTTP', () => {
     expect(r.status).toBe(401);
   });
 
-  it('POST /mcp/stream with wrong bearer returns 401', async () => {
+  it('POST / with wrong bearer returns 401', async () => {
     await startApp({ bearerToken: 'correct-token' });
-    const r = await fetch(`${baseUrl}/mcp/stream`, {
+    const r = await fetch(`${baseUrl}/`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -119,12 +119,12 @@ describe('mcp-stream-server — AC-07 StreamableHTTP', () => {
     expect(r.status).toBe(401);
   });
 
-  it('POST /mcp/stream with correct bearer passes bearer gate (routes to transport)', async () => {
+  it('POST / with correct bearer passes bearer gate (routes to transport)', async () => {
     // The underlying StreamableHTTPServerTransport may respond with an MCP-level
     // error for an empty JSON-RPC body, but the 401 gate must have been passed.
     // We only assert status !== 401 (bearer gate passed).
     await startApp({ bearerToken: 'correct-token' });
-    const r = await fetch(`${baseUrl}/mcp/stream`, {
+    const r = await fetch(`${baseUrl}/`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -145,14 +145,14 @@ describe('mcp-stream-server — AC-07 StreamableHTTP', () => {
     expect(r.status).not.toBe(401);
   });
 
-  it('POST /mcp/stream with correct bearer but disallowed peer returns 403', async () => {
+  it('POST / with correct bearer but disallowed peer returns 403', async () => {
     // Allowlist deliberately excludes loopback — peer-allowlist middleware
     // runs AFTER bearer check, so bearer must be correct for us to reach it.
     await startApp({
       bearerToken: 'correct-token',
       allowlist: ['10.99.99.99'], // nothing else allowed
     });
-    const r = await fetch(`${baseUrl}/mcp/stream`, {
+    const r = await fetch(`${baseUrl}/`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -182,7 +182,7 @@ describe('mcp-stream-server — AC-07 StreamableHTTP', () => {
       },
     };
     const doInit = async () => {
-      const r = await fetch(`${baseUrl}/mcp/stream`, {
+      const r = await fetch(`${baseUrl}/`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',

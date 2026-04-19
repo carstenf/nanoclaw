@@ -5,8 +5,9 @@
  *
  * Port 3201 exposes the SAME ToolRegistry instance that the existing REST
  * fassade on port 3200 serves — single-source invariant. Chat-Claude on iPhone
- * (10.0.0.4) or iPad (10.0.0.5) `claude mcp add`-connects to
- * http://10.0.0.2:3201/mcp/stream with a bearer header.
+ * (10.0.0.4) or iPad (10.0.0.5) connects through the Hetzner Caddy route at
+ * https://mcp.carstenfreek.de/nanoclaw-voice/ — consistent with the other
+ * single-level Caddy MCP paths (/hetzner/, /discord/, /lenovo1/).
  *
  * Pitfall 6: explicit bind to 10.0.0.2 (WG interface), NEVER 0.0.0.0.
  * Pitfall 8: every tool invocation from Chat synthesizes
@@ -17,12 +18,12 @@
  * accidentally merge with an in-flight real call's idempotency result.
  *
  * Auth layering (cheap check first):
- *   1. /mcp/stream/health exempt — lets Claude Chat discovery poll it.
+ *   1. /health exempt — lets Claude Chat discovery poll it.
  *   2. Bearer auth — fixed token from OneCLI (MCP_STREAM_BEARER). 401 on
  *      missing / wrong token. No admin endpoints, no public surface.
  *   3. Peer allowlist — identical allowlist to the port-3200 server. 403
  *      when the WG peer is unlisted.
- *   4. StreamableHTTPServerTransport.handleRequest on POST/GET /mcp/stream.
+ *   4. StreamableHTTPServerTransport.handleRequest on POST/GET / .
  *
  * When MCP_STREAM_BEARER is unset, `startMcpStreamServer` skips startup with a
  * WARN log — no insecure open mode. `buildMcpStreamApp` will throw if called
@@ -54,7 +55,7 @@ type StreamLog = Pick<typeof logger, 'info' | 'warn' | 'error' | 'fatal'>;
 
 export interface McpStreamDeps {
   registry: ToolRegistry;
-  /** Bearer required on every request except /mcp/stream/health. */
+  /** Bearer required on every request except /health. */
   bearerToken?: string;
   allowlist?: string[];
   log?: StreamLog;
@@ -79,9 +80,13 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
   app.use(express.json({ limit: '2mb' }));
 
   // -------------------------------------------------------------------------
-  // /mcp/stream/health BEFORE auth — lets Claude Chat discovery hit it.
+  // /health BEFORE auth — lets Claude Chat discovery hit it.
+  // Mounted at the Express root (not /mcp/stream/health) so the public URL
+  // pattern is `https://mcp.carstenfreek.de/nanoclaw-voice/health`,
+  // consistent with the other Hetzner Caddy routes (/hetzner/, /discord/,
+  // /lenovo1/ — all single-level, no protocol suffix).
   // -------------------------------------------------------------------------
-  app.get('/mcp/stream/health', (_req: Request, res: Response) => {
+  app.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({
       ok: true,
       ts: Date.now(),
@@ -94,7 +99,7 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
   // Layer 1: Bearer auth — cheap header check before allowlist lookup.
   // -------------------------------------------------------------------------
   app.use((req: Request, res: Response, next) => {
-    if (req.path === '/mcp/stream/health') {
+    if (req.path === '/health') {
       next();
       return;
     }
@@ -224,7 +229,7 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
     }
   };
 
-  app.all('/mcp/stream', async (req: Request, res: Response) => {
+  app.all('/', async (req: Request, res: Response) => {
     const mcp = new McpServer({
       name: 'nanoclaw-voice',
       version: '1.0.0',
