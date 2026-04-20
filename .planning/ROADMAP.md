@@ -17,6 +17,7 @@ Granularity: standard (8 phases, 3-5 plans each). Eight phases cover all 101 v1 
 - [x] **Phase 2: Director Bridge v0 + Hot-Path Safety** - Idempotency keys, two-form readback, schema allowlist, teardown assertion, turn-timing JSONL, RAM-only audio hygiene (completed 2026-04-18)
 - [x] **Phase 3: Case 6 MVP — Carsten ↔ NanoClaw voice working** - First end-to-end PSTN call, Discord tool wired, 6a inbound + 6b outbound, confirm-action gate (completed 2026-04-17)
 - [x] **Phase 4: Core Tool Integration + Cost/Observability** - Calendar/contract/practice/competitor tools, real-time cost accumulator, hard caps, reconciliation jobs, filesystem audit
+- [ ] **Phase 4.5: MCP Universal Consolidation** - Close architectural drift from Phase 2: migrate bridge→core from JSON-POST REST facade to true MCP-SDK StreamableHTTP client, deprecate port 3200, resolve iOS Claude-App client compat (now on production path)
 - [ ] **Phase 5: Case 2 — Restaurant Reservation Outbound** - First counterpart-facing call; voicemail gate, VAD calibration, tolerance window, retry scheduler
 - [ ] **Phase 6: Case 3 — Medical/Hair Appointment Outbound** - Practice profile, travel-time-aware slot selection, IVR hold-music passive listening, authorized-disclosure schema
 - [ ] **Phase 7: Case 4 — Inbound Negotiation** - Whitelist inbound routing, contract repo + live competitor search, phishing heuristic, Carsten takeover hotword via SIP REFER
@@ -113,6 +114,20 @@ Plans:
 - [x] 04-05-PLAN.md — Wave 5 — Phase-gate verification: deploy systemd timers both hosts, human-verify synthetic cost-cap test, human-verify iPhone Chat-Claude StreamableHTTP, seeded §201 audit fail-loud test, full test suite + REQUIREMENTS/ROADMAP/STATE updates
 **UI hint**: no
 **Scope note**: All `carsten_bot` scope (Hetzner deploys under `carsten` via SSH per MASTER.md §2). Core MCP tools mostly already exist in NanoClaw Core; this phase adds the Bridge-side wiring, cost ledger, reconciliation, and StreamableHTTP transport. Pricing-refresh + §201 audit install as systemd --user timers. A12 idempotency-wrapper gap in dispatch.ts closed as part of Plan 02.
+
+### Phase 4.5: MCP Universal Consolidation
+**Goal**: Close the architectural drift surfaced on 2026-04-19/20 during Phase 4 iOS MCP debugging. The spec (ConOps + REQUIREMENTS AC-07/AC-09 + ARCHITECTURE-DECISION) requires MCP in both directions on the Bridge ↔ NanoClaw path. Phase 2 shipped a JSON-POST REST shortcut instead (`voice-bridge/src/core-mcp-client.ts` calls `POST {url}/{name}` without MCP envelope), and Phase 4 added the spec-compliant StreamableHTTP channel alongside rather than replacing. Phase 4.5 retires the REST shortcut.
+**Depends on**: Phase 4
+**Requirements**: AC-07, AC-09, REQ-DIR-04, REQ-DIR-10, REQ-C6B-03 (re-affirmation via production-path usage)
+**Success Criteria** (what must be TRUE):
+  1. `voice-bridge/src/core-mcp-client.ts` is a true MCP-SDK StreamableHTTP client (JSON-RPC 2.0 + initialize handshake + capabilities negotiation). Tool dispatch from the bridge during a live voice call uses the MCP protocol on port 3201, not the REST facade on port 3200.
+  2. Session management: the bridge holds a long-lived MCP session per live call (sessionIdGenerator enabled) so the initialize handshake amortizes across many tool calls rather than paying it per call.
+  3. Port 3200 REST server (`src/mcp-server.ts`) deprecated — still running during a compatibility window but no production consumer depends on it. Removal planned after N days (defined in this phase's PLAN).
+  4. iOS Claude-App MCP compatibility resolved — now a production-blocker rather than a debug-channel nice-to-have. Either fixed (session-based transport, not stateless) or a signed-off decision documenting the production auth/integration path that does not require iOS.
+  5. REQUIREMENTS.md AC-07 wording re-aligned so StreamableHTTP is not described as "debug only" — it is the production Bridge ↔ Core channel.
+**Plans**: TBD (drafted when phase is picked up)
+**UI hint**: no
+**Scope note**: Decision doc: `.planning/decisions/2026-04-20-mcp-universal-consolidation.md`. Non-goals: changes to outbound call path (Sipgate REST stays per REQ-SIP-02), changes to Bridge `/outbound` trigger (REST stays per REQ-INFRA-13), tool-surface expansion. Sequencing: Phase 4.5 is gated on Phase 0 (legal) **only if** iOS-Claude-App compatibility is a production requirement — otherwise can land independently.
 
 ### Phase 5: Case 2 — Restaurant Reservation Outbound
 **Goal**: First counterpart-facing outbound. NanoBot places a call to a restaurant with Carsten's CLI, negotiates a reservation within a pre-configured tolerance window, detects voicemail silently (never leaves a message), handles "Sind Sie ein Bot?" truthfully, and produces calendar entry + Discord summary. VAD is calibrated against real German counterpart acoustic conditions.
