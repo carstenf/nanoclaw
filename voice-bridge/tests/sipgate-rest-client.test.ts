@@ -196,4 +196,106 @@ describe('sipgateRestOriginate (03-11 pivot)', () => {
     })
     expect(r.sessionId).toBe('')
   })
+
+  // ---- Plan 05-02 Task 4: Spike-B informed error parser ----
+  // Spike-B verdict: no 486 body exists. Sipgate originate returns 200 always
+  // for async outcomes. Only pre-submission sync errors (400, 401, 429, 5xx) matter.
+  // Research §4.4 fallback: all originate failures carry err.details.retryable=true.
+
+  it('Spike-B: 400 invalid-number body → err.details.invalidNumber=true', async () => {
+    const fetchFn = mockFetch({
+      ok: false,
+      status: 400,
+      bodyText: JSON.stringify({
+        message: 'javax.ws.rs.BadRequestException: could not validate phonenumber 999999999999',
+      }),
+    })
+    try {
+      await sipgateRestOriginate({
+        callee: '+999999999999',
+        taskId: 't',
+        tokenId: 'a',
+        token: 'b',
+        deviceId: 'e0',
+        fetchFn,
+      })
+      throw new Error('should have thrown')
+    } catch (err) {
+      expect(err).toBeInstanceOf(SipgateRestError)
+      const e = err as SipgateRestError
+      expect(e.details?.invalidNumber).toBe(true)
+      expect(e.details?.retryable).toBe(false)
+    }
+  })
+
+  it('Spike-B: generic 500 unknown body → err.details.retryable=true (Research §4.4 fallback)', async () => {
+    const fetchFn = mockFetch({
+      ok: false,
+      status: 500,
+      bodyText: 'Internal Server Error',
+    })
+    try {
+      await sipgateRestOriginate({
+        callee: '+491234567890',
+        taskId: 't',
+        tokenId: 'a',
+        token: 'b',
+        deviceId: 'e0',
+        fetchFn,
+      })
+      throw new Error('should have thrown')
+    } catch (err) {
+      expect(err).toBeInstanceOf(SipgateRestError)
+      const e = err as SipgateRestError
+      expect(e.details?.retryable).toBe(true)
+    }
+  })
+
+  it('Spike-B: 429 rate-limited → err.details.retryable=true', async () => {
+    const fetchFn = mockFetch({
+      ok: false,
+      status: 429,
+      bodyText: JSON.stringify({ message: 'Too Many Requests' }),
+    })
+    try {
+      await sipgateRestOriginate({
+        callee: '+491234567890',
+        taskId: 't',
+        tokenId: 'a',
+        token: 'b',
+        deviceId: 'e0',
+        fetchFn,
+      })
+      throw new Error('should have thrown')
+    } catch (err) {
+      expect(err).toBeInstanceOf(SipgateRestError)
+      const e = err as SipgateRestError
+      expect(e.details?.retryable).toBe(true)
+    }
+  })
+
+  it('Spike-B: ring timeout constant ≤ 30000ms (C2-02 compliance)', async () => {
+    const { SIPGATE_REST_TIMEOUT_MS } = await import('../src/config.js')
+    expect(SIPGATE_REST_TIMEOUT_MS).toBeLessThanOrEqual(30000)
+  })
+
+  it('Spike-B: backward-compat — no details property on auth_missing errors', async () => {
+    try {
+      await sipgateRestOriginate({
+        callee: '+49',
+        taskId: 't',
+        tokenId: '',
+        token: '',
+        deviceId: 'e0',
+        fetchFn: vi.fn() as unknown as typeof globalThis.fetch,
+      })
+      throw new Error('should have thrown')
+    } catch (err) {
+      expect(err).toBeInstanceOf(SipgateRestError)
+      const e = err as SipgateRestError
+      expect(e.code).toBe('auth_missing')
+      // auth_missing does not set details — no crash expected
+      expect(e.details).toBeUndefined()
+    }
+  })
 })
