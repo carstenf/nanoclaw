@@ -6,6 +6,7 @@ import {
   deleteTask,
   getAllChats,
   getAllRegisteredGroups,
+  getDatabase,
   getLastBotMessageTimestamp,
   getMessagesSince,
   getNewMessages,
@@ -614,6 +615,54 @@ describe('message query LIMIT', () => {
       50,
     );
     expect(messages).toHaveLength(10);
+  });
+});
+
+// --- voice_case_2_attempts schema (Plan 05-02) ---
+
+describe('voice_case_2_attempts schema', () => {
+  it('table exists after init — SELECT returns empty rows, not an error', () => {
+    const db = getDatabase();
+    const rows = db.prepare('SELECT * FROM voice_case_2_attempts').all();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('idx_voice_case_2_phone_date index exists', () => {
+    const db = getDatabase();
+    const idx = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_voice_case_2_phone_date'",
+      )
+      .get() as { name: string } | undefined;
+    expect(idx?.name).toBe('idx_voice_case_2_phone_date');
+  });
+
+  it('idx_voice_case_2_idempotency UNIQUE index exists', () => {
+    const db = getDatabase();
+    const idx = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_voice_case_2_idempotency'",
+      )
+      .get() as { name: string } | undefined;
+    expect(idx?.name).toBe('idx_voice_case_2_idempotency');
+  });
+
+  it('idempotency_key has UNIQUE constraint — inserting two rows with same key fails', () => {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO voice_case_2_attempts
+         (target_phone, calendar_date, attempt_no, scheduled_for, idempotency_key, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run('+491234567890', '2026-05-01', 1, now, 'a'.repeat(64), now);
+
+    expect(() => {
+      db.prepare(
+        `INSERT INTO voice_case_2_attempts
+           (target_phone, calendar_date, attempt_no, scheduled_for, idempotency_key, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run('+491234567891', '2026-05-01', 1, now, 'a'.repeat(64), now);
+    }).toThrow();
   });
 });
 

@@ -371,4 +371,38 @@ describe('OutboundRouter (03-11 pivot — Sipgate REST)', () => {
       expect.objectContaining({ task_id: task.task_id, status: 'failed' }),
     )
   })
+
+  // ---- Plan 05-02 Wave 2: case_type field ----
+
+  it('case_type="case_2" and case_payload are carried through enqueue onto OutboundTask', async () => {
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    const task = router.enqueue({
+      target_phone: '+491234567890',
+      goal: 'Tischreservierung',
+      context: '',
+      report_to_jid: 'dc:1',
+      case_type: 'case_2',
+      case_payload: { foo: 1, restaurant_name: 'La Piazza' },
+    })
+    const active = router.getActiveTask()
+    expect(active?.task_id).toBe(task.task_id)
+    expect(active?.case_type).toBe('case_2')
+    expect((active?.case_payload as Record<string, unknown>)?.foo).toBe(1)
+  })
+
+  it('case_type undefined when not provided (backward compat with Case-6b callers)', async () => {
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    const task = router.enqueue({
+      target_phone: '+491234567890',
+      goal: 'Legacy call',
+      context: '',
+      report_to_jid: 'dc:1',
+    })
+    const active = router.getActiveTask()
+    expect(active?.task_id).toBe(task.task_id)
+    expect(active?.case_type).toBeUndefined()
+    expect(active?.case_payload).toBeUndefined()
+  })
 })

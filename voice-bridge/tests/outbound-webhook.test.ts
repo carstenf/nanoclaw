@@ -265,4 +265,31 @@ describe('POST /outbound — Bridge outbound HTTP route', () => {
       await app.close()
     }
   })
+
+  // ---- Plan 05-02 Wave 2: case_type + case_payload forwarding ----
+
+  it('case_type and case_payload are forwarded to router.enqueue', async () => {
+    const { app, mockRouter } = await buildTestApp({ peerIp: '10.0.0.1' })
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/outbound',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.0.0.1' },
+        payload: JSON.stringify({
+          ...VALID_BODY,
+          case_type: 'case_2',
+          case_payload: { bar: 2, restaurant_name: 'La Piazza' },
+        }),
+      })
+      expect(res.statusCode).toBe(200)
+      expect(mockRouter.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          case_type: 'case_2',
+          case_payload: { bar: 2, restaurant_name: 'La Piazza' },
+        }),
+      )
+    } finally {
+      await app.close()
+    }
+  })
 })
