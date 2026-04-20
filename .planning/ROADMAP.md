@@ -127,7 +127,7 @@ Plans:
   5. REQUIREMENTS.md AC-07 wording re-aligned so StreamableHTTP is not described as "debug only" — it is the production Bridge ↔ Core channel.
 **Plans:** 5 plans across 5 waves (0-4)
 Plans:
-- [ ] 04.5-00-PLAN.md — Wave 0 — Foundation: export 18 zod schemas from voice-*.ts + scaffold regression + bridge-client test files
+- [x] 04.5-00-PLAN.md — Wave 0 — Foundation: export 18 zod schemas from voice-*.ts + scaffold regression + bridge-client test files
 - [ ] 04.5-01-PLAN.md — Wave 1 — Session-based MCP StreamableHTTP server (Issue #1405 per-session McpServer) + TOOL_META for all 18 tools + D-15 regression scenarios + deploy + iOS checkpoint
 - [ ] 04.5-02-PLAN.md — Wave 2 — Bridge v2 MCP SDK client (CoreMcpClient class + v1-compatible callCoreTool free-function) + 6 unit tests
 - [ ] 04.5-03-PLAN.md — Wave 3 — Migrate 6 bridge callers to v2 + Pitfall-5 finalizer in sideband.ts + flip CORE_MCP_URL to 3201 + delete v1, rename v2 → core-mcp-client.ts + Case-6b checkpoint
