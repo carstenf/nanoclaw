@@ -72,6 +72,10 @@ Progress: [█████████░] 94%
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- Phase 05.1 inserted after Phase 05: AMD persona handoff redesign and ASR upgrade (URGENT) — blocks Phase 05 Plan 05-03 Task 5 live verification (Defects #4, #5, #6)
+
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.

@@ -153,6 +153,16 @@ Plans:
 **UI hint**: no
 **Scope note**: All `carsten_bot` scope but GATED ON PHASE 0 legal completion. First real external call = first §201 exposure. Must not ship before lawyer opinion lands.
 
+### Phase 05.1: AMD persona handoff redesign and ASR upgrade (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 05
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 05.1 to break down)
+
 ### Phase 6: Case 3 — Medical/Hair Appointment Outbound
 **Goal**: NanoBot places a medical/hair appointment call with practice profile loaded, remains passively on IVR hold-music without inference cost, cross-checks offered slots against Carsten's calendar with travel-buffer from home and Audi-Standort, selects minimum-disruption slot, protects authorized-data-only disclosure, and escalates cleanly if DTMF-IVR or online-portal-only is encountered.
 **Depends on**: Phase 4 and Phase 0 (legal gate). Phase 5 recommended complete for AMD/voicemail infra reuse.
