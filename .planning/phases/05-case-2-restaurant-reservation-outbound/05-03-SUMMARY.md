@@ -131,7 +131,35 @@ None — all Case-2 logic paths are wired to real implementations or explicit er
 |------|------|-------------|
 | threat_flag: audio_before_verdict | voice-bridge/src/amd-classifier.ts | onAudioDelta logs warn + sets audioLeaked flag if audio arrives before AMD verdict — satisfies T-05-03-01 (§201 StGB guard) |
 
-## Self-Check: PASSED
+## Self-Check: PASSED (Tasks 1-4)
 
 All 8 task commits verified present (8bce9f8, 54ee0dd, 2150157, 1916059, 57dffb5, 3ce5e0d, 99d290f, 8f1bcaa).
 Key files confirmed: amd-classifier.ts, amd-classifier.test.ts, 05-03-SUMMARY.md.
+
+## Task 5 Status: BLOCKED
+
+Live-call verification (Task 5, type=checkpoint:human-verify) attempted on
+2026-04-20 UTC. 6 outbound calls placed against Carsten's iPhone surfaced
+**6 structural defects** across Wave 1/2/3 — see
+[`05-03-TASK5-DEFECTS.md`](./05-03-TASK5-DEFECTS.md) for full report with
+trace evidence.
+
+**Fixed in this session:**
+- Defect #1: CASE2_VAD_SILENCE_MS 6s→30s (ringback accommodation) — commit `59d653a`
+- Defect #2: Missing TOOL_META entries for 3 new Core MCP tools — commit `13e2e50`
+- Defect #3: whisper-1 ASR language pinned to `de` — commit `4db252c` (partial; quality still insufficient at telephony bandwidth)
+
+**Remaining blockers (require Plan 05-05):**
+- Defect #4: `voice_case_2_schedule_retry` called with undefined args
+- Defect #5: Wave-2 DB hardcoded `attempt_no=1` blocks 2nd same-day call
+- Defect #6 (CRITICAL): Persona-swap after `amd_result=human` does not produce
+  caller-role behavior — bot acts as restaurant-helper instead of as Carsten's
+  Anrufer. Root-cause hypothesis: OpenAI Realtime `session.update` doesn't
+  reset conversation history; pre-verdict context contaminates post-verdict
+  persona.
+
+**Evidence preserved:** `task5-traces/` — 3 representative sideband JSONL traces.
+
+**Next step:** `/gsd-insert-phase 05-05 "AMD-persona handoff redesign + ASR upgrade + Wave-2 attempt_no fix"`.
+Plan 05-03 Task 5 re-runs inside the new 05-05 verification checkpoint once
+all 3 remaining defects are closed.
