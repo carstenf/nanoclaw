@@ -50,6 +50,20 @@ export function makeVoiceSendDiscordMessage(
   return async function voiceSendDiscordMessage(
     args: unknown,
   ): Promise<unknown> {
+    // Deprecation-observability log — fires on EVERY invocation, pre-parse,
+    // so even invalid args are counted. Pattern mirrors mcp_rest_request_seen
+    // from Phase 4.5 Plan 04 Task 1. Removal in follow-up phase once all
+    // Phase-3/4 emission sites have migrated to voice_notify_user.
+    logger.info({
+      event: 'mcp_tool_voice_send_discord_message_seen',
+      call_id: (args as { call_id?: string })?.call_id ?? null,
+      channel: (args as { channel?: string })?.channel ?? null,
+      content_length:
+        typeof (args as { content?: string })?.content === 'string'
+          ? (args as { content: string }).content.length
+          : null,
+    });
+
     // Zod parse — REQ-TOOLS-03 shape
     const parseResult = SendDiscordMessageSchema.safeParse(args);
     if (!parseResult.success) {
