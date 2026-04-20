@@ -200,20 +200,61 @@ export function registerAcceptRoute(
       !!activeOutbound && !activeOutbound.openai_call_id
     if (isOutbound && activeOutbound) {
       outboundRouter?.bindOpenaiCallId(activeOutbound.task_id, callId)
-      const outboundInstructions =
-        outboundRouter?.buildPersonaForTask(activeOutbound.task_id) ?? ''
-      const allowlistOut = getAllowlist()
-      const toolsPayloadOut = allowlistOut.map((e: ToolEntry) => {
-        const desc = (e.schema as { description?: unknown }).description
-        return {
-          type: 'function' as const,
-          name: e.name,
-          ...(typeof desc === 'string' && desc.length > 0
-            ? { description: desc }
-            : {}),
-          parameters: e.schema,
-        }
-      })
+      // Plan 05-00 Task 1 / Wave 3 prep: honor per-call override envelope.
+      //   persona_override — use verbatim as instructions (skips buildOutboundPersona)
+      //   tools_override   — REPLACE the default allowlist for THIS call only
+      // When neither is present, the pre-existing outbound path runs unchanged.
+      const hasPersonaOverride =
+        typeof activeOutbound.persona_override === 'string' &&
+        activeOutbound.persona_override.length > 0
+      const hasToolsOverride =
+        Array.isArray(activeOutbound.tools_override) &&
+        activeOutbound.tools_override.length > 0
+      const outboundInstructions = hasPersonaOverride
+        ? (activeOutbound.persona_override as string)
+        : (outboundRouter?.buildPersonaForTask(activeOutbound.task_id) ?? '')
+      const toolsPayloadOut = hasToolsOverride
+        ? (activeOutbound.tools_override as Array<{
+            name: string
+            description?: string
+            parameters: Record<string, unknown>
+          }>).map((t) => ({
+            type: 'function' as const,
+            name: t.name,
+            ...(typeof t.description === 'string' && t.description.length > 0
+              ? { description: t.description }
+              : {}),
+            parameters: t.parameters,
+          }))
+        : getAllowlist().map((e: ToolEntry) => {
+            const desc = (e.schema as { description?: unknown }).description
+            return {
+              type: 'function' as const,
+              name: e.name,
+              ...(typeof desc === 'string' && desc.length > 0
+                ? { description: desc }
+                : {}),
+              parameters: e.schema,
+            }
+          })
+      if (hasPersonaOverride || hasToolsOverride) {
+        log.info({
+          event: 'outbound_override_active',
+          call_id: callId,
+          task_id: activeOutbound.task_id,
+          persona_override: hasPersonaOverride,
+          tools_override_count: hasToolsOverride
+            ? (activeOutbound.tools_override as unknown[]).length
+            : 0,
+        })
+      }
+      // Plan 05-00 Task 1 (Spike-A): when override is active, enable per-call
+      // sideband event trace to a deterministic path. Spike script tails it.
+      // Call IDs from OpenAI may contain '/' — sanitize for a flat filename.
+      const traceEventsPath =
+        hasPersonaOverride || hasToolsOverride
+          ? `/tmp/spike-a-trace-${callId.replace(/[^a-zA-Z0-9_-]/g, '_')}.jsonl`
+          : undefined
       try {
         await openai.realtime.calls.accept(callId, {
           type: 'realtime',
@@ -222,7 +263,7 @@ export function registerAcceptRoute(
           tools: toolsPayloadOut,
           audio: SESSION_CONFIG.audio,
         } as unknown as Parameters<typeof openai.realtime.calls.accept>[1])
-        const ctx = router.startCall(callId, log)
+        const ctx = router.startCall(callId, log, { traceEventsPath })
         log.info({
           event: 'call_accepted',
           call_id: callId,

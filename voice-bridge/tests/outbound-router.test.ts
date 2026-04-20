@@ -284,6 +284,67 @@ describe('OutboundRouter (03-11 pivot — Sipgate REST)', () => {
     expect(persona).toContain('Patient: Carsten, Termin am 23.5.')
   })
 
+  // ---- Plan 05-00 Task 1 (Spike-A) / Wave 3 prep: override envelope ----
+
+  it('persona_override is carried through enqueue onto the OutboundTask', async () => {
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    const overrideText = 'SPIKE-A CLASSIFIER PROMPT verbatim text'
+    const task = router.enqueue({
+      target_phone: '+491234567890',
+      goal: 'ignored under override',
+      context: '',
+      report_to_jid: 'dc:1',
+      persona_override: overrideText,
+    })
+    const active = router.getActiveTask()
+    expect(active?.task_id).toBe(task.task_id)
+    expect(active?.persona_override).toBe(overrideText)
+  })
+
+  it('tools_override is carried through enqueue onto the OutboundTask', async () => {
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    const toolsOverride = [
+      {
+        name: 'amd_result',
+        description: 'Emit AMD verdict — spike-only',
+        parameters: {
+          type: 'object',
+          properties: {
+            verdict: { type: 'string', enum: ['human', 'voicemail', 'silence'] },
+          },
+          required: ['verdict'],
+        },
+      },
+    ]
+    const task = router.enqueue({
+      target_phone: '+491234567890',
+      goal: 'SPIKE-A',
+      context: '',
+      report_to_jid: 'dc:1',
+      tools_override: toolsOverride,
+    })
+    const active = router.getActiveTask()
+    expect(active?.task_id).toBe(task.task_id)
+    expect(active?.tools_override).toEqual(toolsOverride)
+  })
+
+  it('no override: OutboundTask.persona_override and tools_override are undefined (backward compat)', async () => {
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    const task = router.enqueue({
+      target_phone: '+491234567890',
+      goal: 'normal outbound',
+      context: '',
+      report_to_jid: 'dc:1',
+    })
+    const active = router.getActiveTask()
+    expect(active?.task_id).toBe(task.task_id)
+    expect(active?.persona_override).toBeUndefined()
+    expect(active?.tools_override).toBeUndefined()
+  })
+
   it('outbound originate failure marks task failed + reportBack + advances queue', async () => {
     const { createOutboundRouter } = await import('../src/outbound-router.js')
     const eslFail = {

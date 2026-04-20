@@ -160,6 +160,77 @@ describe('POST /outbound — Bridge outbound HTTP route', () => {
     }
   })
 
+  // ---- Plan 05-00 Task 1 (Spike-A) / Wave 3 prep: override envelope ----
+
+  it('persona_override is forwarded through router.enqueue', async () => {
+    const { app, mockRouter } = await buildTestApp({ peerIp: '10.0.0.1' })
+    try {
+      const overrideText = 'SPIKE-A CLASSIFIER PROMPT verbatim text'
+      const res = await app.inject({
+        method: 'POST',
+        url: '/outbound',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.0.0.1' },
+        payload: JSON.stringify({ ...VALID_BODY, persona_override: overrideText }),
+      })
+      expect(res.statusCode).toBe(200)
+      expect(mockRouter.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ persona_override: overrideText }),
+      )
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('tools_override with valid tool name is forwarded through router.enqueue', async () => {
+    const { app, mockRouter } = await buildTestApp({ peerIp: '10.0.0.1' })
+    try {
+      const toolsOverride = [
+        {
+          name: 'amd_result',
+          description: 'Spike-A AMD verdict',
+          parameters: {
+            type: 'object',
+            properties: { verdict: { type: 'string', enum: ['human', 'voicemail', 'silence'] } },
+            required: ['verdict'],
+          },
+        },
+      ]
+      const res = await app.inject({
+        method: 'POST',
+        url: '/outbound',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.0.0.1' },
+        payload: JSON.stringify({ ...VALID_BODY, tools_override: toolsOverride }),
+      })
+      expect(res.statusCode).toBe(200)
+      expect(mockRouter.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ tools_override: toolsOverride }),
+      )
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('tools_override with illegal tool name ("foo.bar") is rejected at zod boundary (400)', async () => {
+    const { app, mockRouter } = await buildTestApp({ peerIp: '10.0.0.1' })
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/outbound',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.0.0.1' },
+        payload: JSON.stringify({
+          ...VALID_BODY,
+          tools_override: [
+            { name: 'foo.bar', parameters: { type: 'object' } },
+          ],
+        }),
+      })
+      expect(res.statusCode).toBe(400)
+      expect(mockRouter.enqueue).not.toHaveBeenCalled()
+    } finally {
+      await app.close()
+    }
+  })
+
   it('estimated-start-ts in future when active call present', async () => {
     const now = Date.now()
     const activeRouter = {

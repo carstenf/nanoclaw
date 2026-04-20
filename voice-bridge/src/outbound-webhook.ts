@@ -7,6 +7,26 @@ import { z } from 'zod'
 import { QueueFullError, type OutboundRouter } from './outbound-router.js'
 
 // ---- Zod schema (same shape as Core-side schema) ----
+//
+// Plan 05-00 Task 1 / Wave 3 prep: override envelope.
+//   persona_override — verbatim instructions replace buildOutboundPersona(...)
+//   tools_override   — per-call tools REPLACE (not extend) the default allowlist.
+//
+// Tool-name regex `^[a-zA-Z0-9_]{1,64}$` matches the OpenAI/Anthropic API
+// constraint. Rejected at zod boundary so Bridge never forwards an illegal
+// tool schema to OpenAI Realtime. Both fields optional — when absent the
+// pre-existing outbound persona + allowlist path runs unchanged.
+
+const ToolOverrideSpecSchema = z.object({
+  name: z
+    .string()
+    .regex(
+      /^[a-zA-Z0-9_]{1,64}$/,
+      'tool name must match ^[a-zA-Z0-9_]{1,64}$ (OpenAI/Anthropic API constraint)',
+    ),
+  description: z.string().optional(),
+  parameters: z.record(z.string(), z.unknown()),
+})
 
 export const OutboundRequestSchema = z.object({
   call_id: z.string().optional(),
@@ -14,6 +34,8 @@ export const OutboundRequestSchema = z.object({
   goal: z.string().min(1).max(500),
   context: z.string().max(2000).default(''),
   report_to_jid: z.string().min(1),
+  persona_override: z.string().min(1).max(10_000).optional(),
+  tools_override: z.array(ToolOverrideSpecSchema).max(32).optional(),
 })
 
 // ---- Peer-IP check ----
@@ -91,12 +113,28 @@ export function registerOutboundRoute(
       return reply.code(400).send({ error: 'bad_request', field, message })
     }
 
-    const { call_id, target_phone, goal, context, report_to_jid } = parse.data
+    const {
+      call_id,
+      target_phone,
+      goal,
+      context,
+      report_to_jid,
+      persona_override,
+      tools_override,
+    } = parse.data
 
     // 4. Enqueue
     let task
     try {
-      task = router.enqueue({ call_id, target_phone, goal, context, report_to_jid })
+      task = router.enqueue({
+        call_id,
+        target_phone,
+        goal,
+        context,
+        report_to_jid,
+        persona_override,
+        tools_override,
+      })
     } catch (err) {
       if (err instanceof QueueFullError) {
         log.warn({ event: 'outbound_queue_full' })

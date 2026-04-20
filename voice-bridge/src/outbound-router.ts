@@ -33,6 +33,35 @@ import { buildOutboundPersona } from './persona.js'
 
 // ---- Types ----
 
+/**
+ * Plan 05-00 Task 1 (Spike-A) + Wave-3 prep: per-call override envelope.
+ *
+ * When `persona_override` is set, /accept uses it verbatim as session
+ * instructions instead of buildOutboundPersona(goal, context). When
+ * `tools_override` is set, /accept emits these tools instead of the default
+ * allowlist for THIS call only. Tool names must match Anthropic/OpenAI
+ * regex `^[a-zA-Z0-9_]{1,64}$` (validated at zod boundary in
+ * outbound-webhook.ts).
+ *
+ * These fields are in-memory only — not persisted, not mirrored to Core.
+ * Their purpose is two-fold:
+ *   (1) Spike-A AMD-classifier dry-run (05-00 Task 1), which injects the
+ *       CASE2_AMD_CLASSIFIER_PROMPT + a throwaway `amd_result` tool without
+ *       modifying allowlist.ts or persona.ts.
+ *   (2) Wave 3 Case-2 outbound, where Core will compute the per-call
+ *       persona + tools by case_type and push them through this same
+ *       envelope — Bridge stays generic.
+ *
+ * Defaults: both undefined → existing buildOutboundPersona + getAllowlist
+ * path runs unchanged. Production callers that don't set either field see
+ * no behavior change.
+ */
+export interface ToolOverrideSpec {
+  name: string
+  description?: string
+  parameters: Record<string, unknown>
+}
+
 export interface OutboundTask {
   task_id: string
   target_phone: string
@@ -48,6 +77,10 @@ export interface OutboundTask {
   openai_call_id?: string
   status: 'queued' | 'active' | 'done' | 'failed' | 'escalated'
   error?: string
+  /** Plan 05-00 Task 1 / Wave 3 prep: override default persona at /accept. */
+  persona_override?: string
+  /** Plan 05-00 Task 1 / Wave 3 prep: override default allowlist at /accept. */
+  tools_override?: ToolOverrideSpec[]
 }
 
 export interface EnqueueRequest {
@@ -56,6 +89,10 @@ export interface EnqueueRequest {
   context: string
   report_to_jid: string
   call_id?: string
+  /** Plan 05-00 Task 1 / Wave 3 prep: per-call persona override. */
+  persona_override?: string
+  /** Plan 05-00 Task 1 / Wave 3 prep: per-call tools override. */
+  tools_override?: ToolOverrideSpec[]
 }
 
 /**
@@ -279,6 +316,9 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
       report_to_jid: req.report_to_jid,
       created_at: now(),
       status: 'queued',
+      // Plan 05-00 Task 1 / Wave 3 prep: carry override envelope through.
+      persona_override: req.persona_override,
+      tools_override: req.tools_override,
     }
     tasks.set(task.task_id, task)
 

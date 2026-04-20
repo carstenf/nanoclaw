@@ -9,6 +9,15 @@
 // + ws.close after FAREWELL_TTS_HOLD_MS). session.closed → finalize_call_cost
 // + clearCall. Guard flags `warned` / `enforced` are check-and-mark atomic
 // (Pitfall 2 — single-threaded event loop).
+//
+// Plan 05-00 Task 1 (Spike-A): optional traceEventsPath. When set, every
+// raw sideband event is appended to the given JSONL file with audio.delta
+// payloads redacted to `{ delta_bytes: <length> }` (§201 StGB compliance —
+// no audio persisted, only frame byte-count for spike latency analysis).
+// Production callers leave this unset; only the Spike-A throwaway script
+// populates it via the outbound override envelope.
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
 import type { Logger } from 'pino'
 import WebSocketLib, { type WebSocket as WSType } from 'ws'
 import {
@@ -155,6 +164,17 @@ export interface SidebandOpenOpts {
    * Map leak. Null/undefined in tests and when CORE_MCP_URL is unset.
    */
   coreMcp?: CoreMcpClient
+  /**
+   * Plan 05-00 Task 1 (Spike-A): when set, every raw sideband message is
+   * appended (one JSON object per line) to this file. The `response.audio.delta`
+   * event has its `delta` base64 payload stripped and replaced with
+   * `delta_bytes: <decoded-length>` — no audio is persisted (§201 StGB).
+   * Every appended record carries `t_ms_since_open` (elapsed since ws open)
+   * so downstream analysis can measure pickup→verdict latency.
+   * Production callers leave this unset — only Spike-A throwaway script sets
+   * it via the outbound override envelope in webhook.ts.
+   */
+  traceEventsPath?: string
 }
 
 export function openSidebandSession(
@@ -235,6 +255,42 @@ export function openSidebandSession(
     })
   })
 
+  // Plan 05-00 Task 1 (Spike-A): optional trace-writer. Idempotent dir-mkdir
+  // on first message; after that, just appendFileSync per event. All errors
+  // swallowed — trace is spike-only and must never crash the hot path.
+  const traceEventsPath = opts.traceEventsPath
+  let traceDirEnsured = false
+  function maybeWriteTrace(parsed: Record<string, unknown>): void {
+    if (!traceEventsPath) return
+    try {
+      if (!traceDirEnsured) {
+        mkdirSync(dirname(traceEventsPath), { recursive: true })
+        traceDirEnsured = true
+      }
+      let redacted: Record<string, unknown> = parsed
+      // §201 StGB: redact audio.delta bytes. Keep length so spike can count
+      // frames before verdict without persisting any PCM/OGG payload.
+      if (parsed.type === 'response.audio.delta') {
+        const rawDelta = parsed.delta
+        const deltaBytes =
+          typeof rawDelta === 'string'
+            ? Buffer.byteLength(rawDelta, 'base64')
+            : typeof rawDelta === 'object' && rawDelta !== null
+              ? JSON.stringify(rawDelta).length
+              : 0
+        const { delta: _delta, ...rest } = parsed
+        redacted = { ...rest, delta_bytes: deltaBytes }
+      }
+      const record = {
+        t_ms_since_open: Date.now() - t0,
+        ...redacted,
+      }
+      appendFileSync(traceEventsPath, JSON.stringify(record) + '\n', 'utf-8')
+    } catch {
+      /* trace write failure is never fatal */
+    }
+  }
+
   ws.on('message', (raw: unknown) => {
     // Plan 02-10 + 02-11: parse OpenAI Realtime events.
     // Any JSON-parse failure or unexpected shape is swallowed with a WARN —
@@ -253,7 +309,12 @@ export function openSidebandSession(
         call_id?: unknown
         name?: unknown
         arguments?: unknown
+        delta?: unknown
       }
+
+      // Plan 05-00 Task 1 (Spike-A): trace every event if the spike-path
+      // was enabled for this call. No-op when traceEventsPath is undefined.
+      maybeWriteTrace(parsed as Record<string, unknown>)
 
       // Plan 03-15: VAD speech-segment events for silence-monitor
       if (parsed?.type === 'input_audio_buffer.speech_started') {

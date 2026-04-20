@@ -38,9 +38,15 @@ export interface CallContext {
  * Plan 04.5-03: opts passed through startCall() into openSidebandSession
  * for the Pitfall-5 finalizer. Kept as its own interface so tests can
  * construct a router without worrying about MCP plumbing.
+ *
+ * Plan 05-00 Task 1 (Spike-A): traceEventsPath also flows through here so
+ * that webhook.ts /accept can enable per-call event tracing when an
+ * outbound task carries an override envelope. Production callers (non-
+ * spike) leave this unset — null passthrough = no instrumentation.
  */
 export interface StartCallOpts {
   coreMcp?: CoreMcpClient
+  traceEventsPath?: string
 }
 
 export interface CallRouter {
@@ -126,6 +132,10 @@ export function createCallRouter(
         // sideband so the WS-close finalizer can close it (prevents
         // server-side sessions Map leak).
         coreMcp: startOpts.coreMcp,
+        // Plan 05-00 Task 1 (Spike-A): optional per-call event trace.
+        // Undefined in production = no tracing; spike path sets this via
+        // the outbound override envelope in webhook.ts.
+        traceEventsPath: startOpts.traceEventsPath,
       })
       logs.set(callId, log)
       const slowBrain = fSlow(log, sideband.state)
