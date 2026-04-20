@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Completed 03-11-PLAN.md — Case-6b end-to-end ready, awaiting Carsten PSTN test
-last_updated: "2026-04-20T13:41:29.919Z"
-last_activity: 2026-04-20
+last_updated: "2026-04-20T16:47:42.765Z"
+last_activity: 2026-04-20 -- Phase 05 execution started
 progress:
   total_phases: 9
   completed_phases: 3
-  total_plans: 41
+  total_plans: 46
   completed_plans: 38
-  percent: 93
+  percent: 83
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-16)
 
 **Core value:** Carsten can delegate telephone tasks without being present, with zero unauthorized commitments.
-**Current focus:** Phase 04.5 — mcp-universal-consolidation
+**Current focus:** Phase 05 — case-2-restaurant-reservation-outbound
 
 ## Current Position
 
-Phase: 5
-Plan: Not started
-Status: Executing Phase 04.5
-Last activity: 2026-04-20
+Phase: 05 (case-2-restaurant-reservation-outbound) — EXECUTING
+Plan: 1 of 5
+Status: Executing Phase 05
+Last activity: 2026-04-20 -- Phase 05 execution started
 
 Progress: [█████████░] 94%
 
