@@ -130,7 +130,40 @@ export async function dispatchTool(
     DISPATCH_TOOL_TIMEOUT_MS
   const jsonlPath = opts.jsonlPath ?? TOOL_DISPATCH_JSONL_PATH
 
-  // 1. Validate tool name against allowlist
+  // 1a. Bridge-internal override tools (e.g. amd_result from Case-2 spike).
+  // When tools_override is active for this task, tools outside allowlist.ts are
+  // handled here: log verdict, hang up the call cleanly, no Core-MCP dispatch.
+  // Pattern mirrors end_call (below). Never calls emitCreate — the call ends.
+  if (toolName === 'amd_result') {
+    const verdict =
+      typeof (args as { verdict?: unknown })?.verdict === 'string'
+        ? (args as { verdict: string }).verdict
+        : 'unknown'
+    log.info({
+      event: 'amd_result_received',
+      call_id: callId,
+      turn_id: turnId,
+      verdict,
+    })
+    const hangup = opts.hangupCall ?? _hangupCall
+    if (hangup) {
+      try {
+        await hangup(callId)
+      } catch (e: unknown) {
+        log.warn({
+          event: 'amd_result_hangup_failed',
+          call_id: callId,
+          verdict,
+          err: (e as Error)?.message ?? 'unknown',
+        })
+      }
+    }
+    emitOutput(ws, functionCallId, { ok: true, verdict }, log)
+    // No emitCreate — call is ending.
+    return
+  }
+
+  // 1b. Validate tool name against allowlist
   const entry = getEntry(toolName)
   if (!entry) {
     log.warn({
