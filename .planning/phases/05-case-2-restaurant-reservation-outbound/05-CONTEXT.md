@@ -117,7 +117,7 @@ CONOPS says trigger can be Discord-text, voice-in-Case-6, or calendar/reminder h
 
 ### D-7. Idempotency key (C2-08)
 
-**Decision:** `sha256(restaurant_phone + requested_date + requested_time + party_size + call_id_originating_session)` — reuses DIR-08 pattern. Key stored in DB on booking-confirmation path (C2-05). Duplicate confirmation check: if the same key has already produced a calendar entry, the second confirmation is logged + no-op'd (no double-book).
+**Decision (revised 2026-04-20 after Research OQ-2):** `sha256(restaurant_phone + requested_date + requested_time + party_size)` — reuses DIR-08 pattern, **without call_id_originating_session**. Rationale: including the session id meant a re-trigger from a new chat session would produce a new key and could double-book. Without it, the same reservation request from any channel / any session collides with the existing booking and is no-op'd. Retries within the same outbound attempt share this key by construction. If Carsten ever needs an intentional duplicate (rare), a future tool arg `force_new_booking: true` can be added — deferred, not in Phase 5 scope. Key stored in DB on booking-confirmation path (C2-05). Duplicate-check: if the same key already produced a calendar entry, second confirmation is logged + no-op'd.
 
 ## Non-goals (explicit)
 
