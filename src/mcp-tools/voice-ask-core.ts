@@ -29,7 +29,7 @@ import type { SkillLoadResult } from './skill-loader.js';
 import type { AndyVoiceResult } from './andy-agent-runner.js';
 
 // Input schema: topic must be slug-format to prevent path-traversal
-const AskCoreSchema = z.object({
+export const AskCoreSchema = z.object({
   call_id: z.string().optional(),
   topic: z
     .string()

@@ -17,7 +17,7 @@ const DEFAULT_DEDUP_TTL_MS = parseInt(
 );
 
 // REQ-TOOLS-03: args {channel: snowflake, content: 1..4000}
-const SendDiscordMessageSchema = z.object({
+export const SendDiscordMessageSchema = z.object({
   call_id: z.string().optional(),
   channel: z.string().regex(/^\d{17,20}$/, 'invalid snowflake'),
   content: z.string().min(1).max(4000),

@@ -23,7 +23,7 @@ const TERMINATED_BY = [
   'timeout',
 ] as const;
 
-const FinalizeCallCostSchema = z.object({
+export const FinalizeCallCostSchema = z.object({
   call_id: z.string().min(1),
   case_type: z.string().min(1).max(32),
   started_at: z.string().min(1),

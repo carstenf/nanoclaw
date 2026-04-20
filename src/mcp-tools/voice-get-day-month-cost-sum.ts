@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 import type { ToolHandler } from './index.js';
 
-const Schema = z.object({}).passthrough();
+export const GetDayMonthCostSumSchema = z.object({}).passthrough();
 
 export interface VoiceGetDayMonthCostSumDeps {
   sumCostCurrentDay: () => number;
@@ -21,7 +21,7 @@ export function makeVoiceGetDayMonthCostSum(
   return async function voiceGetDayMonthCostSum(
     args: unknown,
   ): Promise<unknown> {
-    Schema.parse(args ?? {});
+    GetDayMonthCostSumSchema.parse(args ?? {});
     const today_eur = deps.sumCostCurrentDay();
     const month_eur = deps.sumCostCurrentMonth();
     const suspended = deps.isSuspended();

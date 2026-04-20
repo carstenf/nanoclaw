@@ -14,7 +14,7 @@ import {
   MapsClientError,
 } from './maps-client.js';
 
-const TravelTimeSchema = z.object({
+export const TravelTimeSchema = z.object({
   call_id: z.string().optional(),
   origin: z.string().min(1).max(300),
   destination: z.string().min(1).max(300),

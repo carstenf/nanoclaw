@@ -17,7 +17,7 @@ const DEFAULT_TIMEOUT_MS = parseInt(
 const TIMEZONE = process.env.TZ ?? 'Europe/Berlin';
 
 // REQ-TOOLS-01: args {date: YYYY-MM-DD, duration_minutes: 1..1440}
-const CheckCalendarSchema = z.object({
+export const CheckCalendarSchema = z.object({
   call_id: z.string().optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD'),
   duration_minutes: z.number().int().min(1).max(1440),

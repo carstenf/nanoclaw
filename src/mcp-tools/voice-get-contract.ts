@@ -25,7 +25,7 @@ import { BadRequestError } from './voice-on-transcript-turn.js';
 // Schema — REQ-TOOLS-04
 // ---------------------------------------------------------------------------
 
-const GetContractSchema = z.object({
+export const GetContractSchema = z.object({
   call_id: z.string().optional(),
   provider_name: z.string().min(1).max(200),
 });

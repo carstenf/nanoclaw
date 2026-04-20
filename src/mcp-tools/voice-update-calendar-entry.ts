@@ -16,7 +16,7 @@ const DEFAULT_TIMEOUT_MS = parseInt(
 );
 const DEFAULT_TZ = process.env.TZ ?? 'Europe/Berlin';
 
-const FieldsSchema = z
+export const FieldsSchema = z
   .object({
     title: z.string().min(1).max(200).optional(),
     date: z
@@ -41,7 +41,7 @@ const FieldsSchema = z
   );
 
 // REQ-TOOLS-12: args {event_id, fields_to_update}
-const UpdateEntrySchema = z.object({
+export const UpdateEntrySchema = z.object({
   call_id: z.string().optional(),
   event_id: z.string().min(1),
   fields_to_update: FieldsSchema,

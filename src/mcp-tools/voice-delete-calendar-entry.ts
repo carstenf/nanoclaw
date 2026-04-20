@@ -17,7 +17,7 @@ const DEFAULT_TIMEOUT_MS = parseInt(
 const DEFAULT_TZ = process.env.TZ ?? 'Europe/Berlin';
 
 // REQ-TOOLS-11: args either {event_id} or {title, date}.
-const DeleteEntrySchema = z
+export const DeleteEntrySchema = z
   .object({
     call_id: z.string().optional(),
     event_id: z.string().min(1).optional(),

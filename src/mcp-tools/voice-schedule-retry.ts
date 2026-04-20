@@ -12,7 +12,7 @@ import { BadRequestError } from './voice-on-transcript-turn.js';
 import type { ToolHandler } from './index.js';
 
 // REQ-TOOLS-07: args {case_type, target_phone (E.164), not_before_ts (ISO)}
-const ScheduleRetrySchema = z.object({
+export const ScheduleRetrySchema = z.object({
   call_id: z.string().optional(),
   case_type: z.string().min(1).max(64),
   target_phone: z

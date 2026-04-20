@@ -17,7 +17,7 @@ const DEFAULT_TIMEOUT_MS = parseInt(
 const DEFAULT_TZ = process.env.TZ ?? 'Europe/Berlin';
 
 // REQ-TOOLS-02: args {title, date, time, duration, location?, travel_buffer_before_min?, travel_buffer_after_min?}
-const CreateEntrySchema = z.object({
+export const CreateEntrySchema = z.object({
   call_id: z.string().optional(),
   title: z.string().min(1).max(200),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD'),

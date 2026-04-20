@@ -31,7 +31,7 @@ import type { ToolHandler } from './index.js';
 // Schema — matches Bridge-side JSON schema exactly (criteria is an OBJECT).
 // ---------------------------------------------------------------------------
 
-const SearchCompetitorsSchema = z.object({
+export const SearchCompetitorsSchema = z.object({
   call_id: z.string().optional(),
   category: z.string().min(1).max(64),
   criteria: z.record(z.string(), z.unknown()),

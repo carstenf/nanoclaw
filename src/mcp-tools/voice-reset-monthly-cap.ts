@@ -14,7 +14,7 @@ import { logger } from '../logger.js';
 import { BadRequestError } from './voice-on-transcript-turn.js';
 import type { ToolHandler } from './index.js';
 
-const Schema = z.object({
+export const ResetMonthlyCapSchema = z.object({
   reason: z.string().min(1).max(200),
   authorized_by: z.string().min(1).max(64),
 });
@@ -33,7 +33,7 @@ export function makeVoiceResetMonthlyCap(
   const now = deps.now ?? (() => Date.now());
 
   return async function voiceResetMonthlyCap(args: unknown): Promise<unknown> {
-    const parseResult = Schema.safeParse(args);
+    const parseResult = ResetMonthlyCapSchema.safeParse(args);
     if (!parseResult.success) {
       const firstError = parseResult.error.issues[0];
       const field = String(firstError?.path?.[0] ?? 'input');

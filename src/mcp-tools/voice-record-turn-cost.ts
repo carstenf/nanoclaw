@@ -15,7 +15,7 @@ import type { VoiceTurnCostRow } from '../cost-ledger.js';
 import { BadRequestError } from './voice-on-transcript-turn.js';
 import type { ToolHandler } from './index.js';
 
-const RecordTurnCostSchema = z.object({
+export const RecordTurnCostSchema = z.object({
   call_id: z.string().min(1),
   turn_id: z.string().min(1),
   audio_in_tokens: z.number().int().nonnegative().default(0),

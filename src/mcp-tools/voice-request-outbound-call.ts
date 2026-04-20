@@ -11,7 +11,7 @@ import type { ToolHandler } from './index.js';
 
 // ---- Schema ----
 
-const Schema = z.object({
+export const RequestOutboundCallSchema = z.object({
   call_id: z.string().optional(),
   target_phone: z
     .string()
@@ -66,7 +66,7 @@ export function makeVoiceRequestOutboundCall(
     const start = now();
 
     // Zod parse
-    const parseResult = Schema.safeParse(args);
+    const parseResult = RequestOutboundCallSchema.safeParse(args);
     if (!parseResult.success) {
       const issue = parseResult.error.issues[0];
       throw new BadRequestError(

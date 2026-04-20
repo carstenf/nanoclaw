@@ -1,9 +1,21 @@
 import fs from 'fs';
 import path from 'path';
 
+import { z } from 'zod';
+
 import { logger } from '../logger.js';
 
 import { SlowBrainSessionManager } from './slow-brain-session.js';
+
+// Phase 4.5 Wave-0: zod schema added for TOOL_META inputSchema consumption by
+// the session-based MCP transport (port 3201). The existing handwritten
+// `validateVoiceTurnArgs` below stays untouched — it continues to validate the
+// port-3200 REST path per D-8. Both validators describe the same shape.
+export const OnTranscriptTurnSchema = z.object({
+  call_id: z.string().min(1),
+  turn_id: z.string().min(1),
+  transcript: z.string(),
+});
 
 export interface VoiceTurnArgs {
   call_id: string;

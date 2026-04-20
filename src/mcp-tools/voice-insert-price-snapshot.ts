@@ -24,7 +24,7 @@ import type { VoicePriceSnapshotRow } from '../cost-ledger.js';
 import { BadRequestError } from './voice-on-transcript-turn.js';
 import type { ToolHandler } from './index.js';
 
-const InsertPriceSnapshotSchema = z.object({
+export const InsertPriceSnapshotSchema = z.object({
   ts: z.string().min(1),
   model: z.string().min(1).max(64),
   audio_in_usd: z.number().nonnegative(),
