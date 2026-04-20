@@ -282,7 +282,14 @@ export const SESSION_CONFIG = {
       // Plan 02-10: enable user-transcription so OpenAI emits
       // `conversation.item.input_audio_transcription.completed` events on the
       // sideband WS — required for the Slow-Brain push path.
-      transcription: { model: 'whisper-1' as const },
+      //
+      // Plan 05-03 Task 5 defect: whisper-1 without `language` auto-detects per
+      // utterance; short German phrases ("Hallo Restaurant Bellavista") were
+      // transcribed as English/Swedish, breaking CASE2_MAILBOX_CUE_REGEX_V2 and
+      // feeding the AMD model garbage input. Pin to 'de' to match the voice
+      // bridge's locale — all calls are German; if we ever serve EN callers,
+      // switch to per-call language passed via case_payload.
+      transcription: { model: 'whisper-1' as const, language: 'de' as const },
     },
     output: { voice: 'cedar' as const },
   },

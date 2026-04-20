@@ -202,6 +202,12 @@ describe('createAmdClassifier', () => {
     expect(CASE2_VAD_SILENCE_MS).toBeGreaterThanOrEqual(20000)
   })
 
+  it('test 5d (ASR lang regression, Plan 05-03 Task 5): SESSION_CONFIG input transcription is pinned to German — without it, whisper auto-detect butchers short German utterances as English/Swedish, breaking transcript_cue regex and confusing the model', async () => {
+    const { SESSION_CONFIG } = await import('../src/config.js')
+    const transcription = SESSION_CONFIG.audio.input.transcription as { model: string; language?: string }
+    expect(transcription.language).toBe('de')
+  })
+
   it('test 6: transcript matching mailbox regex → onVoicemail("transcript_cue")', () => {
     const c = makeClassifier()
     c.onTranscript('Der Teilnehmer ist zur Zeit nicht erreichbar. Bitte hinterlassen Sie eine Nachricht.')
