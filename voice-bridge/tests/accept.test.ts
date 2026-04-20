@@ -383,6 +383,205 @@ describe('POST /accept — Phase 2 full-wiring', () => {
   })
 })
 
+// Plan 05-03 Task 3: /accept Case-2 branch tests
+import { createOutboundRouter } from '../src/outbound-router.js'
+import type { OutboundTask } from '../src/outbound-router.js'
+import { CASE2_AMD_CLASSIFIER_PROMPT } from '../src/amd-classifier.js'
+
+describe('POST /accept — Case-2 outbound branch (05-03 Task 3)', () => {
+  let logDir: string
+
+  beforeEach(() => {
+    logDir = mkdtempSync(join(tmpdir(), 'bridge-accept-c2-'))
+    process.env.OPENAI_WEBHOOK_SECRET =
+      'whsec_test_case2_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    process.env.BRIDGE_BIND = '127.0.0.1'
+    process.env.BRIDGE_PORT = '0'
+    process.env.BRIDGE_LOG_DIR = logDir
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    rmSync(logDir, { recursive: true, force: true })
+    delete process.env.OPENAI_WEBHOOK_SECRET
+    delete process.env.BRIDGE_BIND
+    delete process.env.BRIDGE_PORT
+    delete process.env.BRIDGE_LOG_DIR
+  })
+
+  function makeFakeTimers() {
+    return {
+      setTimeout: vi.fn().mockReturnValue(1 as unknown as ReturnType<typeof setTimeout>),
+      clearTimeout: vi.fn(),
+    }
+  }
+
+  function makeCase2OutboundRouter(caseType: 'case_2' | undefined) {
+    const task: OutboundTask = {
+      task_id: 'task-c2-test',
+      target_phone: '+49123456',
+      goal: 'Reservierung Adria',
+      context: 'test',
+      report_to_jid: 'jid@test',
+      created_at: Date.now(),
+      status: 'active',
+      case_type: caseType,
+      case_payload: {
+        restaurant_name: 'Adria',
+        requested_date: '2026-05-15',
+        requested_time: '19:00',
+        time_tolerance_min: 30,
+        party_size: 4,
+      },
+    }
+
+    const timers = makeFakeTimers()
+    const router = createOutboundRouter({
+      outboundOriginator: { originate: vi.fn().mockResolvedValue({ providerRef: 'ref-1' }) },
+      callRouter: { _size: vi.fn().mockReturnValue(0) },
+      reportBack: vi.fn().mockResolvedValue(undefined),
+      timers,
+    })
+    // Enqueue + make active
+    router.enqueue({
+      target_phone: task.target_phone,
+      goal: task.goal,
+      context: task.context,
+      report_to_jid: task.report_to_jid,
+      case_type: caseType,
+      case_payload: task.case_payload,
+    })
+
+    return router
+  }
+
+  it('accept-test 1: case_type=case_2 → instructions = CASE2_AMD_CLASSIFIER_PROMPT AND tools include amd_result', async () => {
+    const outboundRouter = makeCase2OutboundRouter('case_2')
+    // Wait for enqueue to make task active (originate is async)
+    await new Promise((r) => setTimeout(r, 10))
+
+    const acceptSpy = vi.fn().mockResolvedValue({})
+    const openai = {
+      webhooks: {
+        unwrap: vi.fn().mockResolvedValue({
+          type: 'realtime.call.incoming',
+          data: {
+            call_id: 'rtc_c2_test',
+            sip_headers: [{ name: 'From', value: '"Caller" <sip:+4900000@sipgate.de>' }],
+          },
+        }),
+      },
+      realtime: { calls: { accept: acceptSpy, reject: vi.fn() } },
+    }
+
+    const router = {
+      startCall: vi.fn().mockReturnValue({ sideband: { state: { ready: false, ws: null, callId: 'rtc_c2_test', openedAt: 0, lastUpdateAt: 0 } }, close: vi.fn() }),
+      endCall: vi.fn(),
+      getCall: vi.fn(),
+      _size: vi.fn().mockReturnValue(0),
+    }
+
+    const { buildApp } = await import('../src/index.js')
+    const app = await buildApp({
+      openaiOverride: openai as never,
+      whitelistOverride: new Set(),
+      routerOverride: router as never,
+      outboundRouterOverride: outboundRouter,
+    })
+
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/accept',
+        headers: {
+          'content-type': 'application/json',
+          'webhook-id': 'c2-id-1',
+          'webhook-timestamp': String(Math.floor(Date.now() / 1000)),
+          'webhook-signature': 'v1,xxx',
+        },
+        payload: JSON.stringify({
+          type: 'realtime.call.incoming',
+          data: { call_id: 'rtc_c2_test' },
+        }),
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(acceptSpy).toHaveBeenCalledTimes(1)
+      const [_callId, session] = acceptSpy.mock.calls[0]
+      // Instructions must be CASE2_AMD_CLASSIFIER_PROMPT (not OUTBOUND_PERSONA_TEMPLATE)
+      expect(session.instructions).toBe(CASE2_AMD_CLASSIFIER_PROMPT)
+      // Tools list must include amd_result
+      const toolNames = (session.tools as Array<{ name: string }>).map((t) => t.name)
+      expect(toolNames).toContain('amd_result')
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('accept-test 2: case_type=undefined (Case-6b outbound) → amd_result NOT in tools; instructions = OUTBOUND_PERSONA', async () => {
+    const outboundRouter = makeCase2OutboundRouter(undefined)
+    await new Promise((r) => setTimeout(r, 10))
+
+    const acceptSpy = vi.fn().mockResolvedValue({})
+    const openai = {
+      webhooks: {
+        unwrap: vi.fn().mockResolvedValue({
+          type: 'realtime.call.incoming',
+          data: {
+            call_id: 'rtc_6b_test',
+            sip_headers: [{ name: 'From', value: '"Caller" <sip:+4900000@sipgate.de>' }],
+          },
+        }),
+      },
+      realtime: { calls: { accept: acceptSpy, reject: vi.fn() } },
+    }
+
+    const router = {
+      startCall: vi.fn().mockReturnValue({ sideband: { state: { ready: false, ws: null, callId: 'rtc_6b_test', openedAt: 0, lastUpdateAt: 0 } }, close: vi.fn() }),
+      endCall: vi.fn(),
+      getCall: vi.fn(),
+      _size: vi.fn().mockReturnValue(0),
+    }
+
+    const { buildApp } = await import('../src/index.js')
+    const app = await buildApp({
+      openaiOverride: openai as never,
+      whitelistOverride: new Set(),
+      routerOverride: router as never,
+      outboundRouterOverride: outboundRouter,
+    })
+
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/accept',
+        headers: {
+          'content-type': 'application/json',
+          'webhook-id': 'c2-id-2',
+          'webhook-timestamp': String(Math.floor(Date.now() / 1000)),
+          'webhook-signature': 'v1,xxx',
+        },
+        payload: JSON.stringify({
+          type: 'realtime.call.incoming',
+          data: { call_id: 'rtc_6b_test' },
+        }),
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(acceptSpy).toHaveBeenCalledTimes(1)
+      const [_callId, session] = acceptSpy.mock.calls[0]
+      // Tools must NOT include amd_result (Case-6b path)
+      const toolNames = (session.tools as Array<{ name: string }>).map((t) => t.name)
+      expect(toolNames).not.toContain('amd_result')
+      // Instructions must be the outbound persona (contains NanoClaw, Carsten)
+      expect(session.instructions).toContain('NanoClaw')
+      expect(session.instructions).not.toBe(CASE2_AMD_CLASSIFIER_PROMPT)
+    } finally {
+      await app.close()
+    }
+  })
+})
+
 // Plan 04-02 Task 3: /accept-time cost gate integration.
 // Fetch is stubbed so the gate's callCoreTool returns a controlled payload
 // without a real Core server. Decisions = reject_daily / reject_monthly /

@@ -235,3 +235,82 @@ describe('maybeInjectPreGreet (03-14, REQ-VOICE-13)', () => {
     expect(ws.send).not.toHaveBeenCalled()
   })
 })
+
+// --- Plan 05-03 Task 3: Case-2 pre-greet bypass ---
+import type { OutboundTask } from '../src/outbound-router.js'
+
+function makeFakeOutboundRouter(task: OutboundTask | null) {
+  return {
+    getActiveTask: vi.fn().mockReturnValue(task),
+    bindOpenaiCallId: vi.fn(),
+    onCallEnd: vi.fn(),
+    getState: vi.fn().mockReturnValue([]),
+    taskIdForOpenaiCallId: vi.fn().mockReturnValue(null),
+    buildPersonaForTask: vi.fn().mockReturnValue(null),
+    enqueue: vi.fn(),
+  }
+}
+
+describe('maybeInjectPreGreet — Case-2 bypass (Plan 05-03 Task 3)', () => {
+  it('pre-greet-test 1: case_type=case_2 → returns immediately with pre_greet_skipped log', async () => {
+    const { handle, ws } = makeFakeSideband(true)
+    const callTool = vi.fn()
+    const log = makeLog()
+    const task: OutboundTask = {
+      task_id: 'task-c2',
+      target_phone: '+49123456',
+      goal: 'test',
+      context: 'test',
+      report_to_jid: 'jid@test',
+      created_at: Date.now(),
+      status: 'active',
+      case_type: 'case_2',
+    }
+    const outboundRouter = makeFakeOutboundRouter(task)
+
+    await maybeInjectPreGreet({
+      callId: 'rtc_c2',
+      sideband: handle,
+      coreClient: { callTool },
+      log,
+      budgetMs: 2000,
+      readyWaitMs: 100,
+      outboundRouter: outboundRouter as never,
+    })
+
+    // Should NOT call Core MCP (early return)
+    expect(callTool).not.toHaveBeenCalled()
+    expect(ws.send).not.toHaveBeenCalled()
+    // Should log pre_greet_skipped with reason case_2_amd_branch
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'pre_greet_skipped',
+        reason: 'case_2_amd_branch',
+      }),
+    )
+  })
+
+  it('pre-greet-test 2: case_type undefined (Case-6b) → existing Slow-Brain path runs', async () => {
+    const { handle, ws } = makeFakeSideband(true)
+    const callTool = vi.fn().mockResolvedValue({
+      ok: true,
+      instructions_update: 'CASE6B TAILORED',
+    })
+    const log = makeLog()
+    // No outboundRouter — simulates legacy path
+    await maybeInjectPreGreet({
+      callId: 'rtc_6b',
+      sideband: handle,
+      coreClient: { callTool },
+      log,
+      budgetMs: 2000,
+      readyWaitMs: 100,
+      outboundRouter: undefined,
+    })
+
+    // Core MCP SHOULD be called (normal pre-greet path)
+    expect(callTool).toHaveBeenCalled()
+    // session.update SHOULD be sent
+    expect(ws.send).toHaveBeenCalledOnce()
+  })
+})

@@ -680,6 +680,123 @@ describe('tools/dispatch — Phase-4 TOOLS smoke (04-03)', () => {
   }
 })
 
+// Plan 05-03 Task 3: amd_result dispatch — Case-2 bridge-internal handler
+import { setAmdClassifier } from '../src/tools/dispatch.js'
+import type { AmdClassifier } from '../src/amd-classifier.js'
+
+describe('tools/dispatch — amd_result Case-2 handler (05-03)', () => {
+  beforeEach(() => {
+    // Clear any stale classifier reference between tests
+    setAmdClassifier(null)
+  })
+
+  it('dispatch-test 1: Case-2 session + amd_result verdict=human → classifier.onAmdResult called; Core MCP NOT invoked', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const callCoreTool = vi.fn()
+    const hangupCall = vi.fn().mockResolvedValue(undefined)
+    const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
+    const emitResponseCreate = vi.fn().mockReturnValue(true)
+
+    // Register a fake classifier for this call
+    const fakeClassifier: Partial<AmdClassifier> = {
+      onAmdResult: vi.fn(),
+      getVerdict: vi.fn().mockReturnValue('pending'),
+      stop: vi.fn(),
+      isAudioLeaked: vi.fn().mockReturnValue(false),
+      onSpeechStarted: vi.fn(),
+      onSpeechStopped: vi.fn(),
+      onTranscript: vi.fn(),
+      onAudioDelta: vi.fn(),
+    }
+    setAmdClassifier(fakeClassifier as AmdClassifier)
+
+    await dispatchTool(
+      ws,
+      'rtc_c2',
+      'turn_amd',
+      'fc_amd',
+      'amd_result',
+      { verdict: 'human' },
+      log,
+      { callCoreTool, emitFunctionCallOutput, emitResponseCreate, hangupCall, jsonlPath: '/dev/null' },
+    )
+
+    // Classifier.onAmdResult called with 'human'
+    expect(fakeClassifier.onAmdResult).toHaveBeenCalledWith('human')
+    // Core MCP NOT invoked (bridge-internal)
+    expect(callCoreTool).not.toHaveBeenCalled()
+    // hangup NOT called for human verdict (human → persona swap, not hangup)
+    expect(hangupCall).not.toHaveBeenCalled()
+  })
+
+  it('dispatch-test 2: Case-2 session + amd_result verdict=voicemail → classifier.onAmdResult called', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const callCoreTool = vi.fn()
+    const hangupCall = vi.fn().mockResolvedValue(undefined)
+    const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
+
+    const fakeClassifier: Partial<AmdClassifier> = {
+      onAmdResult: vi.fn(),
+      getVerdict: vi.fn().mockReturnValue('pending'),
+      stop: vi.fn(),
+      isAudioLeaked: vi.fn().mockReturnValue(false),
+      onSpeechStarted: vi.fn(),
+      onSpeechStopped: vi.fn(),
+      onTranscript: vi.fn(),
+      onAudioDelta: vi.fn(),
+    }
+    setAmdClassifier(fakeClassifier as AmdClassifier)
+
+    await dispatchTool(
+      ws,
+      'rtc_c2',
+      'turn_amd',
+      'fc_amd',
+      'amd_result',
+      { verdict: 'voicemail' },
+      log,
+      { callCoreTool, emitFunctionCallOutput, hangupCall, jsonlPath: '/dev/null' },
+    )
+
+    expect(fakeClassifier.onAmdResult).toHaveBeenCalledWith('voicemail')
+    expect(callCoreTool).not.toHaveBeenCalled()
+  })
+
+  it('dispatch-test 3: Non-Case-2 session (no classifier registered) + amd_result → rejected as invalid_tool_call', async () => {
+    const ws = makeMockWS()
+    const log = makeLog()
+    const callCoreTool = vi.fn()
+    const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
+    const emitResponseCreate = vi.fn().mockReturnValue(true)
+
+    // No classifier registered (non-Case-2 session)
+    setAmdClassifier(null)
+
+    await dispatchTool(
+      ws,
+      'rtc_6b',
+      'turn_amd',
+      'fc_amd',
+      'amd_result',
+      { verdict: 'human' },
+      log,
+      { callCoreTool, emitFunctionCallOutput, emitResponseCreate, jsonlPath: '/dev/null' },
+    )
+
+    expect(callCoreTool).not.toHaveBeenCalled()
+    // Rejected as invalid_tool_call (defense: amd_result is Case-2 only)
+    expect(emitFunctionCallOutput).toHaveBeenCalledWith(
+      ws,
+      'fc_amd',
+      expect.objectContaining({ error: 'invalid_tool_call' }),
+      log,
+    )
+    expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)
+  })
+})
+
 // Plan 04-02 Task 1: A12 closure — idempotency for mutating tools in dispatch.
 describe('tools/dispatch — A12 idempotency gate (04-02)', () => {
   beforeEach(() => {
