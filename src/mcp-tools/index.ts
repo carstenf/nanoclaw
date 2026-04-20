@@ -34,6 +34,7 @@ import { makeVoiceResetMonthlyCap } from './voice-reset-monthly-cap.js';
 import { makeVoiceSearchCompetitors } from './voice-search-competitors.js';
 import { makeVoiceInsertPriceSnapshot } from './voice-insert-price-snapshot.js';
 import { makeVoiceNotifyUser, TOOL_NAME as VOICE_NOTIFY_USER_TOOL_NAME } from './voice-notify-user.js';
+import { makeVoiceCase2ScheduleRetry, TOOL_NAME as VOICE_CASE_2_RETRY_TOOL_NAME } from './voice-case-2-retry.js';
 import { createActiveSessionTracker } from '../channels/active-session-tracker.js';
 import { loadSkill } from './skill-loader.js';
 import { callClaudeViaOneCli } from './claude-client.js';
@@ -429,6 +430,17 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
         ? `${deps.dataDir}/voice-lookup.jsonl`
         : undefined,
       // askCompetitorsBackend deferred to Phase 7
+    }),
+  );
+
+  // Phase 5 Plan 05-02 (Case-2 Wave 2): voice_case_2_schedule_retry — daily-cap + ladder wrapper.
+  // Core-MCP-only. NOT in Bridge allowlist (REQ-TOOLS-09 ceiling = 15, unchanged).
+  registry.register(
+    VOICE_CASE_2_RETRY_TOOL_NAME,
+    makeVoiceCase2ScheduleRetry({
+      getDatabase,
+      scheduleRetry: (args) => registry.invoke('voice_schedule_retry', args),
+      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-case-2-retry.jsonl` : undefined,
     }),
   );
 
