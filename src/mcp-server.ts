@@ -52,6 +52,14 @@ export function buildMcpApp(deps: McpDeps): express.Application {
     const args =
       (req.body && (req.body as Record<string, unknown>).arguments) ?? {};
     const started = Date.now();
+    // D-8 observability — count every request to the deprecated REST facade so the
+    // port-3200-removal follow-up has 7 days of zero-traffic evidence before deletion.
+    log.info({
+      event: 'mcp_rest_request_seen',
+      tool_name: toolName,
+      peer_ip: req.socket.remoteAddress,
+      user_agent: req.header('user-agent') ?? null,
+    });
     try {
       const result = await deps.registry.invoke(toolName, args);
       log.info({

@@ -161,4 +161,54 @@ describe('POST /mcp/:tool_name', () => {
     });
     expect(r.status).toBe(403);
   });
+
+  it('logs mcp_rest_request_seen on every request (D-8 deprecation observability)', async () => {
+    const log = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+    };
+    const mockSessionManager = new SlowBrainSessionManager({
+      claudeClient: async () => 'null',
+    });
+    const registry = buildDefaultRegistry({
+      dataDir: tmpDir,
+      log,
+      sessionManager: mockSessionManager,
+      sweepIntervalMs: 0,
+    });
+    const app = buildMcpApp({
+      registry,
+      log,
+      allowlist: ['127.0.0.1'],
+      boundTo: '127.0.0.1:test',
+    });
+    server = http.createServer(app);
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', () => resolve());
+    });
+    const addr = server.address() as AddressInfo;
+    const url = `http://127.0.0.1:${addr.port}`;
+
+    await fetch(`${url}/mcp/voice_on_transcript_turn`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'test-ua/1.0',
+      },
+      body: JSON.stringify({
+        arguments: { call_id: 'rtc-x', turn_id: 't-0', transcript: 'hi' },
+      }),
+    });
+
+    const seen = log.info.mock.calls.find(
+      (call) => (call[0] as Record<string, unknown>)?.event === 'mcp_rest_request_seen',
+    );
+    expect(seen).toBeDefined();
+    const payload = seen![0] as Record<string, unknown>;
+    expect(payload.tool_name).toBe('voice_on_transcript_turn');
+    expect(payload.user_agent).toBe('test-ua/1.0');
+    expect(typeof payload.peer_ip).toBe('string');
+  });
 });
