@@ -74,7 +74,7 @@ export function makeVoiceRecordTurnCost(
     appendJsonl(jsonlPath, {
       ts: row.ts,
       event: 'turn_cost_recorded',
-      tool: 'voice.record_turn_cost',
+      tool: 'voice_record_turn_cost',
       call_id: row.call_id,
       turn_id: row.turn_id,
       cost_eur: row.cost_eur,

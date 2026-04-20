@@ -59,7 +59,7 @@ describe('startSlowBrain — cadence cap (D-25)', () => {
     await new Promise((r) => setTimeout(r, 200))
     expect(callTool.mock.calls.length).toBeGreaterThanOrEqual(2)
     // Verify the tool-name and arg-shape on the first call
-    expect(callTool.mock.calls[0][0]).toBe('voice.on_transcript_turn')
+    expect(callTool.mock.calls[0][0]).toBe('voice_on_transcript_turn')
     expect(callTool.mock.calls[0][1]).toMatchObject({
       call_id: 'c',
       turn_id: 't1',

@@ -3,7 +3,7 @@
 // Schema is ALSO created in src/db.ts createSchema() for the production DB;
 // this module re-exposes createSchema() so in-memory unit tests can spin up
 // the voice_* tables without dragging the full NanoClaw schema.
-// Bridge writes via voice.record_turn_cost + voice.finalize_call_cost MCP-tools.
+// Bridge writes via voice_record_turn_cost + voice_finalize_call_cost MCP-tools.
 // Pitfall 3 (RESEARCH.md): persistence is per-turn, not per-call — a Bridge
 // restart mid-call loses the per-call RAM total but not the already-recorded
 // turn rows; finalize recomputes cost_eur from SUM(voice_turn_costs).

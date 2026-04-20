@@ -1,4 +1,4 @@
-// Phase 4 (INFRA-06): voice.record_turn_cost MCP handler — unit tests.
+// Phase 4 (INFRA-06): voice_record_turn_cost MCP handler — unit tests.
 // RED during Wave-0: handler does not exist yet; Task 4 turns this GREEN.
 import fs from 'fs';
 import os from 'os';
@@ -126,7 +126,7 @@ describe('makeVoiceRecordTurnCost (INFRA-06)', () => {
     const raw = fs.readFileSync(JSONL_PATH(), 'utf8');
     const entry = JSON.parse(raw.trim().split('\n').pop()!);
     expect(entry.event).toBe('turn_cost_recorded');
-    expect(entry.tool).toBe('voice.record_turn_cost');
+    expect(entry.tool).toBe('voice_record_turn_cost');
     expect(entry.call_id).toBe('c-jsonl');
     expect(entry.turn_id).toBe('t-jsonl');
     expect(entry.cost_eur).toBeCloseTo(0.05, 5);

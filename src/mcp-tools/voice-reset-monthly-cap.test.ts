@@ -1,4 +1,4 @@
-// Phase 4 Plan 04-02 Task 2: voice.reset_monthly_cap MCP handler — unit tests.
+// Phase 4 Plan 04-02 Task 2: voice_reset_monthly_cap MCP handler — unit tests.
 // RED during this plan's task 2b; GREEN after the handler is landed.
 import fs from 'fs';
 import os from 'os';
@@ -108,7 +108,7 @@ describe('makeVoiceResetMonthlyCap (04-02 COST-03 manual reset)', () => {
     const raw = fs.readFileSync(JSONL_PATH(), 'utf8');
     const entry = JSON.parse(raw.trim().split('\n').pop()!);
     expect(entry.event).toBe('monthly_cap_reset');
-    expect(entry.tool).toBe('voice.reset_monthly_cap');
+    expect(entry.tool).toBe('voice_reset_monthly_cap');
     expect(entry.before).toBe('1');
     expect(entry.after).toBe('0');
     expect(entry.reason).toBe('monthly budget refresh');

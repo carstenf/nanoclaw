@@ -1,7 +1,7 @@
 /**
  * voice-get-practice-profile.ts
  *
- * MCP tool: voice.get_practice_profile  (REQ-TOOLS-06)
+ * MCP tool: voice_get_practice_profile  (REQ-TOOLS-06)
  * Args: {name: string 1..200}
  * Returns: {phone, patient_id, insurance_type, last_visit, authorized_data_fields[]}
  */
@@ -155,7 +155,7 @@ export function makeVoiceGetPracticeProfile(deps: VoiceGetPracticeProfileDeps) {
     appendJsonl({
       ts: new Date().toISOString(),
       event: 'practice_profile_lookup_done',
-      tool: 'voice.get_practice_profile',
+      tool: 'voice_get_practice_profile',
       call_id: call_id ?? null,
       query_key: name,
       found: found !== undefined,

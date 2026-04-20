@@ -104,8 +104,8 @@ export function makeVoiceFinalizeCallCost(
     // Phase 4 Plan 04-02 (COST-03 variant b, locked): Core-side auto-suspend.
     // After upsert, re-query the monthly SUM. If >= CAP_MONTHLY_EUR (default
     // €25), atomically set router_state.voice_channel_suspended='1'. The
-    // Bridge /accept-gate then reads this flag via voice.get_day_month_cost_sum
-    // and returns SIP 503 for any further calls until voice.reset_monthly_cap
+    // Bridge /accept-gate then reads this flag via voice_get_day_month_cost_sum
+    // and returns SIP 503 for any further calls until voice_reset_monthly_cap
     // is invoked. Keeping the suspension-write on the same Core handler
     // avoids adding a voice.set_suspend MCP tool (A12 surface minimization).
     const capMonthlyEur = deps.capMonthlyEur ?? 25.0;
@@ -126,7 +126,7 @@ export function makeVoiceFinalizeCallCost(
           appendJsonl(jsonlPath, {
             ts: new Date().toISOString(),
             event: 'monthly_cap_auto_suspend',
-            tool: 'voice.finalize_call_cost',
+            tool: 'voice_finalize_call_cost',
             call_id: d.call_id,
             month_eur: monthSumAfter,
             cap_eur: capMonthlyEur,
@@ -143,7 +143,7 @@ export function makeVoiceFinalizeCallCost(
     appendJsonl(jsonlPath, {
       ts: d.ended_at,
       event: 'call_cost_finalized',
-      tool: 'voice.finalize_call_cost',
+      tool: 'voice_finalize_call_cost',
       call_id: d.call_id,
       cost_eur: sum_eur,
       turn_count: count,

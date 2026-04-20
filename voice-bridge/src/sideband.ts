@@ -4,7 +4,7 @@
 // connect SLA, sends instructions-only session.update messages. Graceful
 // degrade on error; hot-path never blocks on this module.
 //
-// Plan 04-02 Task 3: response.done → cost accumulator + voice.record_turn_cost
+// Plan 04-02 Task 3: response.done → cost accumulator + voice_record_turn_cost
 // fire-and-forget + 80% soft-warn + 100% hard-stop (instructions-only farewell
 // + ws.close after FAREWELL_TTS_HOLD_MS). session.closed → finalize_call_cost
 // + clearCall. Guard flags `warned` / `enforced` are check-and-mark atomic
@@ -320,7 +320,7 @@ export function openSidebandSession(
       }
 
       // Plan 04-02 Task 3 (COST-01/COST-04 + INFRA-06 live):
-      // response.done → accumulate + fire-and-forget voice.record_turn_cost
+      // response.done → accumulate + fire-and-forget voice_record_turn_cost
       // + soft-warn at 80% + hard-stop at 100% (instructions-only farewell).
       if (parsed?.type === 'response.done') {
         try {
@@ -341,7 +341,7 @@ export function openSidebandSession(
           const i = usage?.input_token_details ?? {}
           const o = usage?.output_token_details ?? {}
           void callCoreToolFn(
-            'voice.record_turn_cost',
+            'voice_record_turn_cost',
             {
               call_id: callId,
               turn_id: turnId,
@@ -388,7 +388,7 @@ export function openSidebandSession(
               /* swallow */
             })
             void callCoreToolFn(
-              'voice.finalize_call_cost',
+              'voice_finalize_call_cost',
               {
                 call_id: callId,
                 case_type: state.caseType ?? 'unknown',
@@ -436,7 +436,7 @@ export function openSidebandSession(
         try {
           if (!accumulator.enforced(callId)) {
             void callCoreToolFn(
-              'voice.finalize_call_cost',
+              'voice_finalize_call_cost',
               {
                 call_id: callId,
                 case_type: state.caseType ?? 'unknown',

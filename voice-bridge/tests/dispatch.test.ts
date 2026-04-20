@@ -63,7 +63,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
 
     // Must use voice. prefix
     expect(callCoreTool).toHaveBeenCalledWith(
-      'voice.check_calendar',
+      'voice_check_calendar',
       { date: '2026-05-01', duration_minutes: 30 },
       expect.objectContaining({ timeoutMs: 3000 }),
     )
@@ -154,7 +154,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)
   })
 
-  it('search_competitors routes to voice.search_competitors (Plan 04-03)', async () => {
+  it('search_competitors routes to voice_search_competitors (Plan 04-03)', async () => {
     const ws = makeMockWS()
     const log = makeLog()
     const coreResult = { ok: false, error: 'not_configured' }
@@ -174,10 +174,10 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
       opts,
     )
 
-    // Core MCP invoked with voice.search_competitors prefix — no longer
+    // Core MCP invoked with voice_search_competitors prefix — no longer
     // short-circuited with not_implemented.
     expect(callCoreTool).toHaveBeenCalledWith(
-      'voice.search_competitors',
+      'voice_search_competitors',
       { category: 'physiotherapy', criteria: { zip: '80339' } },
       expect.objectContaining({ timeoutMs: expect.any(Number) }),
     )
@@ -274,7 +274,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)
   })
 
-  it('happy-path ask_core: calls callCoreTool with voice.ask_core prefix (02-12)', async () => {
+  it('happy-path ask_core: calls callCoreTool with voice_ask_core prefix (02-12)', async () => {
     const ws = makeMockWS()
     const log = makeLog()
     const coreResult = { answer: 'Montag bis Freitag 9-18 Uhr' }
@@ -295,7 +295,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     )
 
     expect(callCoreTool).toHaveBeenCalledWith(
-      'voice.ask_core',
+      'voice_ask_core',
       { topic: 'andy', request: 'Was sind eure Oeffnungszeiten?' },
       expect.objectContaining({ timeoutMs: 3000 }),
     )
@@ -303,7 +303,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)
   })
 
-  it('happy-path get_travel_time: calls callCoreTool with voice.get_travel_time prefix (02-12)', async () => {
+  it('happy-path get_travel_time: calls callCoreTool with voice_get_travel_time prefix (02-12)', async () => {
     const ws = makeMockWS()
     const log = makeLog()
     const coreResult = { duration_text: '12 Minuten', duration_seconds: 720 }
@@ -324,7 +324,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     )
 
     expect(callCoreTool).toHaveBeenCalledWith(
-      'voice.get_travel_time',
+      'voice_get_travel_time',
       { origin: 'Marienplatz, Munich', destination: 'Schwabing, Munich', mode: 'transit' },
       expect.objectContaining({ timeoutMs: 3000 }),
     )
@@ -613,12 +613,12 @@ describe('tools/dispatch — Phase-4 TOOLS smoke (04-03)', () => {
   }> = [
     {
       toolName: 'check_calendar',
-      coreName: 'voice.check_calendar',
+      coreName: 'voice_check_calendar',
       args: { date: '2026-05-01', duration_minutes: 30 },
     },
     {
       toolName: 'create_calendar_entry',
-      coreName: 'voice.create_calendar_entry',
+      coreName: 'voice_create_calendar_entry',
       args: {
         title: 'Termin',
         date: '2026-05-01',
@@ -628,22 +628,22 @@ describe('tools/dispatch — Phase-4 TOOLS smoke (04-03)', () => {
     },
     {
       toolName: 'get_contract',
-      coreName: 'voice.get_contract',
+      coreName: 'voice_get_contract',
       args: { provider_name: 'Telekom' },
     },
     {
       toolName: 'search_competitors',
-      coreName: 'voice.search_competitors',
+      coreName: 'voice_search_competitors',
       args: { category: 'insurance', criteria: { max: 50 } },
     },
     {
       toolName: 'get_practice_profile',
-      coreName: 'voice.get_practice_profile',
+      coreName: 'voice_get_practice_profile',
       args: { name: 'Dr. Schmidt' },
     },
     {
       toolName: 'schedule_retry',
-      coreName: 'voice.schedule_retry',
+      coreName: 'voice_schedule_retry',
       args: {
         case_type: 'case_2',
         target_phone: '+4915112345678',

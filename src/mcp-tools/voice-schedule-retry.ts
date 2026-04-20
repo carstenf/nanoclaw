@@ -72,7 +72,7 @@ export function makeVoiceScheduleRetry(
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'retry_schedule_failed',
-        tool: 'voice.schedule_retry',
+        tool: 'voice_schedule_retry',
         call_id: call_id ?? null,
         error: 'no_main_group',
         latency_ms: now() - start,
@@ -97,7 +97,7 @@ export function makeVoiceScheduleRetry(
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'retry_scheduled_deduplicated',
-        tool: 'voice.schedule_retry',
+        tool: 'voice_schedule_retry',
         call_id: call_id ?? null,
         existing_task_id: duplicate.id,
         scheduled_for: not_before_ts,
@@ -128,7 +128,7 @@ export function makeVoiceScheduleRetry(
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'retry_schedule_failed',
-        tool: 'voice.schedule_retry',
+        tool: 'voice_schedule_retry',
         call_id: call_id ?? null,
         error: 'db_error',
         latency_ms: now() - start,
@@ -139,7 +139,7 @@ export function makeVoiceScheduleRetry(
     appendJsonl(jsonlPath, {
       ts: new Date().toISOString(),
       event: 'retry_scheduled',
-      tool: 'voice.schedule_retry',
+      tool: 'voice_schedule_retry',
       call_id: call_id ?? null,
       task_id,
       scheduled_for: not_before_ts,

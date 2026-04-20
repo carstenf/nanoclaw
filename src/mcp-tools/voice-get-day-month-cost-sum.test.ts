@@ -1,4 +1,4 @@
-// Phase 4 Plan 04-02 Task 2: voice.get_day_month_cost_sum MCP handler — unit tests.
+// Phase 4 Plan 04-02 Task 2: voice_get_day_month_cost_sum MCP handler — unit tests.
 // RED during this plan's task 2a; GREEN after the handler is landed.
 import { describe, it, expect } from 'vitest';
 

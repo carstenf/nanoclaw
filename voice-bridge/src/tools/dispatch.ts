@@ -31,20 +31,20 @@ import {
 // null  = not implemented (03-08 skipped or bridge-internal, stub path).
 // undefined = unknown → invalid_tool_call (caught by allowlist check before we get here).
 const TOOL_TO_CORE_MCP: Record<string, string | null> = {
-  check_calendar: 'voice.check_calendar',
-  create_calendar_entry: 'voice.create_calendar_entry',
-  delete_calendar_entry: 'voice.delete_calendar_entry',
-  update_calendar_entry: 'voice.update_calendar_entry',
-  send_discord_message: 'voice.send_discord_message',
-  get_contract: 'voice.get_contract',
-  get_practice_profile: 'voice.get_practice_profile',
-  schedule_retry: 'voice.schedule_retry',
-  search_competitors: 'voice.search_competitors', // Plan 04-03: wired (returns not_configured until SEARCH_COMPETITORS_PROVIDER set)
+  check_calendar: 'voice_check_calendar',
+  create_calendar_entry: 'voice_create_calendar_entry',
+  delete_calendar_entry: 'voice_delete_calendar_entry',
+  update_calendar_entry: 'voice_update_calendar_entry',
+  send_discord_message: 'voice_send_discord_message',
+  get_contract: 'voice_get_contract',
+  get_practice_profile: 'voice_get_practice_profile',
+  schedule_retry: 'voice_schedule_retry',
+  search_competitors: 'voice_search_competitors', // Plan 04-03: wired (returns not_configured until SEARCH_COMPETITORS_PROVIDER set)
   search_hotels: null, // 03-08 skipped (Phase 6 scope)
   transfer_call: null, // bridge-internal, 02-12+
   confirm_action: null, // bridge-internal, 02-04 readback
-  ask_core: 'voice.ask_core',
-  get_travel_time: 'voice.get_travel_time',
+  ask_core: 'voice_ask_core',
+  get_travel_time: 'voice_get_travel_time',
   end_call: null, // bridge-internal, 03-13 — handled before MCP forward
 }
 

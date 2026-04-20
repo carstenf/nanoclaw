@@ -46,7 +46,7 @@ function makeHandler(dbOverride?: object) {
   return { handler, jsonlLog };
 }
 
-describe('voice.get_practice_profile (REQ-TOOLS-06)', () => {
+describe('voice_get_practice_profile (REQ-TOOLS-06)', () => {
   beforeEach(() => {
     clearFlatDbCache();
   });

@@ -47,7 +47,7 @@ export function makeVoiceResetMonthlyCap(
     appendJsonl(jsonlPath, {
       ts: new Date().toISOString(),
       event: 'monthly_cap_reset',
-      tool: 'voice.reset_monthly_cap',
+      tool: 'voice_reset_monthly_cap',
       before,
       after: '0',
       reason: parseResult.data.reason,

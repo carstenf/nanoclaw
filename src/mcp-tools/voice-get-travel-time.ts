@@ -34,7 +34,7 @@ export interface VoiceGetTravelTimeDeps {
 }
 
 /**
- * Handler factory for voice.get_travel_time MCP tool.
+ * Handler factory for voice_get_travel_time MCP tool.
  *
  * Validates input via Zod, calls Maps Distance Matrix, logs JSONL.
  * PII-clean: origin and destination are NOT written to JSONL.
@@ -73,7 +73,7 @@ export function makeVoiceGetTravelTime(deps: VoiceGetTravelTimeDeps) {
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'travel_time_done',
-        tool: 'voice.get_travel_time',
+        tool: 'voice_get_travel_time',
         call_id: call_id ?? null,
         mode: result.mode,
         duration_seconds: result.duration_seconds,
@@ -102,7 +102,7 @@ export function makeVoiceGetTravelTime(deps: VoiceGetTravelTimeDeps) {
 
       logger.warn({
         event: 'voice_get_travel_time_error',
-        tool: 'voice.get_travel_time',
+        tool: 'voice_get_travel_time',
         call_id: call_id ?? null,
         error: errorCode,
       });
@@ -110,7 +110,7 @@ export function makeVoiceGetTravelTime(deps: VoiceGetTravelTimeDeps) {
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'travel_time_failed',
-        tool: 'voice.get_travel_time',
+        tool: 'voice_get_travel_time',
         call_id: call_id ?? null,
         mode: mode ?? 'driving',
         latency_ms: now() - start,

@@ -129,7 +129,7 @@ export function startSlowBrain(
         const ctrl = new AbortController()
         currentAbort = ctrl
         const res = await coreClient.callTool(
-          'voice.on_transcript_turn',
+          'voice_on_transcript_turn',
           {
             call_id: sideband.callId,
             turn_id: delta.turnId,

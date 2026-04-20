@@ -1,4 +1,4 @@
-// Phase 4 Plan 04-04 (INFRA-07): voice.insert_price_snapshot MCP handler — unit tests.
+// Phase 4 Plan 04-04 (INFRA-07): voice_insert_price_snapshot MCP handler — unit tests.
 // RED gate: the handler module does not exist yet. Task 2 turns this GREEN.
 import fs from 'fs';
 import os from 'os';
@@ -83,7 +83,7 @@ describe('makeVoiceInsertPriceSnapshot (INFRA-07)', () => {
     const raw = fs.readFileSync(JSONL_PATH(), 'utf8').trim();
     const entry = JSON.parse(raw);
     expect(entry.event).toBe('price_snapshot_inserted');
-    expect(entry.tool).toBe('voice.insert_price_snapshot');
+    expect(entry.tool).toBe('voice_insert_price_snapshot');
     expect(entry.model).toBe('gpt-realtime-mini');
     expect(entry.source).toBe('hetzner_scrape');
     expect(typeof entry.latency_ms).toBe('number');

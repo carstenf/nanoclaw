@@ -83,7 +83,7 @@ export function makeVoiceSendDiscordMessage(
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'discord_message_deduplicated',
-        tool: 'voice.send_discord_message',
+        tool: 'voice_send_discord_message',
         call_id: call_id ?? null,
         channel,
         content_hash: contentHashShort,
@@ -114,7 +114,7 @@ export function makeVoiceSendDiscordMessage(
         appendJsonl(jsonlPath, {
           ts: new Date().toISOString(),
           event: 'discord_message_failed',
-          tool: 'voice.send_discord_message',
+          tool: 'voice_send_discord_message',
           call_id: call_id ?? null,
           channel,
           content_hash: contentHashShort,
@@ -127,7 +127,7 @@ export function makeVoiceSendDiscordMessage(
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'discord_message_failed',
-        tool: 'voice.send_discord_message',
+        tool: 'voice_send_discord_message',
         call_id: call_id ?? null,
         channel,
         content_hash: contentHashShort,
@@ -142,7 +142,7 @@ export function makeVoiceSendDiscordMessage(
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'discord_message_failed',
-        tool: 'voice.send_discord_message',
+        tool: 'voice_send_discord_message',
         call_id: call_id ?? null,
         channel,
         content_hash: contentHashShort,
@@ -158,7 +158,7 @@ export function makeVoiceSendDiscordMessage(
     appendJsonl(jsonlPath, {
       ts: new Date().toISOString(),
       event: 'discord_message_sent',
-      tool: 'voice.send_discord_message',
+      tool: 'voice_send_discord_message',
       call_id: call_id ?? null,
       channel,
       content_hash: contentHashShort,

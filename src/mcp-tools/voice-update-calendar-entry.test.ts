@@ -251,7 +251,7 @@ describe('makeVoiceUpdateCalendarEntry (REQ-TOOLS-12)', () => {
       fs.readFileSync(jsonlPath, 'utf8').trim().split('\n').pop() ?? '{}',
     );
     expect(last.event).toBe('calendar_update_done');
-    expect(last.tool).toBe('voice.update_calendar_entry');
+    expect(last.tool).toBe('voice_update_calendar_entry');
     expect(last.updated).toBe(true);
     expect(last.event_id).toBe('evt-jsonl');
     expect(last.fields_changed).toEqual(

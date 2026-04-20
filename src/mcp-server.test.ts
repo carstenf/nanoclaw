@@ -74,7 +74,7 @@ describe('GET /health', () => {
     expect(body.ok).toBe(true);
     expect(body.bound_to).toBe('127.0.0.1:test');
     expect(body.peers).toEqual(['127.0.0.1']);
-    expect(body.tools).toContain('voice.on_transcript_turn');
+    expect(body.tools).toContain('voice_on_transcript_turn');
   });
 
   it('returns 403 peer_not_allowed for unlisted peer', async () => {
@@ -88,9 +88,9 @@ describe('GET /health', () => {
 });
 
 describe('POST /mcp/:tool_name', () => {
-  it('voice.on_transcript_turn with valid body -> 200 {ok, result}', async () => {
+  it('voice_on_transcript_turn with valid body -> 200 {ok, result}', async () => {
     await startApp(['127.0.0.1']);
-    const r = await fetch(`${baseUrl}/mcp/voice.on_transcript_turn`, {
+    const r = await fetch(`${baseUrl}/mcp/voice_on_transcript_turn`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -125,7 +125,7 @@ describe('POST /mcp/:tool_name', () => {
 
   it('broken JSON body -> 400 bad_json', async () => {
     await startApp(['127.0.0.1']);
-    const r = await fetch(`${baseUrl}/mcp/voice.on_transcript_turn`, {
+    const r = await fetch(`${baseUrl}/mcp/voice_on_transcript_turn`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: '{not json',
@@ -137,7 +137,7 @@ describe('POST /mcp/:tool_name', () => {
 
   it('missing call_id -> 400 bad_request with field', async () => {
     await startApp(['127.0.0.1']);
-    const r = await fetch(`${baseUrl}/mcp/voice.on_transcript_turn`, {
+    const r = await fetch(`${baseUrl}/mcp/voice_on_transcript_turn`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -152,7 +152,7 @@ describe('POST /mcp/:tool_name', () => {
 
   it('blocked peer on POST -> 403 before tool dispatch', async () => {
     await startApp(['10.0.0.99']);
-    const r = await fetch(`${baseUrl}/mcp/voice.on_transcript_turn`, {
+    const r = await fetch(`${baseUrl}/mcp/voice_on_transcript_turn`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -9,7 +9,7 @@ import {
   type VoiceSearchCompetitorsDeps,
 } from './voice-search-competitors.js';
 
-describe('voice.search_competitors (TOOLS-05)', () => {
+describe('voice_search_competitors (TOOLS-05)', () => {
   let tmpDir: string;
   let jsonlPath: string;
 

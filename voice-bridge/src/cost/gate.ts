@@ -1,6 +1,6 @@
 // voice-bridge/src/cost/gate.ts
 // Phase 4 Plan 04-02 (COST-02, COST-03): /accept-time cost gate.
-// Queries Core via voice.get_day_month_cost_sum and returns a decision
+// Queries Core via voice_get_day_month_cost_sum and returns a decision
 // {allow|reject_daily|reject_monthly|reject_suspended} + current totals.
 // webhook.ts is the sole caller; it maps non-'allow' decisions to SIP 503.
 //
@@ -65,7 +65,7 @@ export async function checkCostCaps(
 
   let res: unknown
   try {
-    res = await callCore('voice.get_day_month_cost_sum', {}, { timeoutMs })
+    res = await callCore('voice_get_day_month_cost_sum', {}, { timeoutMs })
   } catch (err: unknown) {
     log.warn({
       event: 'cost_gate_core_unreachable',

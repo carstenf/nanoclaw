@@ -142,7 +142,7 @@ export const OPENAI_SIP_PROJECT_ID =
 
 // ----- Plan 02-09: NanoClaw-Core MCP endpoint (Slow-Brain Retrofit) -----
 // Slow-Brain-Inference lebt in NanoClaw-Core (Plan 03-02). voice-bridge ruft
-// per Turn voice.on_transcript_turn via HTTP-MCP ueber WireGuard. Unset =
+// per Turn voice_on_transcript_turn via HTTP-MCP ueber WireGuard. Unset =
 // slow-brain no-op mode (wie alter getAnthropicKey-Fallback).
 export const CORE_MCP_URL = process.env.CORE_MCP_URL
 

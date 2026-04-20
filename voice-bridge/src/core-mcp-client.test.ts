@@ -57,26 +57,26 @@ function makeLog() {
  * through to our registry. Schemaless fallback would receive SDK extras as
  * the first handler arg instead of caller args — not what these tests need.
  *
- *  - voice.check_calendar  — "echo" behavior (round-trips validated args)
- *  - voice.ask_core        — slow path (awaits `slowToolMs` then resolves)
- *  - voice.get_contract    — throws so the server emits an MCP isError
+ *  - voice_check_calendar  — "echo" behavior (round-trips validated args)
+ *  - voice_ask_core        — slow path (awaits `slowToolMs` then resolves)
+ *  - voice_get_contract    — throws so the server emits an MCP isError
  *                            payload (for server_error assertion)
  */
 function makeRegistry(opts: { slowToolMs?: number } = {}): ToolRegistry {
   const r = new ToolRegistry()
   // Echo-style handler — returns the synthetic args the server hands us
   // (our caller args + Pitfall-8 call_id/turn_id injection).
-  r.register('voice.check_calendar', async (args: unknown) => ({
+  r.register('voice_check_calendar', async (args: unknown) => ({
     ok: true,
     echo: args,
   }))
   // Slow handler — used for the timeout scenario.
-  r.register('voice.ask_core', async () => {
+  r.register('voice_ask_core', async () => {
     await new Promise((res) => setTimeout(res, opts.slowToolMs ?? 500))
     return { ok: true, slow: true }
   })
   // Throwing handler — server catches, wraps as MCP isError payload.
-  r.register('voice.get_contract', async () => {
+  r.register('voice_get_contract', async () => {
     throw new Error('intentional_handler_error')
   })
   return r
@@ -118,7 +118,7 @@ afterEach(async () => {
 
 // Helper — build a fresh set of schema-valid args for the "echo" tool,
 // optionally marked with a per-test discriminator so response round-trips
-// can be asserted. voice.check_calendar requires:
+// can be asserted. voice_check_calendar requires:
 //   - date: YYYY-MM-DD string
 //   - duration_minutes: integer in [1, 1440]
 // We use duration_minutes as the discriminator (1..1440) so the echoed
@@ -142,7 +142,7 @@ describe('CoreMcpClient v2 (MCP StreamableHTTP via SDK)', () => {
     await client.ensureConnected()
     // Indirect validation: a tool call succeeds, proving the session is live.
     const r = (await client.callTool(
-      'voice.check_calendar',
+      'voice_check_calendar',
       echoArgs(11),
     )) as {
       ok: boolean
@@ -156,7 +156,7 @@ describe('CoreMcpClient v2 (MCP StreamableHTTP via SDK)', () => {
   it('callTool: returns server result, preserves args shape', async () => {
     const client = new CoreMcpClient(new URL(baseUrl), BEARER)
     const r = (await client.callTool(
-      'voice.check_calendar',
+      'voice_check_calendar',
       echoArgs(42),
     )) as {
       ok: boolean
@@ -190,7 +190,7 @@ describe('CoreMcpClient v2 (MCP StreamableHTTP via SDK)', () => {
 
   it('timeout: callTool rejects with CoreMcpTimeoutError when opts.timeoutMs elapses', async () => {
     // Restart server with a slower handler so we can exercise a real
-    // wall-clock timeout without flakiness. voice.ask_core requires
+    // wall-clock timeout without flakiness. voice_ask_core requires
     // {topic: slug, request: non-empty} — schema-valid args let the call
     // reach our sleeping handler.
     await stopServer()
@@ -198,7 +198,7 @@ describe('CoreMcpClient v2 (MCP StreamableHTTP via SDK)', () => {
     const client = new CoreMcpClient(new URL(baseUrl), BEARER)
     await expect(
       client.callTool(
-        'voice.ask_core',
+        'voice_ask_core',
         { topic: 'calendar', request: 'probe' },
         { timeoutMs: 50 },
       ),
@@ -208,10 +208,10 @@ describe('CoreMcpClient v2 (MCP StreamableHTTP via SDK)', () => {
 
   it('server_error: callTool rejects with CoreMcpError when tool handler throws', async () => {
     const client = new CoreMcpClient(new URL(baseUrl), BEARER)
-    // voice.get_contract handler throws → server wraps as isError MCP
+    // voice_get_contract handler throws → server wraps as isError MCP
     // payload → v2 client unwraps to CoreMcpError with the error text as
     // message. Args must satisfy GetContractSchema (provider_name non-empty).
-    const p = client.callTool('voice.get_contract', {
+    const p = client.callTool('voice_get_contract', {
       provider_name: 'test-provider',
     })
     await expect(p).rejects.toBeInstanceOf(CoreMcpError)
@@ -222,7 +222,7 @@ describe('CoreMcpClient v2 (MCP StreamableHTTP via SDK)', () => {
   it('reconnect_after_close: ensureConnected() after close() opens a fresh session', async () => {
     const client = new CoreMcpClient(new URL(baseUrl), BEARER)
     const r1 = (await client.callTool(
-      'voice.check_calendar',
+      'voice_check_calendar',
       echoArgs(1),
     )) as {
       ok: boolean
@@ -232,7 +232,7 @@ describe('CoreMcpClient v2 (MCP StreamableHTTP via SDK)', () => {
     await client.close()
     // After close(), callTool() must transparently re-ensureConnected().
     const r2 = (await client.callTool(
-      'voice.check_calendar',
+      'voice_check_calendar',
       echoArgs(2),
     )) as {
       ok: boolean

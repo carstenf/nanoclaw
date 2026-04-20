@@ -1,7 +1,7 @@
 /**
  * voice-ask-core.ts
  *
- * MCP tool: voice.ask_core
+ * MCP tool: voice_ask_core
  * Two-path handler:
  *   - topic='andy' → runAndyForVoice (real container-agent call against groups/main)
  *   - other topics  → Claude-Sonnet inference via OneCLI (echo-skill path)
@@ -77,7 +77,7 @@ export interface VoiceAskCoreDeps {
 }
 
 /**
- * Create the voice.ask_core tool handler.
+ * Create the voice_ask_core tool handler.
  * Injects deps so the handler can be unit-tested without real fs/Claude calls.
  */
 export function makeVoiceAskCore(deps: VoiceAskCoreDeps) {
@@ -132,7 +132,7 @@ export function makeVoiceAskCore(deps: VoiceAskCoreDeps) {
           appendJsonl(jsonlPath, {
             ts: new Date().toISOString(),
             event: 'ask_core_andy_done',
-            tool: 'voice.ask_core',
+            tool: 'voice_ask_core',
             call_id: call_id ?? null,
             topic,
             request_len: request.length,
@@ -159,7 +159,7 @@ export function makeVoiceAskCore(deps: VoiceAskCoreDeps) {
           appendJsonl(jsonlPath, {
             ts: new Date().toISOString(),
             event: 'ask_core_andy_failed',
-            tool: 'voice.ask_core',
+            tool: 'voice_ask_core',
             call_id: call_id ?? null,
             topic,
             request_len: request.length,
@@ -186,7 +186,7 @@ export function makeVoiceAskCore(deps: VoiceAskCoreDeps) {
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'ask_core_skill_not_configured',
-        tool: 'voice.ask_core',
+        tool: 'voice_ask_core',
         call_id: call_id ?? null,
         topic,
         request_len: request.length,
@@ -217,7 +217,7 @@ export function makeVoiceAskCore(deps: VoiceAskCoreDeps) {
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'ask_core_done',
-        tool: 'voice.ask_core',
+        tool: 'voice_ask_core',
         call_id: call_id ?? null,
         topic,
         request_len: request.length,
@@ -244,7 +244,7 @@ export function makeVoiceAskCore(deps: VoiceAskCoreDeps) {
         appendJsonl(jsonlPath, {
           ts: new Date().toISOString(),
           event: 'ask_core_failed',
-          tool: 'voice.ask_core',
+          tool: 'voice_ask_core',
           call_id: call_id ?? null,
           topic,
           request_len: request.length,
@@ -260,7 +260,7 @@ export function makeVoiceAskCore(deps: VoiceAskCoreDeps) {
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'ask_core_failed',
-        tool: 'voice.ask_core',
+        tool: 'voice_ask_core',
         call_id: call_id ?? null,
         topic,
         request_len: request.length,

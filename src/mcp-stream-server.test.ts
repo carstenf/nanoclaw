@@ -39,11 +39,11 @@ function makeLog() {
 
 function makeRegistry(): ToolRegistry {
   const r = new ToolRegistry();
-  r.register('voice.echo_test', async (args: unknown) => ({
+  r.register('voice_echo_test', async (args: unknown) => ({
     ok: true,
     echo: args,
   }));
-  r.register('voice.health_probe', async () => ({ ok: true }));
+  r.register('voice_health_probe', async () => ({ ok: true }));
   return r;
 }
 
@@ -92,8 +92,8 @@ describe('mcp-stream-server — AC-07 StreamableHTTP', () => {
     };
     expect(body.ok).toBe(true);
     expect(Array.isArray(body.tools)).toBe(true);
-    expect(body.tools).toContain('voice.echo_test');
-    expect(body.tools).toContain('voice.health_probe');
+    expect(body.tools).toContain('voice_echo_test');
+    expect(body.tools).toContain('voice_health_probe');
   });
 
   it('POST / without Authorization returns 401', async () => {

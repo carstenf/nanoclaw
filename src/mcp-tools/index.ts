@@ -162,7 +162,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   }
 
   registry.register(
-    'voice.on_transcript_turn',
+    'voice_on_transcript_turn',
     makeVoiceOnTranscriptTurn({
       dataDir: deps.dataDir ?? DATA_DIR,
       log: deps.log ?? logger,
@@ -171,7 +171,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   );
 
   registry.register(
-    'voice.check_calendar',
+    'voice_check_calendar',
     makeVoiceCheckCalendar({
       calendarClient: () => getCalendarClient(),
       jsonlPath: deps.dataDir
@@ -181,7 +181,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   );
 
   registry.register(
-    'voice.create_calendar_entry',
+    'voice_create_calendar_entry',
     makeVoiceCreateCalendarEntry({
       calendarClient: () => getCalendarClient(),
       jsonlPath: deps.dataDir
@@ -191,7 +191,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   );
 
   registry.register(
-    'voice.delete_calendar_entry',
+    'voice_delete_calendar_entry',
     makeVoiceDeleteCalendarEntry({
       calendarClient: () => getCalendarClient(),
       jsonlPath: deps.dataDir
@@ -201,7 +201,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   );
 
   registry.register(
-    'voice.update_calendar_entry',
+    'voice_update_calendar_entry',
     makeVoiceUpdateCalendarEntry({
       calendarClient: () => getCalendarClient(),
       jsonlPath: deps.dataDir
@@ -210,19 +210,19 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     }),
   );
 
-  // voice.send_discord_message — only register when callback is provided AND allowlist is non-empty
+  // voice_send_discord_message — only register when callback is provided AND allowlist is non-empty
   if (deps.sendDiscordMessage && VOICE_DISCORD_ALLOWED_CHANNELS.size > 0) {
     const log = deps.log ?? logger;
     log.info(
       {
         event: 'mcp_tool_registering',
-        tool: 'voice.send_discord_message',
+        tool: 'voice_send_discord_message',
         allowlist_size: VOICE_DISCORD_ALLOWED_CHANNELS.size,
       },
-      'registered tool voice.send_discord_message',
+      'registered tool voice_send_discord_message',
     );
     registry.register(
-      'voice.send_discord_message',
+      'voice_send_discord_message',
       makeVoiceSendDiscordMessage({
         sendDiscordMessage: deps.sendDiscordMessage,
         allowedChannels: VOICE_DISCORD_ALLOWED_CHANNELS,
@@ -237,23 +237,23 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     log.warn(
       {
         event: 'mcp_tool_skipped',
-        tool: 'voice.send_discord_message',
+        tool: 'voice_send_discord_message',
         has_callback: !!deps.sendDiscordMessage,
         allowlist_size: VOICE_DISCORD_ALLOWED_CHANNELS.size,
       },
-      'skipping voice.send_discord_message — no callback or empty allowlist',
+      'skipping voice_send_discord_message — no callback or empty allowlist',
     );
   }
 
-  // voice.get_travel_time — only register when GOOGLE_MAPS_API_KEY is set
+  // voice_get_travel_time — only register when GOOGLE_MAPS_API_KEY is set
   if (GOOGLE_MAPS_API_KEY.length > 0) {
     const log = deps.log ?? logger;
     log.info(
-      { event: 'mcp_tool_registering', tool: 'voice.get_travel_time' },
-      'registered tool voice.get_travel_time',
+      { event: 'mcp_tool_registering', tool: 'voice_get_travel_time' },
+      'registered tool voice_get_travel_time',
     );
     registry.register(
-      'voice.get_travel_time',
+      'voice_get_travel_time',
       makeVoiceGetTravelTime({
         apiKey: GOOGLE_MAPS_API_KEY,
         timeoutMs: GOOGLE_MAPS_TIMEOUT_MS,
@@ -265,14 +265,14 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   } else {
     const log = deps.log ?? logger;
     log.info(
-      { event: 'mcp_tool_skipped', tool: 'voice.get_travel_time' },
-      'voice.get_travel_time skipped: no GOOGLE_MAPS_API_KEY',
+      { event: 'mcp_tool_skipped', tool: 'voice_get_travel_time' },
+      'voice_get_travel_time skipped: no GOOGLE_MAPS_API_KEY',
     );
   }
 
-  // voice.get_contract — always registered; graceful not_configured when file absent
+  // voice_get_contract — always registered; graceful not_configured when file absent
   registry.register(
-    'voice.get_contract',
+    'voice_get_contract',
     makeVoiceGetContract({
       contractsPath: CONTRACTS_PATH,
       jsonlPath: deps.dataDir
@@ -281,9 +281,9 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     }),
   );
 
-  // voice.get_practice_profile — always registered; graceful not_configured when file absent
+  // voice_get_practice_profile — always registered; graceful not_configured when file absent
   registry.register(
-    'voice.get_practice_profile',
+    'voice_get_practice_profile',
     makeVoiceGetPracticeProfile({
       profilesPath: PRACTICE_PROFILE_PATH,
       jsonlPath: deps.dataDir
@@ -292,9 +292,9 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     }),
   );
 
-  // voice.schedule_retry — always registered; returns no_main_group if callback absent or returns null
+  // voice_schedule_retry — always registered; returns no_main_group if callback absent or returns null
   registry.register(
-    'voice.schedule_retry',
+    'voice_schedule_retry',
     makeVoiceScheduleRetry({
       createTask,
       getAllTasks,
@@ -314,11 +314,11 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       .filter(Boolean)[0] ??
       '');
 
-  // voice.ask_core — always registered; graceful skill_not_configured when skill absent
+  // voice_ask_core — always registered; graceful skill_not_configured when skill absent
   // topic='andy' → runAndyForVoice (real container-agent against groups/main)
   // other topics  → echo-skill / Claude inference path
   registry.register(
-    'voice.ask_core',
+    'voice_ask_core',
     makeVoiceAskCore({
       loadSkill: (topic) => loadSkill(topic, { skillsDir: SKILLS_DIR }),
       callClaude: (sys, msgs, o) =>
@@ -338,9 +338,9 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     }),
   );
 
-  // voice.request_outbound_call — always registered; forwards to Bridge /outbound
+  // voice_request_outbound_call — always registered; forwards to Bridge /outbound
   registry.register(
-    'voice.request_outbound_call',
+    'voice_request_outbound_call',
     makeVoiceRequestOutboundCall({
       bridgeUrl: BRIDGE_OUTBOUND_URL,
       bridgeAuthToken: BRIDGE_OUTBOUND_AUTH_TOKEN || undefined,
@@ -354,7 +354,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   // Always registered — no external prereq. Bridge posts per-turn and per-call
   // rows as it observes response.done / session.closed events.
   registry.register(
-    'voice.record_turn_cost',
+    'voice_record_turn_cost',
     makeVoiceRecordTurnCost({
       insertTurnCost: (row) => insertTurnCost(getDatabase(), row),
       jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-cost.jsonl` : undefined,
@@ -362,7 +362,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   );
 
   registry.register(
-    'voice.finalize_call_cost',
+    'voice_finalize_call_cost',
     makeVoiceFinalizeCallCost({
       upsertCallCost: (row) => upsertCallCost(getDatabase(), row),
       sumTurnCosts: (call_id) => {
@@ -382,11 +382,11 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   );
 
   // Phase 4 Plan 04-02: /accept-time cost gate + manual cap reset.
-  // voice.get_day_month_cost_sum is read by voice-bridge/src/cost/gate.ts on
-  // every incoming call. voice.reset_monthly_cap is the manual override
+  // voice_get_day_month_cost_sum is read by voice-bridge/src/cost/gate.ts on
+  // every incoming call. voice_reset_monthly_cap is the manual override
   // Carsten invokes (via iPhone/Chat) after a €25 monthly breach.
   registry.register(
-    'voice.get_day_month_cost_sum',
+    'voice_get_day_month_cost_sum',
     makeVoiceGetDayMonthCostSum({
       sumCostCurrentDay: () => sumCostCurrentDay(getDatabase()),
       sumCostCurrentMonth: () => sumCostCurrentMonth(getDatabase()),
@@ -395,7 +395,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   );
 
   registry.register(
-    'voice.reset_monthly_cap',
+    'voice_reset_monthly_cap',
     makeVoiceResetMonthlyCap({
       getRouterState,
       setRouterState,
@@ -403,24 +403,24 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     }),
   );
 
-  // Phase 4 Plan 04-04 (INFRA-07): voice.insert_price_snapshot — written by
+  // Phase 4 Plan 04-04 (INFRA-07): voice_insert_price_snapshot — written by
   // the Hetzner pricing-refresh cron via Core MCP bearer auth. Feeds the
   // voice_price_snapshots table that recon-invoice + manual drift review
   // consume. Pitfall 5: NEVER auto-mutates prices.ts — snapshot + alert only.
   registry.register(
-    'voice.insert_price_snapshot',
+    'voice_insert_price_snapshot',
     makeVoiceInsertPriceSnapshot({
       insertPriceSnapshot: (row) => insertPriceSnapshot(getDatabase(), row),
       jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-cost.jsonl` : undefined,
     }),
   );
 
-  // Phase 4 Plan 04-03 (TOOLS-05): voice.search_competitors.
+  // Phase 4 Plan 04-03 (TOOLS-05): voice_search_competitors.
   // MVP Phase-4: returns not_configured when SEARCH_COMPETITORS_PROVIDER env
   // is unset. Phase 7 (C4 negotiation) wires the Claude-over-web-search
   // backend via askCompetitorsBackend dep.
   registry.register(
-    'voice.search_competitors',
+    'voice_search_competitors',
     makeVoiceSearchCompetitors({
       provider: process.env.SEARCH_COMPETITORS_PROVIDER,
       jsonlPath: deps.dataDir

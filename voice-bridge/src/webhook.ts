@@ -165,7 +165,7 @@ export function registerAcceptRoute(
         // Suspension flag was already set by Core-side auto-suspend path
         // (variant b, locked per Plan 04-02 WARNING-2 resolution).
         void sendDiscordAlert(
-          `🛑 Voice channel SUSPENDED: monthly cap €${CAP_MONTHLY_EUR.toFixed(2)} reached (current €${gate.month_eur.toFixed(2)}). Run voice.reset_monthly_cap to resume.`,
+          `🛑 Voice channel SUSPENDED: monthly cap €${CAP_MONTHLY_EUR.toFixed(2)} reached (current €${gate.month_eur.toFixed(2)}). Run voice_reset_monthly_cap to resume.`,
         )
       } else if (gate.decision === 'reject_daily') {
         void sendDiscordAlert(
@@ -173,7 +173,7 @@ export function registerAcceptRoute(
         )
       } else if (gate.decision === 'reject_suspended') {
         void sendDiscordAlert(
-          `🛑 Call ${callId} rejected: voice channel is SUSPENDED. Run voice.reset_monthly_cap to resume.`,
+          `🛑 Call ${callId} rejected: voice channel is SUSPENDED. Run voice_reset_monthly_cap to resume.`,
         )
       }
       try {

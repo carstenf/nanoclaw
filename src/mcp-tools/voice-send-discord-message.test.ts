@@ -154,7 +154,7 @@ describe('makeVoiceSendDiscordMessage (REQ-TOOLS-03)', () => {
     const entry = JSON.parse(logContent.split('\n')[0]);
 
     expect(entry.event).toBe('discord_message_sent');
-    expect(entry.tool).toBe('voice.send_discord_message');
+    expect(entry.tool).toBe('voice_send_discord_message');
     expect(entry.call_id).toBe('pii-test');
     expect(typeof entry.content_hash).toBe('string');
     expect(entry.content_hash.length).toBe(8); // first 8 hex chars

@@ -196,7 +196,7 @@ describe('makeVoiceScheduleRetry (REQ-TOOLS-07)', () => {
     const entry = JSON.parse(jsonl.trim().split('\n').pop()!);
 
     expect(entry.event).toBe('retry_scheduled');
-    expect(entry.tool).toBe('voice.schedule_retry');
+    expect(entry.tool).toBe('voice_schedule_retry');
     expect(entry).not.toHaveProperty('prompt');
     expect(entry).toHaveProperty('task_id');
     expect(entry).toHaveProperty('scheduled_for');

@@ -1,7 +1,7 @@
 /**
  * voice-get-contract.ts
  *
- * MCP tool: voice.get_contract  (REQ-TOOLS-04)
+ * MCP tool: voice_get_contract  (REQ-TOOLS-04)
  * Args: {provider_name: string}
  * Returns: {current_conditions, expiry_date, last_review} — all nullable
  */
@@ -152,7 +152,7 @@ export function makeVoiceGetContract(deps: VoiceGetContractDeps) {
     appendJsonl({
       ts: new Date().toISOString(),
       event: 'contract_lookup_done',
-      tool: 'voice.get_contract',
+      tool: 'voice_get_contract',
       call_id: call_id ?? null,
       query_key: provider_name,
       found: found !== undefined,

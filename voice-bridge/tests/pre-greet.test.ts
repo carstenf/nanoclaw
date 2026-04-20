@@ -58,7 +58,7 @@ describe('maybeInjectPreGreet (03-14, REQ-VOICE-13)', () => {
     })
 
     expect(callTool).toHaveBeenCalledWith(
-      'voice.on_transcript_turn',
+      'voice_on_transcript_turn',
       expect.objectContaining({
         call_id: 'rtc_test',
         turn_id: 'pre-greet',

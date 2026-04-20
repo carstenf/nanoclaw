@@ -17,9 +17,9 @@
 // assertion logic can check per-session isolation via the echoed arguments.
 //
 // NOTE: args must satisfy the zod shape declared in TOOL_META (the SDK
-// validates pre-handler). For `voice.check_calendar` that means
+// validates pre-handler). For `voice_check_calendar` that means
 // `{ date: 'YYYY-MM-DD', duration_minutes: 1..1440 }`; for
-// `voice.request_outbound_call` the shape requires `target_phone` (E.164),
+// `voice_request_outbound_call` the shape requires `target_phone` (E.164),
 // `goal`, `report_to_jid`.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import http, { type Server } from 'node:http';
@@ -38,24 +38,24 @@ const BEARER = 'test-token';
 // Every name registers an echo handler so tools/list shows them and
 // tools/call round-trips without touching real services.
 const VOICE_TOOL_NAMES = [
-  'voice.check_calendar',
-  'voice.create_calendar_entry',
-  'voice.delete_calendar_entry',
-  'voice.update_calendar_entry',
-  'voice.send_discord_message',
-  'voice.get_travel_time',
-  'voice.get_contract',
-  'voice.get_practice_profile',
-  'voice.schedule_retry',
-  'voice.ask_core',
-  'voice.record_turn_cost',
-  'voice.finalize_call_cost',
-  'voice.insert_price_snapshot',
-  'voice.search_competitors',
-  'voice.request_outbound_call',
-  'voice.reset_monthly_cap',
-  'voice.get_day_month_cost_sum',
-  'voice.on_transcript_turn',
+  'voice_check_calendar',
+  'voice_create_calendar_entry',
+  'voice_delete_calendar_entry',
+  'voice_update_calendar_entry',
+  'voice_send_discord_message',
+  'voice_get_travel_time',
+  'voice_get_contract',
+  'voice_get_practice_profile',
+  'voice_schedule_retry',
+  'voice_ask_core',
+  'voice_record_turn_cost',
+  'voice_finalize_call_cost',
+  'voice_insert_price_snapshot',
+  'voice_search_competitors',
+  'voice_request_outbound_call',
+  'voice_reset_monthly_cap',
+  'voice_get_day_month_cost_sum',
+  'voice_on_transcript_turn',
 ];
 
 function makeLog() {
@@ -137,12 +137,12 @@ describe('Phase 4.5 MCP regression — session-based StreamableHTTP', () => {
     const tList0 = Date.now();
     const list = await c.listTools();
     expect(Date.now() - tList0).toBeLessThan(500);
-    expect(list.tools.map((x) => x.name)).toContain('voice.check_calendar');
+    expect(list.tools.map((x) => x.name)).toContain('voice_check_calendar');
 
     for (let i = 0; i < 3; i++) {
       const t1 = Date.now();
       const r = await c.callTool({
-        name: 'voice.check_calendar',
+        name: 'voice_check_calendar',
         arguments: { date: '2026-05-01', duration_minutes: 60 },
       });
       expect(Date.now() - t1).toBeLessThan(500);
@@ -221,7 +221,7 @@ describe('Phase 4.5 MCP regression — session-based StreamableHTTP', () => {
     const aResults = await Promise.all(
       [1, 2, 3].map((i) =>
         a.c.callTool({
-          name: 'voice.check_calendar',
+          name: 'voice_check_calendar',
           arguments: { date: '2026-05-01', duration_minutes: i * 10 },
         }),
       ),
@@ -229,7 +229,7 @@ describe('Phase 4.5 MCP regression — session-based StreamableHTTP', () => {
     const bResults = await Promise.all(
       [4, 5, 6].map((i) =>
         b.c.callTool({
-          name: 'voice.check_calendar',
+          name: 'voice_check_calendar',
           arguments: { date: '2026-05-01', duration_minutes: i * 10 },
         }),
       ),
@@ -282,7 +282,7 @@ describe('Phase 4.5 MCP regression — session-based StreamableHTTP', () => {
   it('tools_list_schemas: all 18 voice.* tools present on tools/list with non-empty inputSchema', async () => {
     const { c } = await newClient();
     const list = await c.listTools();
-    const voiceTools = list.tools.filter((t) => t.name.startsWith('voice.'));
+    const voiceTools = list.tools.filter((t) => t.name.startsWith('voice_'));
     expect(voiceTools.length).toBeGreaterThanOrEqual(18);
     const names = new Set(voiceTools.map((t) => t.name));
     for (const expected of VOICE_TOOL_NAMES) {
@@ -297,18 +297,18 @@ describe('Phase 4.5 MCP regression — session-based StreamableHTTP', () => {
     await c.close();
   });
 
-  it('request_outbound: voice.request_outbound_call listable + callable via session-based MCP', async () => {
+  it('request_outbound: voice_request_outbound_call listable + callable via session-based MCP', async () => {
     // REQ-C6B-03: the outbound-call tool must be reachable through the
     // session-based transport. Arguments follow RequestOutboundCallSchema
     // (target_phone E.164, goal non-empty, report_to_jid non-empty).
     const { c } = await newClient();
     const list = await c.listTools();
     expect(list.tools.map((t) => t.name)).toContain(
-      'voice.request_outbound_call',
+      'voice_request_outbound_call',
     );
 
     const r = await c.callTool({
-      name: 'voice.request_outbound_call',
+      name: 'voice_request_outbound_call',
       arguments: {
         target_phone: '+4915112345678',
         goal: 'test outbound call',
@@ -317,7 +317,7 @@ describe('Phase 4.5 MCP regression — session-based StreamableHTTP', () => {
     });
     const text = (r.content as Array<{ text: string }>)[0].text;
     expect(text).toMatch(/"ok":\s*true/);
-    expect(text).toMatch(/"tool":"voice\.request_outbound_call"/);
+    expect(text).toMatch(/"tool":"voice_request_outbound_call"/);
     await c.close();
   });
 });

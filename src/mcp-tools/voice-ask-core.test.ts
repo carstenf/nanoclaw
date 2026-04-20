@@ -52,7 +52,7 @@ function makeDeps(
   };
 }
 
-describe('voice.ask_core', () => {
+describe('voice_ask_core', () => {
   // --- Existing echo-path tests (regression) ---
 
   it('happy path: skill found, claude returns text', async () => {

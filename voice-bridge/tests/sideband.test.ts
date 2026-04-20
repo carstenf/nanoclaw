@@ -411,7 +411,7 @@ describe('openSidebandSession — function_call_arguments.done handler (02-11)',
   })
 })
 
-// Plan 04-02 Task 3: response.done → cost accumulator + voice.record_turn_cost
+// Plan 04-02 Task 3: response.done → cost accumulator + voice_record_turn_cost
 // + 80% soft-warn + 100% hard-stop (instructions-only farewell + ws.close).
 describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () => {
   beforeEach(() => {
@@ -457,7 +457,7 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
     })
   }
 
-  it('accumulates cost on response.done and fires voice.record_turn_cost (INFRA-06 live)', async () => {
+  it('accumulates cost on response.done and fires voice_record_turn_cost (INFRA-06 live)', async () => {
     const ws = new MockWS()
     const log = mockLog()
     const acc = makeMockAccumulator()
@@ -484,7 +484,7 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
     await new Promise((r) => setImmediate(r))
     // Core record_turn_cost fire-and-forget
     expect(callCoreTool).toHaveBeenCalledWith(
-      'voice.record_turn_cost',
+      'voice_record_turn_cost',
       expect.objectContaining({
         call_id: 'rtc-cost-1',
         turn_id: 'resp_a',
@@ -592,7 +592,7 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
 
     // Core finalize_call_cost with terminated_by=cost_cap_call
     const finalizeCalls = callCoreTool.mock.calls.filter(
-      (c) => c[0] === 'voice.finalize_call_cost',
+      (c) => c[0] === 'voice_finalize_call_cost',
     )
     expect(finalizeCalls.length).toBe(1)
     expect(finalizeCalls[0][1]).toMatchObject({
@@ -606,7 +606,7 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
     expect(hardStopMsgs.length).toBe(1)
   })
 
-  it('session.closed calls voice.finalize_call_cost (counterpart_bye) + clearCall when not enforced', async () => {
+  it('session.closed calls voice_finalize_call_cost (counterpart_bye) + clearCall when not enforced', async () => {
     const ws = new MockWS()
     const log = mockLog()
     const acc = makeMockAccumulator()
@@ -623,7 +623,7 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
     await new Promise((r) => setImmediate(r))
 
     const finalizeCalls = callCoreTool.mock.calls.filter(
-      (c) => c[0] === 'voice.finalize_call_cost',
+      (c) => c[0] === 'voice_finalize_call_cost',
     )
     expect(finalizeCalls.length).toBe(1)
     expect(finalizeCalls[0][1]).toMatchObject({
@@ -657,7 +657,7 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
 
     // Only one finalize — from the hard-stop path, not from session.closed
     const finalizeCalls = callCoreTool.mock.calls.filter(
-      (c) => c[0] === 'voice.finalize_call_cost',
+      (c) => c[0] === 'voice_finalize_call_cost',
     )
     expect(finalizeCalls.length).toBe(1)
     expect(finalizeCalls[0][1]).toMatchObject({ terminated_by: 'cost_cap_call' })

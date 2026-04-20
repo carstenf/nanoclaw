@@ -193,7 +193,7 @@ describe('makeVoiceCheckCalendar (REQ-TOOLS-01)', () => {
 
     expect(entry.event).toBe('calendar_check_done');
     expect(entry.call_id).toBe('pii-test');
-    expect(entry.tool).toBe('voice.check_calendar');
+    expect(entry.tool).toBe('voice_check_calendar');
     expect(typeof entry.available).toBe('boolean');
     expect(typeof entry.conflicts_count).toBe('number');
     expect(typeof entry.latency_ms).toBe('number');

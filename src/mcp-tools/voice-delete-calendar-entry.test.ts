@@ -223,7 +223,7 @@ describe('makeVoiceDeleteCalendarEntry (REQ-TOOLS-11)', () => {
       .map((l) => JSON.parse(l));
     const last = lines[lines.length - 1];
     expect(last.event).toBe('calendar_delete_done');
-    expect(last.tool).toBe('voice.delete_calendar_entry');
+    expect(last.tool).toBe('voice_delete_calendar_entry');
     expect(last.deleted).toBe(true);
     expect(last.event_id).toBe('evt-pii');
     // PII: summary text not in JSONL

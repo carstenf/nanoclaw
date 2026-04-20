@@ -1,7 +1,7 @@
 /**
  * voice-search-competitors.ts
  *
- * MCP tool: voice.search_competitors  (REQ-TOOLS-05, Phase 4 Plan 04-03)
+ * MCP tool: voice_search_competitors  (REQ-TOOLS-05, Phase 4 Plan 04-03)
  *
  * Schema (matches voice-bridge/src/tools/schemas/search_competitors.json):
  *   { category: string, criteria: object, call_id?: string }
@@ -110,7 +110,7 @@ export function makeVoiceSearchCompetitors(
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'search_competitors_not_configured',
-        tool: 'voice.search_competitors',
+        tool: 'voice_search_competitors',
         call_id: call_id ?? null,
         latency_ms: now() - start,
       });
@@ -126,7 +126,7 @@ export function makeVoiceSearchCompetitors(
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'search_competitors_not_configured',
-        tool: 'voice.search_competitors',
+        tool: 'voice_search_competitors',
         call_id: call_id ?? null,
         provider,
         latency_ms: now() - start,
@@ -139,7 +139,7 @@ export function makeVoiceSearchCompetitors(
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'search_competitors_done',
-        tool: 'voice.search_competitors',
+        tool: 'voice_search_competitors',
         call_id: call_id ?? null,
         category,
         offer_count: res.offers.length,
@@ -156,7 +156,7 @@ export function makeVoiceSearchCompetitors(
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'search_competitors_failed',
-        tool: 'voice.search_competitors',
+        tool: 'voice_search_competitors',
         call_id: call_id ?? null,
         provider,
         latency_ms: now() - start,

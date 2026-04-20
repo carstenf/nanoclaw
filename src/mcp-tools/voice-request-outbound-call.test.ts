@@ -35,7 +35,7 @@ function makeErrorFetch(status: number, body: unknown) {
   });
 }
 
-describe('voice.request_outbound_call', () => {
+describe('voice_request_outbound_call', () => {
   let tmpDir: string;
 
   beforeEach(() => {

@@ -221,7 +221,7 @@ describe('ToolRegistry', () => {
     );
   });
 
-  it('buildDefaultRegistry registers voice.on_transcript_turn', async () => {
+  it('buildDefaultRegistry registers voice_on_transcript_turn', async () => {
     // Inject a no-op session manager to avoid real OneCLI calls in tests
     const mockSessionManager = makeSessionManager(null);
     const registry = buildDefaultRegistry({
@@ -229,8 +229,8 @@ describe('ToolRegistry', () => {
       sessionManager: mockSessionManager,
       sweepIntervalMs: 0,
     });
-    expect(registry.has('voice.on_transcript_turn')).toBe(true);
-    const out = await registry.invoke('voice.on_transcript_turn', {
+    expect(registry.has('voice_on_transcript_turn')).toBe(true);
+    const out = await registry.invoke('voice_on_transcript_turn', {
       call_id: 'c',
       turn_id: 't',
       transcript: 'hi',

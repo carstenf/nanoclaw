@@ -114,86 +114,86 @@ export interface McpStreamDeps {
 // -----------------------------------------------------------------------------
 const TOOL_META: Record<string, { description: string; shape: z.ZodRawShape }> =
   {
-    'voice.check_calendar': {
+    'voice_check_calendar': {
       description:
         'Check calendar availability for a given date and duration. Returns available/conflicts + free slots.',
       shape: CheckCalendarSchema.shape,
     },
-    'voice.create_calendar_entry': {
+    'voice_create_calendar_entry': {
       description:
         'Create a calendar entry with date/time/title/attendees. Idempotent via call_id+turn_id.',
       shape: CreateEntrySchema.shape,
     },
-    'voice.delete_calendar_entry': {
+    'voice_delete_calendar_entry': {
       description: 'Delete a calendar entry by id.',
       shape: DeleteEntrySchema.shape,
     },
-    'voice.update_calendar_entry': {
+    'voice_update_calendar_entry': {
       description: 'Update selected fields of a calendar entry.',
       shape: UpdateEntrySchema.shape,
     },
-    'voice.send_discord_message': {
+    'voice_send_discord_message': {
       description:
         'Send a Discord DM to Carsten — idempotent via content hash.',
       shape: SendDiscordMessageSchema.shape,
     },
-    'voice.get_travel_time': {
+    'voice_get_travel_time': {
       description:
         'Get travel time from origin to destination via Google Maps Distance Matrix.',
       shape: TravelTimeSchema.shape,
     },
-    'voice.get_contract': {
+    'voice_get_contract': {
       description: 'Read the current Core contract document (read-only).',
       shape: GetContractSchema.shape,
     },
-    'voice.get_practice_profile': {
+    'voice_get_practice_profile': {
       description:
         'Read the practice profile (address, patient_id, authorized fields).',
       shape: GetPracticeProfileSchema.shape,
     },
-    'voice.schedule_retry': {
+    'voice_schedule_retry': {
       description: 'Schedule a retry of a failed outbound call.',
       shape: ScheduleRetrySchema.shape,
     },
-    'voice.ask_core': {
+    'voice_ask_core': {
       description:
         'Async query to the Slow-Brain — returns instructions_update patch.',
       shape: AskCoreSchema.shape,
     },
-    'voice.record_turn_cost': {
+    'voice_record_turn_cost': {
       description:
         'Record a per-turn usage cost into the cost ledger. Idempotent via (call_id, turn_id).',
       shape: RecordTurnCostSchema.shape,
     },
-    'voice.finalize_call_cost': {
+    'voice_finalize_call_cost': {
       description:
         'Finalize the aggregated cost for a voice call on hangup.',
       shape: FinalizeCallCostSchema.shape,
     },
-    'voice.insert_price_snapshot': {
+    'voice_insert_price_snapshot': {
       description: 'Insert a pricing snapshot for drift detection.',
       shape: InsertPriceSnapshotSchema.shape,
     },
-    'voice.search_competitors': {
+    'voice_search_competitors': {
       description:
         'Search for competitor offers (graceful not_configured fallback).',
       shape: SearchCompetitorsSchema.shape,
     },
-    'voice.request_outbound_call': {
+    'voice_request_outbound_call': {
       description:
         'Request an outbound call — NanoClaw→Bridge (Case 6b).',
       shape: RequestOutboundCallSchema.shape,
     },
-    'voice.reset_monthly_cap': {
+    'voice_reset_monthly_cap': {
       description: 'Reset the monthly cost cap counter.',
       shape: ResetMonthlyCapSchema.shape,
     },
-    'voice.get_day_month_cost_sum': {
+    'voice_get_day_month_cost_sum': {
       description:
         'Return today + current-month cumulative cost in EUR.',
       shape: GetDayMonthCostSumSchema.shape,
     },
-    'voice.on_transcript_turn': {
+    'voice_on_transcript_turn': {
       description:
         'Bridge→Core: push a transcript turn for Slow-Brain processing.',
       shape: OnTranscriptTurnSchema.shape,

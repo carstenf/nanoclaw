@@ -133,18 +133,18 @@ export const GOOGLE_MAPS_TIMEOUT_MS = parseInt(
   10,
 );
 
-// Flat-DB paths for voice.get_contract + voice.get_practice_profile
+// Flat-DB paths for voice_get_contract + voice_get_practice_profile
 export const CONTRACTS_PATH =
   process.env.CONTRACTS_PATH ?? path.join(DATA_DIR, 'contracts.json');
 export const PRACTICE_PROFILE_PATH =
   process.env.PRACTICE_PROFILE_PATH ??
   path.join(DATA_DIR, 'practice-profile.json');
 
-// Skills directory for voice.ask_core skill resolution
+// Skills directory for voice_ask_core skill resolution
 export const SKILLS_DIR =
   process.env.SKILLS_DIR ?? path.join(DATA_DIR, 'skills');
 
-// voice.ask_core Claude inference settings
+// voice_ask_core Claude inference settings
 export const ASK_CORE_CLAUDE_TIMEOUT_MS = parseInt(
   process.env.ASK_CORE_CLAUDE_TIMEOUT_MS ?? '10000',
   10,
@@ -154,7 +154,7 @@ export const ASK_CORE_MAX_TOKENS_PER_CALL = parseInt(
   10,
 );
 
-// voice.ask_core topic='andy' — container-agent timeout
+// voice_ask_core topic='andy' — container-agent timeout
 // Default 90s: cold container start (Docker pull skipped if image cached) + npm compile
 // + Claude inference can take 30-60s. Plan spec says 30s but real containers need more.
 export const ASK_CORE_ANDY_TIMEOUT_MS = parseInt(
@@ -186,7 +186,7 @@ export const GCALENDAR_TIMEOUT_MS = parseInt(
   10,
 );
 
-// ----- Plan 03-11: voice.request_outbound_call -----
+// ----- Plan 03-11: voice_request_outbound_call -----
 // Bridge base URL for outbound-call requests.
 export const BRIDGE_OUTBOUND_URL =
   process.env.BRIDGE_OUTBOUND_URL ?? 'http://10.0.0.2:4402';

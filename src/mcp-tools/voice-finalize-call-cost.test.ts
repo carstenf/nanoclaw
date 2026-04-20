@@ -1,4 +1,4 @@
-// Phase 4 (INFRA-06): voice.finalize_call_cost MCP handler — unit tests.
+// Phase 4 (INFRA-06): voice_finalize_call_cost MCP handler — unit tests.
 // RED during Wave-0: handler does not exist yet; Task 4 turns this GREEN.
 import fs from 'fs';
 import os from 'os';
@@ -168,7 +168,7 @@ describe('makeVoiceFinalizeCallCost (INFRA-06)', () => {
     const raw = fs.readFileSync(JSONL_PATH(), 'utf8');
     const entry = JSON.parse(raw.trim().split('\n').pop()!);
     expect(entry.event).toBe('call_cost_finalized');
-    expect(entry.tool).toBe('voice.finalize_call_cost');
+    expect(entry.tool).toBe('voice_finalize_call_cost');
     expect(entry.call_id).toBe('c-jsonl');
     expect(entry.cost_eur).toBeCloseTo(0.17, 5);
     expect(entry.turn_count).toBe(3);

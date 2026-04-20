@@ -129,7 +129,7 @@ export function makeVoiceRequestOutboundCall(
         appendJsonl(jsonlPath, {
           ts: new Date().toISOString(),
           event: 'outbound_call_requested',
-          tool: 'voice.request_outbound_call',
+          tool: 'voice_request_outbound_call',
           call_id: call_id ?? null,
           target_phone_hash: phoneHash,
           phone_mask: phoneMask,
@@ -156,7 +156,7 @@ export function makeVoiceRequestOutboundCall(
         appendJsonl(jsonlPath, {
           ts: new Date().toISOString(),
           event: 'outbound_call_failed',
-          tool: 'voice.request_outbound_call',
+          tool: 'voice_request_outbound_call',
           call_id: call_id ?? null,
           target_phone_hash: phoneHash,
           goal_len: goal.length,
@@ -172,7 +172,7 @@ export function makeVoiceRequestOutboundCall(
         appendJsonl(jsonlPath, {
           ts: new Date().toISOString(),
           event: 'outbound_call_failed',
-          tool: 'voice.request_outbound_call',
+          tool: 'voice_request_outbound_call',
           call_id: call_id ?? null,
           target_phone_hash: phoneHash,
           goal_len: goal.length,
@@ -188,7 +188,7 @@ export function makeVoiceRequestOutboundCall(
         appendJsonl(jsonlPath, {
           ts: new Date().toISOString(),
           event: 'outbound_call_failed',
-          tool: 'voice.request_outbound_call',
+          tool: 'voice_request_outbound_call',
           call_id: call_id ?? null,
           target_phone_hash: phoneHash,
           goal_len: goal.length,
@@ -204,7 +204,7 @@ export function makeVoiceRequestOutboundCall(
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'outbound_call_failed',
-        tool: 'voice.request_outbound_call',
+        tool: 'voice_request_outbound_call',
         call_id: call_id ?? null,
         target_phone_hash: phoneHash,
         goal_len: goal.length,
@@ -223,7 +223,7 @@ export function makeVoiceRequestOutboundCall(
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'outbound_call_failed',
-        tool: 'voice.request_outbound_call',
+        tool: 'voice_request_outbound_call',
         call_id: call_id ?? null,
         target_phone_hash: phoneHash,
         goal_len: goal.length,

@@ -37,7 +37,7 @@ function makeHandler(dbOverride?: object) {
   return { handler, jsonlLog };
 }
 
-describe('voice.get_contract (REQ-TOOLS-04)', () => {
+describe('voice_get_contract (REQ-TOOLS-04)', () => {
   beforeEach(() => {
     clearFlatDbCache();
   });

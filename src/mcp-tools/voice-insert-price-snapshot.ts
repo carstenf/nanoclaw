@@ -89,7 +89,7 @@ export function makeVoiceInsertPriceSnapshot(
     appendJsonl(jsonlPath, {
       ts: new Date().toISOString(),
       event: 'price_snapshot_inserted',
-      tool: 'voice.insert_price_snapshot',
+      tool: 'voice_insert_price_snapshot',
       snapshot_ts: row.ts,
       model: row.model,
       audio_in_usd: row.audio_in_usd,

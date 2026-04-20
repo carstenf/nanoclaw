@@ -101,7 +101,7 @@ describe('makeVoiceGetTravelTime', () => {
     const entry = JSON.parse(jsonl[0]);
 
     expect(entry.event).toBe('travel_time_done');
-    expect(entry.tool).toBe('voice.get_travel_time');
+    expect(entry.tool).toBe('voice_get_travel_time');
     expect(entry.call_id).toBe('cid-1');
     expect(entry.mode).toBe('driving');
     expect(entry.duration_seconds).toBe(2040);

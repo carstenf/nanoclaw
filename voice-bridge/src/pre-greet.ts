@@ -67,7 +67,7 @@ export async function maybeInjectPreGreet(
   let resp: unknown
   try {
     resp = await opts.coreClient.callTool(
-      'voice.on_transcript_turn',
+      'voice_on_transcript_turn',
       {
         call_id: opts.callId,
         turn_id: 'pre-greet',
