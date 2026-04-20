@@ -130,7 +130,7 @@ Plans:
 - [x] 04.5-00-PLAN.md — Wave 0 — Foundation: export 18 zod schemas from voice-*.ts + scaffold regression + bridge-client test files
 - [x] 04.5-01-PLAN.md — Wave 1 — Session-based MCP StreamableHTTP server (Issue #1405 per-session McpServer) + TOOL_META for all 18 tools + D-15 regression scenarios + deploy + iOS checkpoint
 - [x] 04.5-02-PLAN.md — Wave 2 — Bridge v2 MCP SDK client (CoreMcpClient class + v1-compatible callCoreTool free-function) + 6 unit tests
-- [ ] 04.5-03-PLAN.md — Wave 3 — Migrate 6 bridge callers to v2 + Pitfall-5 finalizer in sideband.ts + flip CORE_MCP_URL to 3201 + delete v1, rename v2 → core-mcp-client.ts + Case-6b checkpoint
+- [x] 04.5-03-PLAN.md — Wave 3 — Migrate 6 bridge callers to v2 + Pitfall-5 finalizer in sideband.ts + flip CORE_MCP_URL to 3201 + delete v1, rename v2 → core-mcp-client.ts + Case-6b checkpoint
 - [ ] 04.5-04-PLAN.md — Wave 4 — Port 3200 deprecation observability (mcp_rest_request_seen log) + REQUIREMENTS.md AC-07 re-alignment + /opt/server-docs/hetzner-mcp-architecture.md update
 
 ## Follow-up (post-4.5, not part of this phase)
