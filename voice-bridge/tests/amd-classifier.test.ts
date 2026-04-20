@@ -138,14 +138,16 @@ describe('createAmdClassifier', () => {
     expect(c.getVerdict()).toBe('pending')
   })
 
-  it('test 2: amd_result verdict=human → onHuman called once; both timers cleared', () => {
+  it('test 2: amd_result verdict=human → onHuman called once; all active timers cleared', () => {
     const c = makeClassifier()
+    // Trigger speech_started to arm Timer A as well
+    c.onSpeechStarted()
     c.onAmdResult('human')
     expect(onHuman).toHaveBeenCalledTimes(1)
     expect(onVoicemail).not.toHaveBeenCalled()
-    // Both timers should be cleared (cadence + silence)
+    // Both Timer A + Timer B should be cleared after verdict
     const clearedCount = timerList.filter((t) => t.cleared).length
-    expect(clearedCount).toBe(2) // Timer A + Timer B cleared
+    expect(clearedCount).toBe(2) // Timer A (cadence) + Timer B (silence) both cleared
     expect(c.getVerdict()).toBe('human')
   })
 

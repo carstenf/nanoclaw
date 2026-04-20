@@ -232,6 +232,23 @@ function getDataDir(): string {
 
 export const TOOL_DISPATCH_JSONL_PATH = join(getDataDir(), 'tool-dispatch.jsonl')
 
+// ----- Plan 05-03 Wave 3: Case-2 AMD classifier timing -----
+
+/** Overall timeout for AMD classification before silence fallback (ms). */
+export const CASE2_AMD_TIMEOUT_MS = Number(
+  process.env.CASE2_AMD_TIMEOUT_MS ?? 8000,
+)
+
+/** Timer A: uninterrupted speech after this long = cadence cue (mailbox). */
+export const CASE2_VAD_CADENCE_MS = Number(
+  process.env.CASE2_VAD_CADENCE_MS ?? 4000,
+)
+
+/** Timer B: no speech_started after this long = silence mailbox. */
+export const CASE2_VAD_SILENCE_MS = Number(
+  process.env.CASE2_VAD_SILENCE_MS ?? 6000,
+)
+
 // Phase-2 /accept session knobs. Single source of truth for turn-detection
 // config — tests grep on SESSION_CONFIG for VOICE-04 / VOICE-05 assertions.
 // REQ-VOICE-05 (barge-in cancellation within 200 ms of counterpart VAD) is an
