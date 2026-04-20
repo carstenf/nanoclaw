@@ -431,3 +431,208 @@ describe('OutboundRouter (03-11 pivot — Sipgate REST)', () => {
     expect(active?.case_payload).toBeUndefined()
   })
 })
+
+// Plan 05-03 Task 4 — Case-2 outcome routing in reportBack
+// RED: these tests exercise the new Case-2 logic that doesn't exist yet.
+describe('OutboundRouter — Case-2 reportBack outcome routing (05-03 Task 4)', () => {
+  function makeCase2Deps() {
+    const coreClient = {
+      callTool: vi.fn().mockResolvedValue({ ok: true }),
+    }
+    const outboundOriginator = {
+      originate: vi.fn().mockResolvedValue({ providerRef: 'sipgate-123' }),
+    }
+    const callRouter = { _size: vi.fn().mockReturnValue(0) }
+    const reportBack = vi.fn().mockResolvedValue(undefined)
+    const hangupCall = vi.fn().mockResolvedValue(undefined)
+    const timers = {
+      setTimeout: vi.fn().mockReturnValue(1 as unknown as ReturnType<typeof setTimeout>),
+      clearTimeout: vi.fn(),
+    }
+    let t = 1_700_000_000_000
+    return {
+      coreClient,
+      outboundOriginator,
+      callRouter,
+      reportBack,
+      hangupCall,
+      timers,
+      now: () => t,
+      advanceTime: (ms: number) => { t += ms },
+    }
+  }
+
+  async function runUntilActive(router: Awaited<ReturnType<typeof import('../src/outbound-router.js').createOutboundRouter>>, deps: ReturnType<typeof makeCase2Deps>, req: Parameters<typeof router.enqueue>[0]) {
+    const task = router.enqueue(req)
+    await vi.advanceTimersByTimeAsync(1) // drain triggerExecute microtask
+    return task
+  }
+
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('task-4-test-1: Case-2 error=voicemail_detected → voice_case_2_schedule_retry + voice_notify_user urgency=info', async () => {
+    const deps = makeCase2Deps()
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    const task = await runUntilActive(router, deps, {
+      target_phone: '+4989123',
+      goal: 'Tisch reservieren',
+      context: '',
+      report_to_jid: 'dc:1',
+      case_type: 'case_2',
+      case_payload: { restaurant_name: 'Test Restaurant', requested_date: '2026-05-01', idempotency_key: 'idem-1' },
+    })
+    task.error = 'voicemail_detected'
+    await router.onCallEnd(task.task_id, 'normal')
+
+    expect(deps.coreClient.callTool).toHaveBeenCalledWith(
+      'voice_case_2_schedule_retry',
+      expect.objectContaining({ task_id: task.task_id, prev_outcome: 'voicemail_detected' }),
+    )
+    expect(deps.coreClient.callTool).toHaveBeenCalledWith(
+      'voice_notify_user',
+      expect.objectContaining({ urgency: 'info' }),
+    )
+  })
+
+  it('task-4-test-2: Case-2 error=line_busy → voice_case_2_schedule_retry + voice_notify_user urgency=info', async () => {
+    const deps = makeCase2Deps()
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    const task = await runUntilActive(router, deps, {
+      target_phone: '+4989123',
+      goal: 'Tisch reservieren',
+      context: '',
+      report_to_jid: 'dc:1',
+      case_type: 'case_2',
+      case_payload: { restaurant_name: 'Test Restaurant', requested_date: '2026-05-01', idempotency_key: 'idem-2' },
+    })
+    task.error = 'line_busy'
+    await router.onCallEnd(task.task_id, 'normal')
+
+    expect(deps.coreClient.callTool).toHaveBeenCalledWith(
+      'voice_case_2_schedule_retry',
+      expect.objectContaining({ prev_outcome: 'line_busy' }),
+    )
+    expect(deps.coreClient.callTool).toHaveBeenCalledWith(
+      'voice_notify_user',
+      expect.objectContaining({ urgency: 'info' }),
+    )
+  })
+
+  it('task-4-test-3: Case-2 error=no_answer → retry + info notify', async () => {
+    const deps = makeCase2Deps()
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    const task = await runUntilActive(router, deps, {
+      target_phone: '+4989123',
+      goal: 'Tisch reservieren',
+      context: '',
+      report_to_jid: 'dc:1',
+      case_type: 'case_2',
+      case_payload: { restaurant_name: 'Test Restaurant', requested_date: '2026-05-01', idempotency_key: 'idem-3' },
+    })
+    task.error = 'no_answer'
+    await router.onCallEnd(task.task_id, 'normal')
+
+    expect(deps.coreClient.callTool).toHaveBeenCalledWith(
+      'voice_case_2_schedule_retry',
+      expect.objectContaining({ prev_outcome: 'no_answer' }),
+    )
+    expect(deps.coreClient.callTool).toHaveBeenCalledWith(
+      'voice_notify_user',
+      expect.objectContaining({ urgency: 'info' }),
+    )
+  })
+
+  it('task-4-test-4: Case-2 outcome=out_of_tolerance → NO retry; voice_notify_user urgency=decision with counter_offer', async () => {
+    const deps = makeCase2Deps()
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    const task = await runUntilActive(router, deps, {
+      target_phone: '+4989123',
+      goal: 'Tisch reservieren',
+      context: '',
+      report_to_jid: 'dc:1',
+      case_type: 'case_2',
+      case_payload: { restaurant_name: 'Test Restaurant', requested_date: '2026-05-01', idempotency_key: 'idem-4' },
+    })
+    task.outcome = 'out_of_tolerance'
+    ;(task as { counter_offer?: string }).counter_offer = 'Freitag 20:00 Uhr'
+    await router.onCallEnd(task.task_id, 'normal')
+
+    const callToolCalls = deps.coreClient.callTool.mock.calls
+    const retryCall = callToolCalls.find((c: unknown[]) => c[0] === 'voice_case_2_schedule_retry')
+    expect(retryCall).toBeUndefined()
+    expect(deps.coreClient.callTool).toHaveBeenCalledWith(
+      'voice_notify_user',
+      expect.objectContaining({ urgency: 'decision' }),
+    )
+  })
+
+  it('task-4-test-5: Case-2 outcome=success → voice_notify_user urgency=info, NO retry', async () => {
+    const deps = makeCase2Deps()
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    const task = await runUntilActive(router, deps, {
+      target_phone: '+4989123',
+      goal: 'Tisch reservieren',
+      context: '',
+      report_to_jid: 'dc:1',
+      case_type: 'case_2',
+      case_payload: { restaurant_name: 'Test Restaurant', requested_date: '2026-05-01', requested_time: '19:00', party_size: 2, idempotency_key: 'idem-5' },
+    })
+    task.outcome = 'success'
+    await router.onCallEnd(task.task_id, 'normal')
+
+    const callToolCalls = deps.coreClient.callTool.mock.calls
+    const retryCall = callToolCalls.find((c: unknown[]) => c[0] === 'voice_case_2_schedule_retry')
+    expect(retryCall).toBeUndefined()
+    expect(deps.coreClient.callTool).toHaveBeenCalledWith(
+      'voice_notify_user',
+      expect.objectContaining({ urgency: 'info' }),
+    )
+  })
+
+  it('task-4-test-6: daily_cap_reached from voice_case_2_schedule_retry → voice_notify_user urgency=alert', async () => {
+    const deps = makeCase2Deps()
+    deps.coreClient.callTool.mockImplementation(async (name: string) => {
+      if (name === 'voice_case_2_schedule_retry') return { error: 'daily_cap_reached' }
+      return { ok: true }
+    })
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    const task = await runUntilActive(router, deps, {
+      target_phone: '+4989123',
+      goal: 'Tisch reservieren',
+      context: '',
+      report_to_jid: 'dc:1',
+      case_type: 'case_2',
+      case_payload: { restaurant_name: 'Test Restaurant', requested_date: '2026-05-01', idempotency_key: 'idem-6' },
+    })
+    task.error = 'voicemail_detected'
+    await router.onCallEnd(task.task_id, 'normal')
+
+    expect(deps.coreClient.callTool).toHaveBeenCalledWith(
+      'voice_notify_user',
+      expect.objectContaining({ urgency: 'alert' }),
+    )
+  })
+
+  it('task-4-test-7: Case-6b task (no case_type) → coreClient NOT called (regression guard)', async () => {
+    const deps = makeCase2Deps()
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const router = createOutboundRouter(deps)
+    const task = await runUntilActive(router, deps, {
+      target_phone: '+4989123',
+      goal: 'Legacy call',
+      context: '',
+      report_to_jid: 'dc:1',
+      // no case_type — legacy path
+    })
+    await router.onCallEnd(task.task_id, 'normal')
+
+    expect(deps.coreClient.callTool).not.toHaveBeenCalled()
+  })
+})
