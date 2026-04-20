@@ -33,6 +33,8 @@ import { makeVoiceGetDayMonthCostSum } from './voice-get-day-month-cost-sum.js';
 import { makeVoiceResetMonthlyCap } from './voice-reset-monthly-cap.js';
 import { makeVoiceSearchCompetitors } from './voice-search-competitors.js';
 import { makeVoiceInsertPriceSnapshot } from './voice-insert-price-snapshot.js';
+import { makeVoiceNotifyUser, TOOL_NAME as VOICE_NOTIFY_USER_TOOL_NAME } from './voice-notify-user.js';
+import { createActiveSessionTracker } from '../channels/active-session-tracker.js';
 import { loadSkill } from './skill-loader.js';
 import { callClaudeViaOneCli } from './claude-client.js';
 import { runAndyForVoice } from './andy-agent-runner.js';
@@ -427,6 +429,42 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
         ? `${deps.dataDir}/voice-lookup.jsonl`
         : undefined,
       // askCompetitorsBackend deferred to Phase 7
+    }),
+  );
+
+  // Phase 5 Plan 05-01 (SEED-001): voice_notify_user — channel-agnostic routing.
+  // Core MCP tool (port 3201); NOT in Bridge allowlist (REQ-TOOLS-09 ceiling unaffected).
+  // Active-session-tracker is created here but NOT yet wired to inbound-message events
+  // (that wiring is Plan 05-02 Task 5). Wave 1 tests use DI fake tracker.
+  const activeSessionTracker = createActiveSessionTracker();
+  registry.register(
+    VOICE_NOTIFY_USER_TOOL_NAME,
+    makeVoiceNotifyUser({
+      getActiveChannel: (jid, now) => activeSessionTracker.getActiveChannelFor(jid, now),
+      sendWhatsappMessage: (jid, text) => {
+        // Channel access is via deps injection in the registry — WhatsApp channel not
+        // yet wired at buildDefaultRegistry level. Returns no_whatsapp until Plan 05-02.
+        void jid; void text;
+        return Promise.resolve({ ok: false, error: 'no_whatsapp' });
+      },
+      sendDiscordMessage: (jid, text) => {
+        if (deps.sendDiscordMessage) {
+          // Resolve to Discord's first allowed channel ID when called from Core MCP.
+          // voice_notify_user passes the main-group JID; we map it to the Andy channel.
+          const channelId =
+            ANDY_VOICE_DISCORD_CHANNEL ||
+            (VOICE_DISCORD_ALLOWED_CHANNELS_RAW.split(',').map((s) => s.trim()).filter(Boolean)[0] ?? '');
+          if (!channelId) {
+            return Promise.resolve({ ok: false, error: 'no_discord_channel' });
+          }
+          return deps.sendDiscordMessage(channelId, text).then((r) => ({ ok: r.ok, error: r.ok ? undefined : (r as { ok: false; error: string }).error }));
+        }
+        return Promise.resolve({ ok: false, error: 'no_discord' });
+      },
+      getMainGroupAndJid: deps.getMainGroupAndJid ?? (() => null),
+      isDiscordConnected: () => !!deps.sendDiscordMessage && VOICE_DISCORD_ALLOWED_CHANNELS.size > 0,
+      isWhatsappConnected: () => false, // Wave 2 wires this
+      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-notify.jsonl` : undefined,
     }),
   );
 
