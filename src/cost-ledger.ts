@@ -55,6 +55,29 @@ export interface VoicePriceSnapshotRow {
  */
 export function createSchema(database: Database.Database): void {
   database.exec(`
+    -- Plan 05-02 (Case-2 Wave 2): voice_case_2_attempts mirror for in-memory unit tests.
+    -- Production DB creates this table in src/db.ts createSchema(). This re-export
+    -- lets unit tests for voice_case_2_schedule_retry and voice_start_case_2_call spin
+    -- up only the Case-2 table without dragging the full NanoClaw schema.
+    -- Pattern mirrors the voice_call_costs mirror that already exists here.
+    CREATE TABLE IF NOT EXISTS voice_case_2_attempts (
+      target_phone        TEXT NOT NULL,
+      calendar_date       TEXT NOT NULL,
+      attempt_no          INTEGER NOT NULL,
+      scheduled_for       TEXT NOT NULL,
+      triggered_at        TEXT,
+      outcome             TEXT,
+      idempotency_key     TEXT NOT NULL,
+      originating_call_id TEXT,
+      restaurant_name     TEXT,
+      created_at          TEXT NOT NULL,
+      PRIMARY KEY (target_phone, calendar_date, attempt_no)
+    );
+    CREATE INDEX IF NOT EXISTS idx_voice_case_2_phone_date
+      ON voice_case_2_attempts(target_phone, calendar_date);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_voice_case_2_idempotency
+      ON voice_case_2_attempts(idempotency_key);
+
     CREATE TABLE IF NOT EXISTS voice_call_costs (
       call_id          TEXT PRIMARY KEY,
       case_type        TEXT NOT NULL,

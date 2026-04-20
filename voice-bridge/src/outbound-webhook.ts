@@ -36,6 +36,10 @@ export const OutboundRequestSchema = z.object({
   report_to_jid: z.string().min(1),
   persona_override: z.string().min(1).max(10_000).optional(),
   tools_override: z.array(ToolOverrideSpecSchema).max(32).optional(),
+  // Plan 05-02 Wave 2: case type routing + per-case payload.
+  // Both optional — existing Case-6b callers that omit them see no behavior change.
+  case_type: z.enum(['case_2', 'case_6b']).optional(),
+  case_payload: z.record(z.string(), z.unknown()).optional(),
 })
 
 // ---- Peer-IP check ----
@@ -121,6 +125,8 @@ export function registerOutboundRoute(
       report_to_jid,
       persona_override,
       tools_override,
+      case_type,
+      case_payload,
     } = parse.data
 
     // 4. Enqueue
@@ -134,6 +140,8 @@ export function registerOutboundRoute(
         report_to_jid,
         persona_override,
         tools_override,
+        case_type,
+        case_payload,
       })
     } catch (err) {
       if (err instanceof QueueFullError) {

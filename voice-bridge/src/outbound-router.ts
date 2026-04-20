@@ -81,6 +81,10 @@ export interface OutboundTask {
   persona_override?: string
   /** Plan 05-00 Task 1 / Wave 3 prep: override default allowlist at /accept. */
   tools_override?: ToolOverrideSpec[]
+  /** Plan 05-02 Wave 2: case type for routing at /accept. undefined = legacy / unspecified (Case-6b). */
+  case_type?: 'case_2' | 'case_6b'
+  /** Plan 05-02 Wave 2: extra per-case-type payload carried through to /accept handler (Wave 3 reads this). */
+  case_payload?: Record<string, unknown>
 }
 
 export interface EnqueueRequest {
@@ -93,6 +97,10 @@ export interface EnqueueRequest {
   persona_override?: string
   /** Plan 05-00 Task 1 / Wave 3 prep: per-call tools override. */
   tools_override?: ToolOverrideSpec[]
+  /** Plan 05-02 Wave 2: case type for routing. undefined = legacy (Case-6b unchanged). */
+  case_type?: 'case_2' | 'case_6b'
+  /** Plan 05-02 Wave 2: extra per-case-type payload. Wave 3 reads this at /accept. */
+  case_payload?: Record<string, unknown>
 }
 
 /**
@@ -319,6 +327,9 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
       // Plan 05-00 Task 1 / Wave 3 prep: carry override envelope through.
       persona_override: req.persona_override,
       tools_override: req.tools_override,
+      // Plan 05-02 Wave 2: carry case_type + case_payload through (undefined = legacy path).
+      case_type: req.case_type,
+      case_payload: req.case_payload,
     }
     tasks.set(task.task_id, task)
 

@@ -236,6 +236,15 @@ export const VOICE_NOTIFY_LONG_TEXT_WORD_THRESHOLD = parseInt(
   10,
 );
 
+// ----- Plan 05-02 (Case-2 Wave 2): retry ladder + daily cap -----
+// Ladder: minutes to wait before attempt 1→2, 2→3, 3→4, 4→5.
+// CASE_2_DAILY_CAP: max attempts per (target_phone, calendar_date).
+export const CASE_2_RETRY_LADDER_MIN = [5, 15, 45, 120];
+export const CASE_2_DAILY_CAP = 5;
+// Default tolerances for voice_start_case_2_call D-5 args.
+export const CASE_2_TIME_TOLERANCE_MIN_DEFAULT = 30;
+export const CASE_2_PARTY_SIZE_TOLERANCE_DEFAULT = 0;
+
 // Timezone for scheduled tasks, message formatting, etc.
 // Validates each candidate is a real IANA identifier before accepting.
 function resolveConfigTimezone(): string {

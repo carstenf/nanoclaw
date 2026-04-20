@@ -135,6 +135,32 @@ function createSchema(database: Database.Database): void {
       usd_to_eur       REAL NOT NULL,
       source           TEXT NOT NULL
     );
+
+    -- Plan 05-02 (Case-2 Wave 2): voice_case_2_attempts — retry orchestration table.
+    -- PRIMARY KEY (target_phone, calendar_date, attempt_no) provides atomicity:
+    -- two concurrent INSERTs with the same PK both fail gracefully on the second
+    -- attempt (SQLite serialises writes). UNIQUE idempotency_key prevents double-book
+    -- from D-7 sha256(phone+date+time+party_size) collisions. Both constraints are
+    -- Pitfall-7 (daily-cap DB race) mitigations. Schema mirror in src/cost-ledger.ts.
+    CREATE TABLE IF NOT EXISTS voice_case_2_attempts (
+      target_phone        TEXT NOT NULL,
+      calendar_date       TEXT NOT NULL,     -- YYYY-MM-DD Europe/Berlin local
+      attempt_no          INTEGER NOT NULL,  -- 1..5
+      scheduled_for       TEXT NOT NULL,     -- ISO
+      triggered_at        TEXT,              -- ISO, NULL until task fires
+      outcome             TEXT,              -- NULL | 'success' | 'no_answer' | 'busy' | 'voicemail' | 'escalated' | 'out_of_tolerance'
+      idempotency_key     TEXT NOT NULL,     -- D-7 sha256(phone+date+time+party_size), 64 hex
+      originating_call_id TEXT,              -- audit-level, optional (D-7 separation)
+      restaurant_name     TEXT,              -- for debugging — not authoritative (args carried via the outbound goal)
+      created_at          TEXT NOT NULL,
+      PRIMARY KEY (target_phone, calendar_date, attempt_no)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_voice_case_2_phone_date
+      ON voice_case_2_attempts(target_phone, calendar_date);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_voice_case_2_idempotency
+      ON voice_case_2_attempts(idempotency_key);
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
