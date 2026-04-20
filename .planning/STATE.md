@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 04 GOLD — all 5 waves complete, deployed on both hosts, AC-07 curl-verified. COST-01 live verify + iOS UI-compat deferred as documented follow-ups.
-last_updated: "2026-04-19T21:15:00.000Z"
-last_activity: 2026-04-19 -- Phase 04 complete (gate PASS with 2 deferred follow-ups)
+stopped_at: Completed 03-11-PLAN.md — Case-6b end-to-end ready, awaiting Carsten PSTN test
+last_updated: "2026-04-20T07:39:01.949Z"
+last_activity: 2026-04-20 -- Phase 4.5 planning complete
 progress:
-  total_phases: 8
-  completed_phases: 3
-  total_plans: 36
-  completed_plans: 34
-  percent: 94
+  total_phases: 9
+  completed_phases: 2
+  total_plans: 41
+  completed_plans: 33
+  percent: 80
 ---
 
 # Project State
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-04-16)
 
 Phase: 04 (core-tool-integration-cost-observability) — COMPLETE
 Plan: 5 of 5 merged (04-01..04-04 full, 04-05 gate via pragmatic evidence + 2 documented follow-ups)
-Status: Phase 4 GOLD
-Last activity: 2026-04-19 -- Phase 04 gate closed (pragmatic)
+Status: Ready to execute
+Last activity: 2026-04-20 -- Phase 4.5 planning complete
 
 Progress: [█████████░] 94%
 
