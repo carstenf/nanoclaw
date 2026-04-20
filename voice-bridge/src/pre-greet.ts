@@ -11,6 +11,7 @@ import type { Logger } from 'pino'
 import type { SidebandHandle } from './sideband.js'
 import { updateInstructions } from './sideband.js'
 import type { CoreClientLike } from './slow-brain.js'
+import type { OutboundRouter } from './outbound-router.js'
 
 export interface MaybeInjectPreGreetOpts {
   callId: string
@@ -23,6 +24,13 @@ export interface MaybeInjectPreGreetOpts {
   readyWaitMs?: number
   /** Polling interval while waiting for sideband ready. Default 50ms. */
   pollMs?: number
+  /**
+   * Plan 05-03 Task 3: optional outbound router to check case_type.
+   * If the active task has case_type='case_2', pre-greet is skipped entirely
+   * (the AMD classifier branch in /accept handles first-utterance gating instead).
+   * Pitfall 2 fix: no Slow-Brain RPC racing with classifier prompt.
+   */
+  outboundRouter?: OutboundRouter
 }
 
 export async function maybeInjectPreGreet(
@@ -32,6 +40,19 @@ export async function maybeInjectPreGreet(
   const readyWaitMs = opts.readyWaitMs ?? 800
   const pollMs = opts.pollMs ?? 50
   const t0 = Date.now()
+
+  // Plan 05-03 Task 3: Case-2 AMD branch — skip pre-greet entirely.
+  // The /accept handler has already set CASE2_AMD_CLASSIFIER_PROMPT as instructions;
+  // firing Slow-Brain pre-greet would race with the classifier prompt and break AMD.
+  const activeTask = opts.outboundRouter?.getActiveTask?.() ?? null
+  if (activeTask?.case_type === 'case_2') {
+    opts.log.info({
+      event: 'pre_greet_skipped',
+      call_id: opts.callId,
+      reason: 'case_2_amd_branch',
+    })
+    return
+  }
 
   // 1. Wait for sideband WS to be ready (small budget within total)
   const readyDeadline = t0 + readyWaitMs

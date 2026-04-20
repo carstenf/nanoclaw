@@ -6,15 +6,15 @@ import type { FastifyInstance } from 'fastify'
 import OpenAI from 'openai'
 import type { Logger } from 'pino'
 import { CARSTEN_CLI_NUMBER, SESSION_CONFIG } from './config.js'
-import { CASE6B_PERSONA, PHASE2_PERSONA } from './persona.js'
-import { getAllowlist, type ToolEntry } from './tools/allowlist.js'
+import { CASE6B_PERSONA, PHASE2_PERSONA, buildCase2OutboundPersona } from './persona.js'
+import { getAllowlist, type ToolEntry, INVALID_TOOL_RESPONSE } from './tools/allowlist.js'
 import type { CallRouter } from './call-router.js'
 import type { OutboundRouter } from './outbound-router.js'
 import { maybeInjectPreGreet } from './pre-greet.js'
 import { CoreMcpClient } from './core-mcp-client.js'
 import { CORE_MCP_URL, CORE_MCP_TOKEN } from './config.js'
 import type { CoreClientLike } from './slow-brain.js'
-import { requestResponse } from './sideband.js'
+import { requestResponse, updateInstructions } from './sideband.js'
 import {
   GREET_TRIGGER_DELAY_MS,
   GREET_TRIGGER_DELAY_OUTBOUND_MS,
@@ -25,6 +25,11 @@ import {
   CAP_MONTHLY_EUR,
 } from './cost/gate.js'
 import { sendDiscordAlert } from './alerts.js'
+import {
+  CASE2_AMD_CLASSIFIER_PROMPT,
+  createAmdClassifier,
+} from './amd-classifier.js'
+import { setAmdClassifier } from './tools/dispatch.js'
 
 export function registerWebhookRoute(
   app: FastifyInstance,
@@ -200,44 +205,174 @@ export function registerAcceptRoute(
       !!activeOutbound && !activeOutbound.openai_call_id
     if (isOutbound && activeOutbound) {
       outboundRouter?.bindOpenaiCallId(activeOutbound.task_id, callId)
+
+      // Plan 05-03 Task 3: Case-2 AMD branch.
+      // When case_type='case_2', use CASE2_AMD_CLASSIFIER_PROMPT as instructions
+      // and add amd_result inline to the tools list (Bridge-internal, NOT in
+      // allowlist.ts — T-05-03-07). Drop 3 Case-6-specific tools that are
+      // irrelevant for restaurant reservations (REQ-TOOLS-09: 15 - 3 + 1 = 13).
+      // CAUTION: amd_result NOT added to allowlist.ts — compile-time cap stays 15.
+      const isCase2 = activeOutbound.case_type === 'case_2'
+
       // Plan 05-00 Task 1 / Wave 3 prep: honor per-call override envelope.
       //   persona_override — use verbatim as instructions (skips buildOutboundPersona)
       //   tools_override   — REPLACE the default allowlist for THIS call only
-      // When neither is present, the pre-existing outbound path runs unchanged.
+      // When neither is present and it's not Case-2, the pre-existing outbound path runs unchanged.
       const hasPersonaOverride =
         typeof activeOutbound.persona_override === 'string' &&
         activeOutbound.persona_override.length > 0
       const hasToolsOverride =
         Array.isArray(activeOutbound.tools_override) &&
         activeOutbound.tools_override.length > 0
-      const outboundInstructions = hasPersonaOverride
-        ? (activeOutbound.persona_override as string)
-        : (outboundRouter?.buildPersonaForTask(activeOutbound.task_id) ?? '')
-      const toolsPayloadOut = hasToolsOverride
-        ? (activeOutbound.tools_override as Array<{
-            name: string
-            description?: string
-            parameters: Record<string, unknown>
-          }>).map((t) => ({
-            type: 'function' as const,
-            name: t.name,
-            ...(typeof t.description === 'string' && t.description.length > 0
-              ? { description: t.description }
-              : {}),
-            parameters: t.parameters,
-          }))
-        : getAllowlist().map((e: ToolEntry) => {
+
+      let outboundInstructions: string
+      let toolsPayloadOut: Array<{ type: 'function'; name: string; description?: string; parameters: Record<string, unknown> }>
+      // ctxRef is populated after router.startCall() inside the Case-2 branch.
+      // Declared at outbound-block scope so the onHuman closure can capture it.
+      let ctxRef: { sideband: { state: Parameters<typeof updateInstructions>[0] } } | null = null
+
+      if (isCase2) {
+        // Case-2: AMD classifier prompt as initial instructions.
+        // The classifier fires amd_result which swaps to CASE2_OUTBOUND_PERSONA.
+        outboundInstructions = CASE2_AMD_CLASSIFIER_PROMPT
+
+        // Case-2 tool list: base allowlist minus 3 Case-6-specific tools + amd_result.
+        // Net count: 15 - 3 + 1 = 13 (under REQ-TOOLS-09 cap of 15).
+        const CASE2_EXCLUDED = new Set(['voice_search_competitors', 'voice_get_practice_profile', 'voice_get_contract', 'search_competitors', 'get_practice_profile', 'get_contract'])
+        const baseTools = getAllowlist()
+          .filter((e: ToolEntry) => !CASE2_EXCLUDED.has(e.name))
+          .map((e: ToolEntry) => {
             const desc = (e.schema as { description?: unknown }).description
             return {
               type: 'function' as const,
               name: e.name,
-              ...(typeof desc === 'string' && desc.length > 0
-                ? { description: desc }
-                : {}),
+              ...(typeof desc === 'string' && desc.length > 0 ? { description: desc } : {}),
               parameters: e.schema,
             }
           })
-      if (hasPersonaOverride || hasToolsOverride) {
+        // amd_result: Bridge-internal only, declared inline here.
+        // T-05-03-07: NOT added to allowlist.ts; compile-time REQ-TOOLS-09 guard still passes.
+        const amdResultTool = {
+          type: 'function' as const,
+          name: 'amd_result',
+          description: 'Bridge-internal AMD verdict tool. Emit when you determine human or voicemail.',
+          parameters: {
+            type: 'object',
+            properties: {
+              verdict: { type: 'string', enum: ['human', 'voicemail', 'silence'] },
+            },
+            required: ['verdict'],
+            additionalProperties: false,
+          },
+        }
+        toolsPayloadOut = [...baseTools, amdResultTool]
+
+        // Register AMD classifier for this call so dispatch.ts can route amd_result.
+        const casePayload = (activeOutbound.case_payload ?? {}) as Record<string, unknown>
+        const coreMcpForAmd = CORE_MCP_URL
+          ? new CoreMcpClient(new URL(CORE_MCP_URL), CORE_MCP_TOKEN)
+          : null
+
+        const classifier = createAmdClassifier({
+          callId,
+          log,
+          onHuman: () => {
+            // Verdict: human — swap to Case-2 outbound persona + trigger first response
+            const persona = buildCase2OutboundPersona({
+              restaurant_name: String(casePayload.restaurant_name ?? 'Restaurant'),
+              requested_date: String(casePayload.requested_date ?? ''),
+              requested_time: String(casePayload.requested_time ?? ''),
+              time_tolerance_min: Number(casePayload.time_tolerance_min ?? 30),
+              party_size: Number(casePayload.party_size ?? 1),
+              notes: casePayload.notes != null ? String(casePayload.notes) : undefined,
+            })
+            log.info({
+              event: 'case_2_amd_human_verdict',
+              call_id: callId,
+              task_id: activeOutbound.task_id,
+            })
+            if (ctxRef) {
+              // Push Case-2 persona to model via session.update, then trigger greeting.
+              updateInstructions(ctxRef.sideband.state, persona, log)
+              setTimeout(() => {
+                if (ctxRef) requestResponse(ctxRef.sideband.state, log)
+              }, GREET_TRIGGER_DELAY_OUTBOUND_MS)
+            } else {
+              // startCall hasn't returned yet (extremely rare). Store persona for fallback.
+              activeOutbound.persona_override = persona
+            }
+          },
+          onVoicemail: async (reason) => {
+            log.info({
+              event: 'case_2_amd_voicemail_verdict',
+              call_id: callId,
+              reason,
+              task_id: activeOutbound.task_id,
+            })
+            try {
+              await openai.realtime.calls.hangup(callId)
+            } catch (e: unknown) {
+              log.warn({ event: 'case_2_voicemail_hangup_failed', call_id: callId, err: (e as Error)?.message })
+            }
+            // voice_case_2_schedule_retry + voice_notify_user via Core MCP
+            if (coreMcpForAmd) {
+              try {
+                await coreMcpForAmd.callTool('voice_case_2_schedule_retry', {
+                  task_id: activeOutbound.task_id,
+                  target_phone: activeOutbound.target_phone,
+                  case_payload: casePayload,
+                  prev_outcome: reason,
+                })
+              } catch (e: unknown) {
+                log.warn({ event: 'case_2_schedule_retry_failed', call_id: callId, err: (e as Error)?.message })
+              }
+              try {
+                await coreMcpForAmd.callTool('voice_notify_user', {
+                  urgency: 'info',
+                  text: `Voicemail erkannt bei ${String(casePayload.restaurant_name ?? 'Restaurant')} (${reason}). Nächster Versuch in Kürze.`,
+                  call_id: callId,
+                })
+              } catch (e: unknown) {
+                log.warn({ event: 'case_2_notify_failed', call_id: callId, err: (e as Error)?.message })
+              }
+            }
+            setAmdClassifier(null)
+          },
+        })
+        setAmdClassifier(classifier)
+
+        log.info({
+          event: 'case_2_amd_branch_active',
+          call_id: callId,
+          task_id: activeOutbound.task_id,
+          tools_count: toolsPayloadOut.length,
+        })
+      } else if (hasPersonaOverride || hasToolsOverride) {
+        outboundInstructions = hasPersonaOverride
+          ? (activeOutbound.persona_override as string)
+          : (outboundRouter?.buildPersonaForTask(activeOutbound.task_id) ?? '')
+        toolsPayloadOut = hasToolsOverride
+          ? (activeOutbound.tools_override as Array<{
+              name: string
+              description?: string
+              parameters: Record<string, unknown>
+            }>).map((t) => ({
+              type: 'function' as const,
+              name: t.name,
+              ...(typeof t.description === 'string' && t.description.length > 0
+                ? { description: t.description }
+                : {}),
+              parameters: t.parameters,
+            }))
+          : getAllowlist().map((e: ToolEntry) => {
+              const desc = (e.schema as { description?: unknown }).description
+              return {
+                type: 'function' as const,
+                name: e.name,
+                ...(typeof desc === 'string' && desc.length > 0 ? { description: desc } : {}),
+                parameters: e.schema,
+              }
+            })
         log.info({
           event: 'outbound_override_active',
           call_id: callId,
@@ -247,12 +382,23 @@ export function registerAcceptRoute(
             ? (activeOutbound.tools_override as unknown[]).length
             : 0,
         })
+      } else {
+        outboundInstructions = outboundRouter?.buildPersonaForTask(activeOutbound.task_id) ?? ''
+        toolsPayloadOut = getAllowlist().map((e: ToolEntry) => {
+          const desc = (e.schema as { description?: unknown }).description
+          return {
+            type: 'function' as const,
+            name: e.name,
+            ...(typeof desc === 'string' && desc.length > 0 ? { description: desc } : {}),
+            parameters: e.schema,
+          }
+        })
       }
+
       // Plan 05-00 Task 1 (Spike-A): when override is active, enable per-call
       // sideband event trace to a deterministic path. Spike script tails it.
-      // Call IDs from OpenAI may contain '/' — sanitize for a flat filename.
       const traceEventsPath =
-        hasPersonaOverride || hasToolsOverride
+        (hasPersonaOverride || hasToolsOverride || isCase2)
           ? `/tmp/spike-a-trace-${callId.replace(/[^a-zA-Z0-9_-]/g, '_')}.jsonl`
           : undefined
       try {
@@ -273,23 +419,25 @@ export function registerAcceptRoute(
           tools_count: toolsPayloadOut.length,
           schema_compile_ok: true,
           sideband_opened: true,
-          persona_selected: 'outbound',
+          persona_selected: isCase2 ? 'case_2_amd' : 'outbound',
           outbound_task_id: activeOutbound.task_id,
         })
-        // Outbound greet: skip pre-greet (no Slow-Brain context yet) but
-        // still trigger the proactive response.create. Outbound uses a longer
-        // delay (GREET_TRIGGER_DELAY_OUTBOUND_MS, default 2500ms) because
-        // Sipgate's two-leg bridge needs ~1.5-2s extra for the caller-side
-        // audio path to settle after pickup. Inbound uses GREET_TRIGGER_DELAY_MS.
-        setTimeout(() => {
-          requestResponse(ctx.sideband.state, log)
-          log.info({
-            event: 'greet_response_create_sent',
-            call_id: callId,
-            delay_ms: GREET_TRIGGER_DELAY_OUTBOUND_MS,
-            outbound: true,
-          })
-        }, GREET_TRIGGER_DELAY_OUTBOUND_MS)
+        if (isCase2) {
+          // Case-2: NO proactive requestResponse — AMD classifier must fire first.
+          // Wire ctxRef so the onHuman callback (closure above) can reach sideband.
+          ctxRef = ctx
+        } else {
+          // Non-Case-2 outbound: skip pre-greet, trigger proactive response.create.
+          setTimeout(() => {
+            requestResponse(ctx.sideband.state, log)
+            log.info({
+              event: 'greet_response_create_sent',
+              call_id: callId,
+              delay_ms: GREET_TRIGGER_DELAY_OUTBOUND_MS,
+              outbound: true,
+            })
+          }, GREET_TRIGGER_DELAY_OUTBOUND_MS)
+        }
       } catch (e: unknown) {
         const err = e as Error
         log.error({

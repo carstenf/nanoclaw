@@ -26,6 +26,16 @@ import {
   FILLER_PHRASE_TOOLS,
   TOOL_DISPATCH_JSONL_PATH,
 } from '../config.js'
+import type { AmdClassifier } from '../amd-classifier.js'
+
+// Plan 05-03 Task 3: active AMD classifier reference for the current Case-2 call.
+// Set by /accept when case_type='case_2' (Bridge-internal, not in allowlist.ts).
+// Cleared to null when call ends or no Case-2 call is active.
+// T-05-03-03: amd_result on non-Case-2 session (null classifier) → invalid_tool_call.
+let _activeClassifier: AmdClassifier | null = null
+export function setAmdClassifier(classifier: AmdClassifier | null): void {
+  _activeClassifier = classifier
+}
 
 // Tool-name mapping: bridge tool name → Core MCP tool name.
 // null  = not implemented (03-08 skipped or bridge-internal, stub path).
@@ -130,10 +140,10 @@ export async function dispatchTool(
     DISPATCH_TOOL_TIMEOUT_MS
   const jsonlPath = opts.jsonlPath ?? TOOL_DISPATCH_JSONL_PATH
 
-  // 1a. Bridge-internal override tools (e.g. amd_result from Case-2 spike).
-  // When tools_override is active for this task, tools outside allowlist.ts are
-  // handled here: log verdict, hang up the call cleanly, no Core-MCP dispatch.
-  // Pattern mirrors end_call (below). Never calls emitCreate — the call ends.
+  // 1a. Bridge-internal: amd_result (Case-2 AMD classifier — NOT in allowlist.ts).
+  // T-05-03-07: amd_result is declared inline in /accept tools array for Case-2 only.
+  // T-05-03-03: if no classifier is registered (non-Case-2 session), reject as
+  //   invalid_tool_call (defense: prevents forged amd_result on Case-6b sessions).
   if (toolName === 'amd_result') {
     const verdict =
       typeof (args as { verdict?: unknown })?.verdict === 'string'
@@ -145,21 +155,27 @@ export async function dispatchTool(
       turn_id: turnId,
       verdict,
     })
-    const hangup = opts.hangupCall ?? _hangupCall
-    if (hangup) {
-      try {
-        await hangup(callId)
-      } catch (e: unknown) {
-        log.warn({
-          event: 'amd_result_hangup_failed',
-          call_id: callId,
-          verdict,
-          err: (e as Error)?.message ?? 'unknown',
-        })
-      }
+
+    const classifier = _activeClassifier
+    if (!classifier) {
+      // T-05-03-03: non-Case-2 session — reject as invalid
+      log.warn({
+        event: 'amd_result_rejected_no_classifier',
+        call_id: callId,
+        turn_id: turnId,
+        verdict,
+        reason: 'amd_result is Case-2 only; no active classifier registered',
+      })
+      emitOutput(ws, functionCallId, { error: 'invalid_tool_call' }, log)
+      emitCreate(ws, log)
+      return
     }
+
+    // Route verdict to active classifier (bridge-internal, no Core-MCP roundtrip).
+    // The classifier's onVoicemail/onHuman callbacks handle hangup + persona swap.
+    classifier.onAmdResult(verdict)
     emitOutput(ws, functionCallId, { ok: true, verdict }, log)
-    // No emitCreate — call is ending.
+    // No emitCreate — classifier callbacks drive next action (hangup or persona swap).
     return
   }
 
