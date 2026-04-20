@@ -179,6 +179,29 @@ describe('createAmdClassifier', () => {
     expect(c.getVerdict()).toBe('voicemail')
   })
 
+  it('test 5b (ringback regression, Plan 05-03 Task 5): callee picks up at 20s after /accept (typical ringback window) → Timer B cleared by speech_started → classifier stays pending', () => {
+    // Real outbound flow: /accept fires when OpenAI Realtime session is ready,
+    // which can be 2-3s after SIP originate. The callee's phone then rings for
+    // 10-20s before pickup. During ringback, no speech_started events fire.
+    // Default silenceMs MUST accommodate this ringback+pickup window — 6s is
+    // too short and produces false-positive silence_mailbox verdicts.
+    const c = makeClassifier({ silenceMs: 30000 })
+    // Simulate 20s of ringback (no events), then callee picks up and says "Hallo"
+    // speech_started fires at ~20s after /accept — before Timer B's 30s fires
+    c.onSpeechStarted()
+    // Verify Timer B is cleared (not fired) — call is still viable
+    expect(onVoicemail).not.toHaveBeenCalled()
+    expect(c.getVerdict()).toBe('pending')
+    // The silence timer (30000ms) should be in cleared state
+    const silenceTimer = timerList.find((t) => t.ms === 30000)
+    expect(silenceTimer?.cleared).toBe(true)
+  })
+
+  it('test 5c: CASE2_VAD_SILENCE_MS default ≥ 20000 (accommodates ringback window)', async () => {
+    const { CASE2_VAD_SILENCE_MS } = await import('../src/config.js')
+    expect(CASE2_VAD_SILENCE_MS).toBeGreaterThanOrEqual(20000)
+  })
+
   it('test 6: transcript matching mailbox regex → onVoicemail("transcript_cue")', () => {
     const c = makeClassifier()
     c.onTranscript('Der Teilnehmer ist zur Zeit nicht erreichbar. Bitte hinterlassen Sie eine Nachricht.')
