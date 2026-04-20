@@ -101,3 +101,146 @@ describe('OUTBOUND_PERSONA_TEMPLATE + buildOutboundPersona — Plan 03-11', () =
     expect(result).toContain(dangerous)
   })
 })
+
+// --- Plan 05-03 Task 2: CASE2_OUTBOUND_PERSONA blocks + buildCase2OutboundPersona ---
+import {
+  CASE2_TOLERANCE_DECISION_BLOCK,
+  CASE2_HOLD_MUSIC_CLARIFYING_BLOCK,
+  buildCase2OutboundPersona,
+} from '../src/persona.js'
+
+describe('CASE2_OUTBOUND_PERSONA — Task 2 tests (≥9)', () => {
+  it('test 1: CASE2_TOLERANCE_DECISION_BLOCK contains tolerance-decision keywords', () => {
+    expect(typeof CASE2_TOLERANCE_DECISION_BLOCK).toBe('string')
+    expect(CASE2_TOLERANCE_DECISION_BLOCK).toContain('ENTSCHEIDUNGSREGELN bei Gegenangebot')
+    expect(CASE2_TOLERANCE_DECISION_BLOCK).toContain('ZUSAGE')
+    expect(CASE2_TOLERANCE_DECISION_BLOCK).toContain('HÖFLICH ABLEHNEN')
+  })
+
+  it('test 2: CASE2_HOLD_MUSIC_CLARIFYING_BLOCK contains hold-music keywords', () => {
+    expect(typeof CASE2_HOLD_MUSIC_CLARIFYING_BLOCK).toBe('string')
+    expect(CASE2_HOLD_MUSIC_CLARIFYING_BLOCK).toContain('Moment bitte')
+    expect(CASE2_HOLD_MUSIC_CLARIFYING_BLOCK).toContain('SCHWEIGE')
+    expect(CASE2_HOLD_MUSIC_CLARIFYING_BLOCK).toContain('60 Sekunden kumulative Wartezeit')
+  })
+
+  it('test 4: buildCase2OutboundPersona output contains required content', () => {
+    const result = buildCase2OutboundPersona({
+      restaurant_name: 'Adria',
+      requested_date: '2026-05-15',
+      requested_time: '19:00',
+      time_tolerance_min: 30,
+      party_size: 4,
+    })
+    expect(typeof result).toBe('string')
+    expect(result.length).toBeGreaterThan(200)
+    // Contains base template content
+    expect(result).toContain('NanoClaw')
+    expect(result).toContain('Carsten')
+    // Contains substituted Case-2 goal fields
+    expect(result).toContain('Adria')
+    expect(result).toContain('19:00')
+    expect(result).toContain('30')
+    // Contains 4 persons (number or word form)
+    expect(result).toMatch(/4|vier/i)
+  })
+
+  it('test 5: notes undefined → output contains "Notizen: keine"', () => {
+    const result = buildCase2OutboundPersona({
+      restaurant_name: 'Testlokal',
+      requested_date: '2026-06-01',
+      requested_time: '18:00',
+      time_tolerance_min: 15,
+      party_size: 2,
+    })
+    expect(result).toContain('keine')
+  })
+
+  it('test 6: notes="draussen, ruhig" → output contains that literal', () => {
+    const result = buildCase2OutboundPersona({
+      restaurant_name: 'Testlokal',
+      requested_date: '2026-06-01',
+      requested_time: '18:00',
+      time_tolerance_min: 15,
+      party_size: 2,
+      notes: 'draussen, ruhig',
+    })
+    expect(result).toContain('draussen, ruhig')
+  })
+
+  it('test 7: requested_date_wort + party_size_wort auto-generated if omitted', () => {
+    const result = buildCase2OutboundPersona({
+      restaurant_name: 'Adria',
+      requested_date: '2026-05-15',
+      requested_time: '19:00',
+      time_tolerance_min: 30,
+      party_size: 4,
+      // No word-form overrides — should auto-generate
+    })
+    // party_size=4 should produce German word "vier" somewhere
+    expect(result).toMatch(/vier/i)
+    // requested_time_wort for 19:00 should produce "neunzehn"
+    expect(result).toMatch(/neunzehn/i)
+  })
+
+  it('test 8: token budget — chars/3.5 approximation under 1500 hard ceiling', () => {
+    const result = buildCase2OutboundPersona({
+      restaurant_name: 'Adria',
+      requested_date: '2026-05-15',
+      requested_time: '19:00',
+      time_tolerance_min: 30,
+      party_size: 4,
+      notes: 'Tisch draussen wenn moeglich',
+    })
+    const approxTokens = result.length / 3.5
+    expect(approxTokens).toBeLessThan(1500)
+  })
+
+  it('test 9: Case-6b persona regression — CASE6B_PERSONA byte-identical after changes', () => {
+    // CASE6B_PERSONA should still contain the canonical markers
+    expect(CASE6B_PERSONA).toContain('Carsten Freek')
+    expect(CASE6B_PERSONA).toContain('Bist du ein Bot?')
+    expect(CASE6B_PERSONA).toContain('ask_core')
+    // It must NOT contain Case-2-specific markers (stays separate)
+    expect(CASE6B_PERSONA).not.toContain('ENTSCHEIDUNGSREGELN bei Gegenangebot')
+    expect(CASE6B_PERSONA).not.toContain('buildCase2OutboundPersona')
+  })
+
+  it('test 3: CASE2_GOAL_SETTING_BLOCK via buildCase2OutboundPersona substitutes all fields', () => {
+    const result = buildCase2OutboundPersona({
+      restaurant_name: 'Bella Italia',
+      requested_date: '2026-07-04',
+      requested_time: '20:00',
+      time_tolerance_min: 20,
+      party_size: 6,
+      requested_date_wort: 'vierten Juli',
+      requested_time_wort: 'zwanzig Uhr',
+      party_size_wort: 'sechs',
+      notes: 'Geburtstag',
+    })
+    expect(result).toContain('Bella Italia')
+    expect(result).toContain('2026-07-04')
+    expect(result).toContain('vierten Juli')
+    expect(result).toContain('zwanzig Uhr')
+    expect(result).toContain('20:00')
+    expect(result).toContain('sechs')
+    expect(result).toContain('6')
+    expect(result).toContain('Geburtstag')
+    expect(result).toContain('20')  // time_tolerance_min
+  })
+
+  it('sanitization: curly braces in restaurant_name and notes are stripped', () => {
+    const result = buildCase2OutboundPersona({
+      restaurant_name: 'Adria {injection}',
+      requested_date: '2026-05-15',
+      requested_time: '19:00',
+      time_tolerance_min: 30,
+      party_size: 2,
+      notes: 'test {evil} note',
+    })
+    expect(result).not.toContain('{injection}')
+    expect(result).not.toContain('{evil}')
+    expect(result).toContain('Adria injection')
+    expect(result).toContain('test evil note')
+  })
+})
