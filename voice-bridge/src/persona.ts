@@ -128,6 +128,150 @@ export function buildOutboundPersona(goal: string, context: string): string {
   )
 }
 
+// ---- Plan 05-03 Task 2: Case-2 Outbound Persona blocks ----
+// These three blocks are concatenated on top of OUTBOUND_PERSONA_TEMPLATE
+// via buildCase2OutboundPersona(). They apply ONLY to Case-2 restaurant
+// reservation calls. Case-6b persona (CASE6B_PERSONA) is NEVER modified.
+//
+// Security: notes + restaurant_name are sanitized (curly braces stripped)
+// before substitution to prevent template-injection via user-supplied fields.
+//
+// Token budget: base OUTBOUND_PERSONA_TEMPLATE (~250 chars) + 3 blocks (~1800 chars)
+// = ~2050 chars / 3.5 ≈ 586 tokens — well under the 1500 hard ceiling from
+// Research §3.5. No log.warn needed unless custom notes are extremely long.
+
+/** Strip curly braces to prevent template injection via user-supplied strings. */
+function sanitizeForPersona(s: string): string {
+  return s.replace(/[{}]/g, '')
+}
+
+/** German number-to-word for 1..30 (simple lookup for time/party). Falls back to numeric. */
+function toGermanNumber(n: number): string {
+  const words: Record<number, string> = {
+    1: 'einem', 2: 'zwei', 3: 'drei', 4: 'vier', 5: 'fünf',
+    6: 'sechs', 7: 'sieben', 8: 'acht', 9: 'neun', 10: 'zehn',
+    11: 'elf', 12: 'zwölf', 13: 'dreizehn', 14: 'vierzehn', 15: 'fünfzehn',
+    16: 'sechzehn', 17: 'siebzehn', 18: 'achtzehn', 19: 'neunzehn', 20: 'zwanzig',
+    21: 'einundzwanzig', 22: 'zweiundzwanzig', 23: 'dreiundzwanzig',
+    24: 'vierundzwanzig', 25: 'fünfundzwanzig', 26: 'sechsundzwanzig',
+    27: 'siebenundzwanzig', 28: 'achtundzwanzig', 29: 'neunundzwanzig',
+    30: 'dreißig',
+  }
+  return words[n] ?? String(n)
+}
+
+/** Convert HH:MM time string to German spoken form e.g. "19:00" → "neunzehn Uhr". */
+function timeToGerman(hhmm: string): string {
+  const parts = hhmm.split(':')
+  const hour = parseInt(parts[0] ?? '0', 10)
+  const minute = parseInt(parts[1] ?? '0', 10)
+  const hourWord = toGermanNumber(hour)
+  if (minute === 0) return `${hourWord} Uhr`
+  if (minute === 30) return `halb ${toGermanNumber(hour + 1)}`
+  return `${hourWord} Uhr ${toGermanNumber(minute)}`
+}
+
+/**
+ * Block 2: Tolerance-decision rules.
+ * Template vars: {time_tolerance_min} substituted at build time.
+ * Uses plain .replace — no eval.
+ */
+export const CASE2_TOLERANCE_DECISION_BLOCK = [
+  'ENTSCHEIDUNGSREGELN bei Gegenangebot:',
+  '  - Counterpart bietet Uhrzeit INNERHALB ±{time_tolerance_min} Minuten → ZUSAGE.',
+  '    Zwei-Form-Readback (Wort + Ziffer), dann create_calendar_entry.',
+  '  - Counterpart bietet Uhrzeit AUSSERHALB Toleranz → HÖFLICH ABLEHNEN:',
+  '    "Danke für den Vorschlag, {uhrzeit} passt leider nicht für uns. Wir versuchen es nochmal."',
+  '    KEIN create_calendar_entry aufrufen. Gespräch höflich beenden (end_call), dann voice_notify_user(urgency=decision).',
+  '  - Counterpart bietet andere Personenzahl → ABLEHNEN (Personenzahl ist exakt).',
+  '  - Counterpart kann an DIESEM Tag gar nicht → ABLEHNEN + escalate',
+  '    ("Dann versuchen wir es an einem anderen Tag, danke").',
+  '  - Counterpart fragt Rückruf an ("wir rufen in 10 Min zurück") → ABLEHNEN, nicht warten:',
+  '    "Das ist lieb, aber bitte geben Sie mir jetzt eine direkte Antwort — sonst versuchen wir es nochmal."',
+].join('\n')
+
+/**
+ * Block 3: Hold-music / clarifying-question handling.
+ * "60 Sekunden kumulative Wartezeit" is the hard limit per Research §3.2.
+ */
+export const CASE2_HOLD_MUSIC_CLARIFYING_BLOCK = [
+  'WENN der Counterpart "Moment bitte" / "einen Augenblick" sagt und Musik läuft:',
+  '  - SCHWEIGE. Rufe NICHT end_call. Halte die Leitung bis zu 45 Sekunden.',
+  '  - Wenn nach 45 Sekunden noch Musik läuft: sage "Hallo? Sind Sie noch da?" einmal.',
+  '  - Bei 60 Sekunden kumulative Wartezeit: beende höflich mit "Ich versuche es nochmal später, danke" und ruf end_call.',
+  '',
+  'WENN der Counterpart eine Rückfrage stellt:',
+  '  - "Allergien?" → Aus Auftrag vorlesen (Notes) ODER "Nein, danke."',
+  '  - "Anlass?" → Notes ODER "Nein, einfach nur ein schöner Abend."',
+  '  - "Kinderstühle?" → Notes ODER "Nein, danke."',
+  '  - "Name?" → "Carsten Freek, Freek mit zwei Es."',
+  '  - "Telefon für Rückfragen?" → NIEMALS Carstens Handynummer diktieren; sage',
+  '    "Die Sipgate-Nummer von der Sie angerufen wurden — die haben Sie ja angezeigt."',
+  '  - "Vorauszahlung?" → NIEMALS zusagen.',
+  '  - Unbekannte Rückfrage → "Dazu kann ich gerade nichts Verbindliches sagen, ich melde mich nochmal."',
+].join('\n')
+
+export interface Case2OutboundPersonaArgs {
+  restaurant_name: string
+  requested_date: string
+  requested_time: string
+  time_tolerance_min: number
+  party_size: number
+  notes?: string
+  requested_date_wort?: string
+  requested_time_wort?: string
+  party_size_wort?: string
+}
+
+/**
+ * Build Case-2 outbound persona: base OUTBOUND_PERSONA_TEMPLATE + goal-setting +
+ * tolerance-decision + hold-music blocks. Plain string concat (no template engine).
+ *
+ * Composition:
+ *   1. OUTBOUND_PERSONA_TEMPLATE with {{goal}} = structured Case-2 goal block
+ *                                   {{context}} = restaurant + date + tolerance summary
+ *   2. CASE2_TOLERANCE_DECISION_BLOCK with time_tolerance_min substituted
+ *   3. CASE2_HOLD_MUSIC_CLARIFYING_BLOCK (static)
+ *
+ * Token budget: ~550 tokens (well under 1500 hard ceiling, Research §3.5).
+ * If chars/3.5 > 1500, log.warn is omitted for now (budget met in practice).
+ */
+export function buildCase2OutboundPersona(args: Case2OutboundPersonaArgs): string {
+  // Sanitize user-supplied strings (T-05-02-02: curly-brace strip)
+  const restaurantName = sanitizeForPersona(args.restaurant_name)
+  const notes = args.notes ? sanitizeForPersona(args.notes) : undefined
+
+  // Auto-generate word forms if not supplied
+  const timeWort = args.requested_time_wort ?? timeToGerman(args.requested_time)
+  const partySizeWort = args.party_size_wort ?? toGermanNumber(args.party_size)
+  const dateWort = args.requested_date_wort ?? args.requested_date
+
+  const notesText = notes ? notes : 'keine'
+
+  // Block 1: Goal-setting (replaces {{goal}} in OUTBOUND_PERSONA_TEMPLATE)
+  const goalBlock = [
+    `Reservierung für ${restaurantName}`,
+    `am ${dateWort}, also ${args.requested_date},`,
+    `um ${timeWort}, also ${args.requested_time},`,
+    `für ${partySizeWort}, also ${args.party_size} Person(en).`,
+    `Optionale Wünsche: ${notesText}.`,
+    `Toleranz: ±${args.time_tolerance_min} Minuten auf die Uhrzeit. Personenzahl exakt ${args.party_size}.`,
+  ].join(' ')
+
+  const contextBlock = `Restaurant ${restaurantName}, Datum ${args.requested_date}, ±${args.time_tolerance_min} Min Toleranz`
+
+  // Build base persona with placeholders substituted
+  const basePersona = OUTBOUND_PERSONA_TEMPLATE
+    .replace('{{goal}}', goalBlock)
+    .replace('{{context}}', contextBlock)
+
+  // Tolerance-decision block with time_tolerance_min substituted
+  const toleranceBlock = CASE2_TOLERANCE_DECISION_BLOCK
+    .replace(/\{time_tolerance_min\}/g, String(args.time_tolerance_min))
+
+  return [basePersona, toleranceBlock, CASE2_HOLD_MUSIC_CLARIFYING_BLOCK].join('\n\n')
+}
+
 export const PHASE2_PERSONA = [
   'Du bist NanoClaw, ein freundlicher deutscher Sprach-Assistent.',
   '',
