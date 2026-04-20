@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { BadRequestError } from './voice-on-transcript-turn.js';
 import { makeVoiceSendDiscordMessage } from './voice-send-discord-message.js';
+import { logger } from '../logger.js';
 
 let tmpDir: string;
 
@@ -161,6 +162,30 @@ describe('makeVoiceSendDiscordMessage (REQ-TOOLS-03)', () => {
     expect(typeof entry.latency_ms).toBe('number');
     // PII check
     expect(logContent).not.toContain('PII should not appear');
+  });
+
+  it('emits deprecation-observability log on every invocation', async () => {
+    const infoSpy = vi.spyOn(logger, 'info');
+    const cb = makeOkCallback();
+    const handler = makeVoiceSendDiscordMessage({
+      sendDiscordMessage: cb,
+      allowedChannels: ALLOWED_SET,
+      jsonlPath: JSONL_PATH(),
+    });
+
+    await handler({
+      call_id: 'dep-obs-1',
+      channel: ALLOWED_CHANNEL,
+      content: 'deprecation test',
+    });
+
+    const deprecationCall = infoSpy.mock.calls.find(
+      (c) => (c[0] as any)?.event === 'mcp_tool_voice_send_discord_message_seen',
+    );
+    expect(deprecationCall).toBeDefined();
+    expect((deprecationCall![0] as any).call_id).toBe('dep-obs-1');
+    expect((deprecationCall![0] as any).channel).toBe(ALLOWED_CHANNEL);
+    infoSpy.mockRestore();
   });
 
   it('dedup: JSONL contains discord_message_deduplicated event on second call', async () => {
