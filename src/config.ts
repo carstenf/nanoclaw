@@ -220,6 +220,22 @@ export const MCP_STREAM_MAX_SESSIONS = Number(
   process.env.MCP_STREAM_MAX_SESSIONS ?? 50,
 );
 
+// ----- Plan 05-01 (SEED-001): channel-routing session tracker -----
+// Window within which inbound activity is considered "active session".
+// Default: 10 minutes.
+export const VOICE_ACTIVE_SESSION_WINDOW_MS = parseInt(
+  process.env.VOICE_ACTIVE_SESSION_WINDOW_MS ?? '600000',
+  10,
+);
+
+// Long-text threshold for voice_notify_user routing: payloads with more
+// than this many words are force-routed to Discord regardless of active session.
+// Default: 50 words (per feedback_long_text_discord.md rule).
+export const VOICE_NOTIFY_LONG_TEXT_WORD_THRESHOLD = parseInt(
+  process.env.VOICE_NOTIFY_LONG_TEXT_WORD_THRESHOLD ?? '50',
+  10,
+);
+
 // Timezone for scheduled tasks, message formatting, etc.
 // Validates each candidate is a real IANA identifier before accepting.
 function resolveConfigTimezone(): string {
