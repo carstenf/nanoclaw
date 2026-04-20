@@ -89,7 +89,7 @@ NanoClaw Voice is a personal AI phone agent that handles telephone tasks on beha
 - **Architecture — Tool definitions immutable mid-call:** Set at `realtime.calls.accept()`; never updated via `session.update` (Sideband-WS bug, AC-04). Only `instructions` may be updated mid-call (AC-05).
 - **Architecture — Claude never in hot-path:** Claude Sonnet runs only as async background director (AC-02 from ARCHITECTURE-DECISION).
 - **Architecture — Directional persona prompt required:** Prompt must prohibit the bot from providing domain data (slots, contract terms) from memory and mandate tool invocation (AC-06).
-- **Architecture — Director Bridge as dedicated service:** MCP-tool-server pattern on Lenovo1; enables Chat to invoke the same tools for debugging (AC-07).
+- **Architecture — Director Bridge as dedicated service:** MCP-tool-server pattern on Lenovo1; spec-compliant StreamableHTTP on port 3201 is the production Bridge↔Core channel. Chat-Claude and iOS Claude consume the same canonical endpoint via Caddy+OAuth (AC-07). Phase 4.5 consolidated the earlier REST facade on port 3200 into deprecation.
 - **Infra — WireGuard only:** All Hetzner↔Lenovo1 traffic via tunnel; no cleartext on public IPs (AC-08).
 - **Cost — Hard caps:** €1/call, €3/day, €25/month. Soft-warning at 80%. Monthly cap suspends channel until manual reset.
 - **Operational — Isolation:** Voice stack contains no business logic. All Core access via Director Bridge only. `inbound` and `outbound` paths never edited together (Carsten feedback rule).

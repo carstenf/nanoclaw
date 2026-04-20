@@ -96,7 +96,7 @@ Plans:
 **Scope note**: All `carsten_bot` scope. This is the Phase-3-exit gate defined in the research — real PSTN call with turn-timing P50 < 900 ms + session summary + zero audio files. After this gate, the architecture is proven end-to-end; Cases 2/3/4 become tooling + persona work.
 
 ### Phase 4: Core Tool Integration + Cost/Observability
-**Goal**: The full Case 6 tool surface is wired (calendar with travel-buffer, contract, practice profile, competitor search, retry scheduler), cost is enforced in real-time per-call/day/month with hard-caps, Chat-Claude can invoke the same tools over Streamable HTTP for debugging (AC-07 verified), reconciliation jobs detect cross-channel drift, and the monthly §201 filesystem audit runs on both hosts.
+**Goal**: The full Case 6 tool surface is wired (calendar with travel-buffer, contract, practice profile, competitor search, retry scheduler), cost is enforced in real-time per-call/day/month with hard-caps, Chat-Claude and iOS Claude consume the production MCP StreamableHTTP endpoint on port 3201 (AC-07 verified — same canonical channel the Bridge uses), reconciliation jobs detect cross-channel drift, and the monthly §201 filesystem audit runs on both hosts.
 **Depends on**: Phase 3
 **Requirements**: INFRA-06, INFRA-07, TOOLS-01, TOOLS-02, TOOLS-04, TOOLS-05, TOOLS-06, TOOLS-07, COST-01, COST-02, COST-03, COST-04, COST-05, QUAL-03, QUAL-04
 **Success Criteria** (what must be TRUE):
