@@ -131,6 +131,13 @@ export interface RegistryDeps {
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
   /** Main-group lookup callback — returns {folder, jid} for is_main=1 group, or null. */
   getMainGroupAndJid?: () => { folder: string; jid: string } | null;
+  /**
+   * Plan 05-02 Task 5: external ActiveSessionTracker instance.
+   * When provided, voice_notify_user uses this tracker instead of creating its own.
+   * index.ts creates one at startup and calls tracker.recordActivity() on every
+   * inbound message, then passes the same instance here so the routing has real data.
+   */
+  activeSessionTracker?: import('../channels/active-session-tracker.js').ActiveSessionTracker;
 }
 
 export interface RegistryHandle {
@@ -457,11 +464,12 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     }),
   );
 
-  // Phase 5 Plan 05-01 (SEED-001): voice_notify_user — channel-agnostic routing.
+  // Phase 5 Plan 05-01 (SEED-001) / Plan 05-02 Task 5: voice_notify_user — channel-agnostic routing.
   // Core MCP tool (port 3201); NOT in Bridge allowlist (REQ-TOOLS-09 ceiling unaffected).
-  // Active-session-tracker is created here but NOT yet wired to inbound-message events
-  // (that wiring is Plan 05-02 Task 5). Wave 1 tests use DI fake tracker.
-  const activeSessionTracker = createActiveSessionTracker();
+  // Plan 05-02 Task 5: if an external activeSessionTracker is provided (from index.ts startup),
+  // use it — index.ts calls tracker.recordActivity() on every inbound message so routing sees
+  // real data. If no external tracker provided (e.g. tests), create a fresh one.
+  const activeSessionTracker = deps.activeSessionTracker ?? createActiveSessionTracker();
   registry.register(
     VOICE_NOTIFY_USER_TOOL_NAME,
     makeVoiceNotifyUser({

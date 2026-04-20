@@ -77,6 +77,7 @@ import { makeFreeswitchCall, initFreeswitchVoice } from './freeswitch-voice.js';
 import { startMcpServer } from './mcp-server.js';
 import { startMcpStreamServer } from './mcp-stream-server.js';
 import { buildDefaultRegistry } from './mcp-tools/index.js';
+import { createActiveSessionTracker } from './channels/active-session-tracker.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -603,6 +604,11 @@ function ensureContainerSystemRunning(): void {
 async function main(): Promise<void> {
   ensureContainerSystemRunning();
   initDatabase();
+
+  // Plan 05-02 Task 5: active-session-tracker — tracks which channel (whatsapp/discord)
+  // Carsten most recently sent a message on. recordActivity() is called in onMessage
+  // below; voice_notify_user routing reads it via buildDefaultRegistry DI.
+  const activeSessionTracker = createActiveSessionTracker();
   logger.info('Database initialized');
   loadState();
 
@@ -669,6 +675,15 @@ async function main(): Promise<void> {
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
+      // Plan 05-02 Task 5: record inbound activity for voice_notify_user routing.
+      // Channel name is derived from the message JID prefix pattern.
+      // This is a one-line integration — no other changes to this handler.
+      if (!msg.is_from_me && !msg.is_bot_message) {
+        const channelName: 'whatsapp' | 'discord' =
+          chatJid.startsWith('dc:') ? 'discord' : 'whatsapp';
+        activeSessionTracker.recordActivity(channelName, chatJid, Date.now());
+      }
+
       // Remote control commands — intercept before storage
       const trimmed = msg.content.trim();
       if (trimmed === '/remote-control' || trimmed === '/remote-control-end') {
@@ -932,6 +947,7 @@ async function main(): Promise<void> {
   const sharedRegistry = buildDefaultRegistry({
     sendDiscordMessage,
     getMainGroupAndJid,
+    activeSessionTracker,
   });
   startMcpServer({
     registry: sharedRegistry,
