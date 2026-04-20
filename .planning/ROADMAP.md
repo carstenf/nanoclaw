@@ -155,13 +155,25 @@ Plans:
 
 ### Phase 05.1: AMD persona handoff redesign and ASR upgrade (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
-**Requirements**: TBD
+**Goal:** Close the 4 open structural defects surfaced by Phase 05 Plan 03 Task 5 live verification (defects #3 ASR quality, #4 retry-args zod contract, #5 same-day-retry UNIQUE violation, #6 persona handoff broken) so that the Case-2 outbound flow is live-test-passable. Surgical patch phase — Wave 3 architecture (AMD classifier, persona content, VAD thresholds, pre-greet, outbound-router) stays intact.
+**Requirements**: C2-01, C2-02, C2-03, C2-04, C2-05, C2-06, C2-07, QUAL-01 (Phase 05 requirement set; this phase patches the implementation of those same requirements)
 **Depends on:** Phase 05
-**Plans:** 0 plans
+**Plans:** 5 plans
+**Source-of-truth:** `.planning/phases/05-case-2-restaurant-reservation-outbound/05-03-TASK5-DEFECTS.md` (6-defect report; defects #1 and #2 already shipped in c69ded9/59d653a/4db252c/13e2e50)
+**Success criteria**:
+  1. Defect #6 fixed: After `amd_result=human`, bot opens with "NanoClaw im Auftrag von Carsten" (not restaurant-assistant helper-mode). Root cause was missing `type: 'realtime'` in `session.update` at voice-bridge/src/sideband.ts:619 — verifiable at trace v6-persona-swap-failed.jsonl line 27 (`missing_required_parameter: session.type`). Fix: add type field + defense-in-depth synthetic `conversation.item.create role=user` directive.
+  2. Defect #3 fixed: `SESSION_CONFIG.audio.input.transcription.model` = `gpt-4o-mini-transcribe` (upgrade from `whisper-1`). German short-utterance ASR no longer renders as English/Swedish garbage at 8 kHz telephony bandwidth.
+  3. Defect #4 fixed: `voice_case_2_schedule_retry` called with zod-valid args (`call_id`, `target_phone`, `calendar_date`, `prev_outcome` ∈ enum, `idempotency_key`) for all 4 AMD voicemail reason codes. Fail-fast warn-log if required casePayload fields are missing.
+  4. Defect #5 fixed: Two distinct idempotency_keys for the same `(target_phone, calendar_date)` both INSERT with `attempt_no=1` and `2`. Replaces hardcoded `attempt_no=1` with transactional `SELECT COALESCE(MAX(attempt_no),0)+1; INSERT`.
+  5. Live PSTN verification: 3 calls matching Plan 05-03 Task 5 matrix (happy human pickup, voicemail, busy/no-answer) pass with new traces in `task5-traces-rerun/`.
+  6. Wave 3 behavior preserved: AMD classifier verdicts unchanged, §201 zero-audio-leak invariant holds (no `audio_transcript.delta` before `amd_result`), CASE2_OUTBOUND_PERSONA content unchanged (only invocation mechanism fixed).
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 05.1 to break down)
+- [ ] 05.1-01: Persona handoff fix (defect #6) — TDD — Wave 1
+- [ ] 05.1-02: ASR upgrade to gpt-4o-mini-transcribe (defect #3) — Wave 1
+- [ ] 05.1-03: onVoicemail retry args zod-contract fix (defect #4) — TDD — Wave 2 (depends on 05.1-01 for webhook.ts merge order)
+- [ ] 05.1-04: same-day retry attempt_no transactional fix (defect #5) — TDD — Wave 1
+- [ ] 05.1-05: Live PSTN verification (autonomous: false) — Wave 3 (depends on 01/02/03/04)
 
 ### Phase 6: Case 3 — Medical/Hair Appointment Outbound
 **Goal**: NanoBot places a medical/hair appointment call with practice profile loaded, remains passively on IVR hold-music without inference cost, cross-checks offered slots against Carsten's calendar with travel-buffer from home and Audi-Standort, selects minimum-disruption slot, protects authorized-data-only disclosure, and escalates cleanly if DTMF-IVR or online-portal-only is encountered.
