@@ -244,9 +244,17 @@ export const CASE2_VAD_CADENCE_MS = Number(
   process.env.CASE2_VAD_CADENCE_MS ?? 4000,
 )
 
-/** Timer B: no speech_started after this long = silence mailbox. */
+/**
+ * Timer B: no speech_started after this long = silence mailbox.
+ *
+ * Default 30000 (30s) — accommodates the ringback window. /accept fires 2-3s
+ * after SIP originate (OpenAI Realtime session ready, NOT SIP 200-OK pickup),
+ * so the classifier must wait for the phone to ring AND the callee to speak.
+ * Typical ringback is 10-20s before voicemail pickup; 30s covers both human
+ * pickup and mailbox auto-answer comfortably. See Plan 05-03 Task 5 defect.
+ */
 export const CASE2_VAD_SILENCE_MS = Number(
-  process.env.CASE2_VAD_SILENCE_MS ?? 6000,
+  process.env.CASE2_VAD_SILENCE_MS ?? 30000,
 )
 
 // Phase-2 /accept session knobs. Single source of truth for turn-detection
