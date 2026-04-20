@@ -6,7 +6,9 @@ researched: 2026-04-20
 domain: outbound voice (AMD + tolerance negotiation + retry orchestration)
 confidence: MEDIUM-HIGH (AMD: MEDIUM, negotiation: HIGH, TOOLS-07 gap-check: HIGH)
 scope: three open items delegated from 05-CONTEXT.md (D-1 AMD, D-5 tolerance, D-2/TOOLS-07)
-locked_decisions_unchanged: D-1, D-2, D-3, D-4, D-5, D-6, D-7
+locked_decisions_unchanged: D-1, D-2, D-3, D-4, D-5, D-6
+locked_decisions_revised_post_research:
+  - D-7 (2026-04-20) — idempotency hash drops call_id_originating_session; see CONTEXT.md for canonical formula. Any D-7 quote below captures the pre-revision formulation for historical accuracy; the implementation follows CONTEXT.
 ---
 
 # Phase 5 Research — Case 2 Restaurant Reservation Outbound
