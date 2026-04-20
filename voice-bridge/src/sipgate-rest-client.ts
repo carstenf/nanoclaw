@@ -19,6 +19,25 @@ import {
   SIPGATE_REST_TIMEOUT_MS,
 } from './config.js'
 
+/**
+ * Structured details parsed from Sipgate error responses (Spike-B 2026-04-20).
+ *
+ * Spike-B verdict: Sipgate originate returns 200 OK for ALL async outcomes
+ * (busy, no-answer, voicemail). Only pre-submission sync errors carry HTTP
+ * error codes. See spike-results/SPIKE-B-sipgate-486.md.
+ *
+ * Research §4.4 fallback: treat all non-2xx originate responses as retryable
+ * UNLESS the body matches a known non-retryable pattern (e.g. invalid_number).
+ */
+export interface SipgateRestErrorDetails {
+  /** true when Sipgate returned a "could not validate phonenumber" 400 body. */
+  invalidNumber?: boolean;
+  /** true when this error is retryable (Research §4.4 fallback — all unknowns). */
+  retryable?: boolean;
+  /** true when Sipgate returned a known busy signal (RESERVED — Spike-B: not distinguishable). */
+  lineBusy?: boolean;
+}
+
 export class SipgateRestError extends Error {
   constructor(
     public readonly code:
@@ -28,6 +47,7 @@ export class SipgateRestError extends Error {
       | 'timeout',
     message: string,
     public readonly httpStatus?: number,
+    public readonly details?: SipgateRestErrorDetails,
   ) {
     super(`${code}: ${message}`)
     this.name = 'SipgateRestError'
@@ -58,6 +78,31 @@ export interface SipgateOriginateResult {
   sessionId: string
   /** Raw response body for logging. */
   raw: unknown
+}
+
+/**
+ * Parse Sipgate error-body to determine retryability and error class.
+ *
+ * Spike-B 2026-04-20 findings:
+ * - 400 + body.message contains "could not validate phonenumber" → invalidNumber=true, retryable=false
+ * - All other non-2xx responses → retryable=true (Research §4.4 fallback)
+ * - No 486 body exists — busy vs no-answer is indistinguishable from originate HTTP response
+ */
+function parseSipgateErrorDetails(
+  status: number,
+  body: unknown,
+): SipgateRestErrorDetails {
+  // Check for known invalid-number pattern (400 + "could not validate phonenumber")
+  if (status === 400) {
+    const msg =
+      (body as { message?: string })?.message ??
+      (typeof body === 'string' ? body : '')
+    if (typeof msg === 'string' && msg.toLowerCase().includes('could not validate phonenumber')) {
+      return { invalidNumber: true, retryable: false }
+    }
+  }
+  // Research §4.4 fallback: all other non-2xx originate errors are retryable
+  return { retryable: true }
 }
 
 /**
@@ -123,10 +168,17 @@ export async function sipgateRestOriginate(
     }
 
     if (!res.ok) {
+      // Spike-B 2026-04-20: parse known Sipgate error-body shapes.
+      // No 486 body exists — all async call outcomes (busy, no-answer) come
+      // via History API, not from this endpoint. Only pre-submission sync errors
+      // arrive here. Research §4.4 fallback: unknowns are retryable.
+      const bodyStr = typeof parsed === 'string' ? parsed : JSON.stringify(parsed)
+      const details = parseSipgateErrorDetails(res.status, parsed)
       throw new SipgateRestError(
         'http_error',
-        `sipgate returned ${res.status}: ${typeof parsed === 'string' ? parsed : JSON.stringify(parsed)}`,
+        `sipgate returned ${res.status}: ${bodyStr}`,
         res.status,
+        details,
       )
     }
 

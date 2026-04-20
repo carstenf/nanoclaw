@@ -250,7 +250,16 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
       )
     } catch (err) {
       next.status = 'failed'
-      next.error = err instanceof Error ? err.message : String(err)
+      // Plan 05-02 Task 4: surface Sipgate error details from Spike-B parser.
+      // SipgateRestError.details.lineBusy → task.error='line_busy' (reserved for future use;
+      // Spike-B verdict: Sipgate does not distinguish busy from no-answer synchronously).
+      // SipgateRestError.details.retryable → generic retryable_failure (Research §4.4).
+      const errDetails = (err as { details?: { lineBusy?: boolean; retryable?: boolean } })?.details
+      if (errDetails?.lineBusy === true) {
+        next.error = 'line_busy'
+      } else {
+        next.error = err instanceof Error ? err.message : String(err)
+      }
       next.ended_at = now()
       activeTaskId = null
       deps.log?.warn(

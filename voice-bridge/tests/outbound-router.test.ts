@@ -372,6 +372,31 @@ describe('OutboundRouter (03-11 pivot — Sipgate REST)', () => {
     )
   })
 
+  // ---- Plan 05-02 Task 4: line_busy surfacing ----
+
+  it('line_busy: originate error with details.lineBusy=true → task.error="line_busy"', async () => {
+    const { createOutboundRouter } = await import('../src/outbound-router.js')
+    const lineBusyErr = Object.assign(new Error('sipgate busy'), {
+      details: { lineBusy: true, retryable: false },
+    })
+    const busyOriginator = {
+      originate: vi.fn().mockRejectedValueOnce(lineBusyErr),
+    }
+    const busyDeps = { ...deps, outboundOriginator: busyOriginator }
+    const router = createOutboundRouter(busyDeps)
+    router.enqueue({
+      target_phone: '+491234567890',
+      goal: 'Test line_busy',
+      context: '',
+      report_to_jid: 'dc:1',
+    })
+    await vi.advanceTimersByTimeAsync(1)
+    const state = router.getState()
+    const task = state[0]
+    expect(task?.status).toBe('failed')
+    expect(task?.error).toBe('line_busy')
+  })
+
   // ---- Plan 05-02 Wave 2: case_type field ----
 
   it('case_type="case_2" and case_payload are carried through enqueue onto OutboundTask', async () => {
