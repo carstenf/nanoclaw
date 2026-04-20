@@ -85,6 +85,9 @@ import { RequestOutboundCallSchema } from './mcp-tools/voice-request-outbound-ca
 import { ResetMonthlyCapSchema } from './mcp-tools/voice-reset-monthly-cap.js';
 import { GetDayMonthCostSumSchema } from './mcp-tools/voice-get-day-month-cost-sum.js';
 import { OnTranscriptTurnSchema } from './mcp-tools/voice-on-transcript-turn.js';
+import { VoiceNotifyUserSchema } from './mcp-tools/voice-notify-user.js';
+import { VoiceStartCase2CallSchema } from './mcp-tools/voice-start-case-2-call.js';
+import { VoiceCase2ScheduleRetrySchema } from './mcp-tools/voice-case-2-retry.js';
 
 // Same allowlist as port 3200 (src/mcp-server.ts DEFAULT_ALLOWLIST).
 // 10.0.0.1 Hetzner, 10.0.0.2 self, 10.0.0.4 iPhone, 10.0.0.5 iPad.
@@ -197,6 +200,21 @@ const TOOL_META: Record<string, { description: string; shape: z.ZodRawShape }> =
       description:
         'Bridge→Core: push a transcript turn for Slow-Brain processing.',
       shape: OnTranscriptTurnSchema.shape,
+    },
+    'voice_notify_user': {
+      description:
+        'Notify Carsten via the most-recent active channel (WhatsApp/Discord) with >50-word override to Discord.',
+      shape: VoiceNotifyUserSchema.shape,
+    },
+    'voice_start_case_2_call': {
+      description:
+        'Trigger a Case-2 outbound restaurant-reservation call (D-5 args, D-7 idempotency).',
+      shape: VoiceStartCase2CallSchema.shape,
+    },
+    'voice_case_2_schedule_retry': {
+      description:
+        'Schedule a Case-2 retry with ladder (5/15/45/120 min) and daily cap of 5.',
+      shape: VoiceCase2ScheduleRetrySchema.shape,
     },
   };
 
