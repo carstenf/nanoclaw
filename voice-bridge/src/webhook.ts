@@ -11,7 +11,8 @@ import { getAllowlist, type ToolEntry } from './tools/allowlist.js'
 import type { CallRouter } from './call-router.js'
 import type { OutboundRouter } from './outbound-router.js'
 import { maybeInjectPreGreet } from './pre-greet.js'
-import { callCoreTool } from './core-mcp-client.js'
+import { CoreMcpClient } from './core-mcp-client.js'
+import { CORE_MCP_URL, CORE_MCP_TOKEN } from './config.js'
 import type { CoreClientLike } from './slow-brain.js'
 import { requestResponse } from './sideband.js'
 import {
@@ -299,6 +300,14 @@ export function registerAcceptRoute(
         parameters: e.schema,
       }
     })
+    // Plan 04.5-03 / D-6 / Pitfall 5 (T-4.5-E): per-call MCP session.
+    // Construct the CoreMcpClient BEFORE router.startCall() so it flows
+    // through to openSidebandSession's ws.on('close') finalizer, which
+    // calls coreMcp.close() on hangup. Without this, the server-side
+    // sessions Map leaks one session per call.
+    const coreMcp = CORE_MCP_URL
+      ? new CoreMcpClient(new URL(CORE_MCP_URL), CORE_MCP_TOKEN)
+      : undefined
     try {
       await openai.realtime.calls.accept(callId, {
         type: 'realtime',
@@ -307,7 +316,7 @@ export function registerAcceptRoute(
         tools: toolsPayload,
         audio: SESSION_CONFIG.audio,
       } as unknown as Parameters<typeof openai.realtime.calls.accept>[1])
-      const ctx = router.startCall(callId, log)
+      const ctx = router.startCall(callId, log, { coreMcp })
       log.info({
         event: 'call_accepted',
         call_id: callId,
@@ -323,13 +332,26 @@ export function registerAcceptRoute(
       // Plan 03-14 / REQ-VOICE-13: fire-and-forget Slow-Brain pre-greet
       // injection. <2000ms budget, fallback to static persona on timeout
       // or no instructions returned. Never blocks accept-handler return.
-      const coreClient: CoreClientLike = {
-        callTool: async (name, args, o) =>
-          (await callCoreTool(name, args, {
-            timeoutMs: o?.timeoutMs,
-            signal: o?.signal,
-          })) as { ok: boolean; instructions_update?: string | null },
-      }
+      //
+      // Plan 04.5-03: adapt the per-call CoreMcpClient into the
+      // CoreClientLike shape slow-brain/pre-greet expect. The result cast
+      // to { ok, instructions_update? } mirrors v1's return-shape contract.
+      const coreClient: CoreClientLike = coreMcp
+        ? {
+            callTool: async (name, args, o) =>
+              (await coreMcp.callTool(name, args, {
+                timeoutMs: o?.timeoutMs,
+                signal: o?.signal,
+              })) as { ok: boolean; instructions_update?: string | null },
+          }
+        : {
+            // If CORE_MCP_URL is unset (dev/test without Core), pre-greet
+            // becomes a no-op — the callTool adapter throws, and
+            // maybeInjectPreGreet catches and logs `core_call_failed`.
+            callTool: async () => {
+              throw new Error('core-mcp: CORE_MCP_URL not configured')
+            },
+          }
       void maybeInjectPreGreet({
         callId,
         sideband: ctx.sideband,

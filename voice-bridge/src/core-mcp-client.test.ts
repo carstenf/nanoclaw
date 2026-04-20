@@ -31,7 +31,7 @@ import {
   CoreMcpError,
   CoreMcpTimeoutError,
   __resetDefaultClientForTests,
-} from './core-mcp-client-v2.js'
+} from './core-mcp-client.js'
 
 const BEARER = 'test-v2-token'
 

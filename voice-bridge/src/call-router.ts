@@ -13,6 +13,7 @@ import { runGhostScan } from './ghost-scan.js'
 import { clearCall as clearIdempotencyCache } from './idempotency.js'
 import { createSilenceMonitor, type SilenceMonitor } from './silence-monitor.js'
 import { getHangupCallback } from './tools/dispatch.js'
+import type { CoreMcpClient } from './core-mcp-client.js'
 
 export interface CallContext {
   callId: string
@@ -22,10 +23,34 @@ export interface CallContext {
   sideband: SidebandHandle
   slowBrain: SlowBrainWorker
   silence: SilenceMonitor | null
+  /**
+   * Plan 04.5-03 / D-6 / Pitfall 5 (T-4.5-E): per-call MCP session.
+   * Set by webhook.ts /accept via startCall({ coreMcp }). The sideband
+   * ws.on('close') handler receives this via SidebandOpenOpts.coreMcp and
+   * closes the MCP session — prevents server-side sessions Map leak.
+   * Optional — undefined when CORE_MCP_URL is unset (dev/test) or in
+   * test fixtures that don't need MCP plumbing.
+   */
+  coreMcp?: CoreMcpClient
+}
+
+/**
+ * Plan 04.5-03: opts passed through startCall() into openSidebandSession
+ * for the Pitfall-5 finalizer. Kept as its own interface so tests can
+ * construct a router without worrying about MCP plumbing.
+ */
+export interface StartCallOpts {
+  coreMcp?: CoreMcpClient
 }
 
 export interface CallRouter {
-  startCall: (callId: string, log: Logger) => CallContext
+  /**
+   * Plan 04.5-03: `opts.coreMcp` — per-call MCP client (D-6). When
+   * provided, flows through to openSidebandSession so the WS-close
+   * finalizer can close the MCP session (Pitfall 5 / T-4.5-E).
+   * Production caller: webhook.ts /accept; tests typically omit.
+   */
+  startCall: (callId: string, log: Logger, opts?: StartCallOpts) => CallContext
   endCall: (callId: string, log: Logger) => void
   getCall: (callId: string) => CallContext | undefined
   _size: () => number
@@ -56,7 +81,11 @@ export function createCallRouter(
   const logs = new Map<string, Logger>()
 
   const router: CallRouter = {
-    startCall(callId: string, log: Logger): CallContext {
+    startCall(
+      callId: string,
+      log: Logger,
+      startOpts: StartCallOpts = {},
+    ): CallContext {
       const existing = map.get(callId)
       if (existing) {
         log.warn({ event: 'call_start_duplicate', call_id: callId })
@@ -93,6 +122,10 @@ export function createCallRouter(
         onSpeechStop: () => {
           router.getCall(callId)?.silence?.onSpeechStop()
         },
+        // Plan 04.5-03 / Pitfall 5 / T-4.5-E: pass per-call MCP client to
+        // sideband so the WS-close finalizer can close it (prevents
+        // server-side sessions Map leak).
+        coreMcp: startOpts.coreMcp,
       })
       logs.set(callId, log)
       const slowBrain = fSlow(log, sideband.state)
@@ -115,6 +148,7 @@ export function createCallRouter(
         sideband,
         slowBrain,
         silence,
+        coreMcp: startOpts.coreMcp,
       }
       map.set(callId, ctx)
       return ctx

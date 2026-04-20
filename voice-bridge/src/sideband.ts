@@ -27,7 +27,10 @@ import {
   CAP_PER_CALL_EUR as DEFAULT_CAP_PER_CALL_EUR,
   SOFT_WARN_FRACTION as DEFAULT_SOFT_WARN_FRACTION,
 } from './cost/gate.js'
-import { callCoreTool as defaultCallCoreTool } from './core-mcp-client.js'
+import {
+  callCoreTool as defaultCallCoreTool,
+  CoreMcpClient,
+} from './core-mcp-client.js'
 import { sendDiscordAlert as defaultSendDiscordAlert } from './alerts.js'
 
 /** Plan 04-02: farewell hold before ws.close after hard-stop. */
@@ -145,6 +148,13 @@ export interface SidebandOpenOpts {
    */
   onSpeechStart?: () => void
   onSpeechStop?: () => void
+  /**
+   * Plan 04.5-03 / D-6 / Pitfall 5 (T-4.5-E): per-call MCP session handle.
+   * When provided, the sideband WS-close finalizer will call
+   * `coreMcp.close()` inside a try/catch — prevents server-side sessions
+   * Map leak. Null/undefined in tests and when CORE_MCP_URL is unset.
+   */
+  coreMcp?: CoreMcpClient
 }
 
 export function openSidebandSession(
@@ -470,6 +480,29 @@ export function openSidebandSession(
     state.ready = false
     clearTimeout(timer)
     log.info({ event: 'sideband_closed', call_id: callId })
+    // Plan 04.5-03 / Pitfall 5 / T-4.5-E: close the per-call MCP session
+    // so the server-side sessions Map doesn't leak one session per call.
+    // Fire-and-forget with try/catch so a close failure logs but doesn't
+    // block other teardown steps. CoreMcpClient.close() is idempotent —
+    // safe to call even if the session was never opened.
+    const coreClient = opts.coreMcp
+    if (coreClient) {
+      void coreClient.close().then(
+        () => {
+          log.info({
+            event: 'bridge_core_mcp_client_closed',
+            call_id: callId,
+          })
+        },
+        (err: unknown) => {
+          log.warn({
+            event: 'bridge_core_mcp_client_close_failed',
+            call_id: callId,
+            err: err instanceof Error ? err.message : String(err),
+          })
+        },
+      )
+    }
     if (opts.onClose) {
       try {
         opts.onClose(callId)
