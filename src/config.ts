@@ -206,6 +206,19 @@ export const MCP_STREAM_BIND = process.env.MCP_STREAM_BIND ?? '10.0.0.2';
 // MCP_STREAM_BEARER is provisioned via OneCLI (onecli add-secret). When empty
 // the server does NOT start (fail-loud — no insecure default).
 export const MCP_STREAM_BEARER = process.env.MCP_STREAM_BEARER ?? '';
+// Phase 4.5 Plan 01 (D-3): session-based StreamableHTTP transport.
+// Idle TTL per session; sweep evicts sessions inactive longer than this.
+// Active (in-flight) sessions are NEVER swept — lastActivity bumps on every
+// request. Default: 30 minutes.
+export const MCP_STREAM_SESSION_TTL_MS = Number(
+  process.env.MCP_STREAM_SESSION_TTL_MS ?? 30 * 60 * 1000,
+);
+// Hard cap on concurrent sessions to bound DoS surface (T-4.5-A). Excess
+// initialize requests are rejected with 503 `session_cap_reached` and logged
+// as `mcp_session_cap_rejected`. Default 50 — expected real load ≤ 10.
+export const MCP_STREAM_MAX_SESSIONS = Number(
+  process.env.MCP_STREAM_MAX_SESSIONS ?? 50,
+);
 
 // Timezone for scheduled tasks, message formatting, etc.
 // Validates each candidate is a real IANA identifier before accepting.

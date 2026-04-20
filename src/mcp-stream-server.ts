@@ -1,42 +1,57 @@
 /**
  * src/mcp-stream-server.ts
  *
- * Phase 4 Plan 04-03 (AC-07): StreamableHTTP MCP transport for Chat-Claude.
+ * Phase 4.5 Plan 01 (AC-07, D-2/D-3/D-4/D-11): StreamableHTTP MCP transport
+ * for Chat-Claude AND voice-bridge, session-based mode.
  *
  * Port 3201 exposes the SAME ToolRegistry instance that the existing REST
- * fassade on port 3200 serves — single-source invariant. Chat-Claude on iPhone
- * (10.0.0.4) or iPad (10.0.0.5) connects through the Hetzner Caddy route at
- * https://mcp.carstenfreek.de/nanoclaw-voice/ — consistent with the other
- * single-level Caddy MCP paths (/hetzner/, /discord/, /lenovo1/).
+ * fassade on port 3200 serves — single-source invariant. Chat-Claude on
+ * iPhone (10.0.0.4) or iPad (10.0.0.5) connects through the Hetzner Caddy
+ * route at https://mcp.carstenfreek.de/nanoclaw-voice/ — consistent with
+ * the other single-level Caddy MCP paths (/hetzner/, /discord/, /lenovo1/).
+ *
+ * CHANGE FROM WAVE-3 (stateless → session-based):
+ * - `sessionIdGenerator: () => randomUUID()` — the SDK assigns a unique
+ *   Mcp-Session-Id per initialize, returns it in the response header, and
+ *   expects clients to echo it on subsequent requests.
+ * - Session Map keyed by sid → { server, transport, ... }. Per-session
+ *   McpServer (Pitfall 1 / SDK Issue #1405) — NEVER share across sessions.
+ * - Idle TTL sweep (60s interval, unref'd) closes sessions inactive >30min.
+ *   Active sessions bump `lastActivity` on every request — never swept.
+ * - Cap at MCP_STREAM_MAX_SESSIONS (default 50) — excess initialize returns
+ *   503 `session_cap_reached`. Non-initialize without sid returns 400
+ *   `session_required` (JSON-RPC envelope).
+ * - `capabilities.tools.listChanged: false` advertised BEFORE connect()
+ *   (Anti-Pattern: registerCapabilities after connect throws per SDK).
  *
  * Pitfall 6: explicit bind to 10.0.0.2 (WG interface), NEVER 0.0.0.0.
  * Pitfall 8: every tool invocation from Chat synthesizes
  *   call_id  = 'chat-<uuid>'
  *   turn_id  = 'chat-<ts>-<slice>'
  * so the Phase-2 idempotency cache (and every handler's JSONL audit) has a
- * disjoint key space from live voice calls. A debug invocation can never
- * accidentally merge with an in-flight real call's idempotency result.
+ * disjoint key space from live voice calls (D-11 locks this in createSession).
  *
  * Auth layering (cheap check first):
  *   1. /health exempt — lets Claude Chat discovery poll it.
  *   2. Bearer auth — fixed token from OneCLI (MCP_STREAM_BEARER). 401 on
- *      missing / wrong token. No admin endpoints, no public surface.
+ *      missing / wrong token.
  *   3. Peer allowlist — identical allowlist to the port-3200 server. 403
  *      when the WG peer is unlisted.
- *   4. StreamableHTTPServerTransport.handleRequest on POST/GET / .
+ *   4. Session lookup / create → StreamableHTTPServerTransport.handleRequest.
  *
- * When MCP_STREAM_BEARER is unset, `startMcpStreamServer` skips startup with a
- * WARN log — no insecure open mode. `buildMcpStreamApp` will throw if called
+ * When MCP_STREAM_BEARER is unset, `startMcpStreamServer` skips startup with
+ * a WARN log — no insecure open mode. `buildMcpStreamApp` throws if called
  * without a bearer token (fail loud in tests).
  */
-import crypto from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import express from 'express';
 import type { Request, Response } from 'express';
 import type { Server as HttpServer } from 'node:http';
-import { z } from 'zod';
+import type { z } from 'zod';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
 import { logger } from './logger.js';
 import { peerAllowlistMiddleware } from './peer-allowlist.js';
@@ -44,8 +59,32 @@ import {
   MCP_STREAM_PORT,
   MCP_STREAM_BIND,
   MCP_STREAM_BEARER,
+  MCP_STREAM_SESSION_TTL_MS,
+  MCP_STREAM_MAX_SESSIONS,
 } from './config.js';
 import type { ToolRegistry } from './mcp-tools/index.js';
+
+// Wave-0 re-exported zod schemas — one per voice.* tool. Each TOOL_META
+// entry references `<X>Schema.shape` so SDK `server.tool()` receives a
+// ZodRawShape and converts it to JSON-Schema for tools/list.
+import { CheckCalendarSchema } from './mcp-tools/voice-check-calendar.js';
+import { CreateEntrySchema } from './mcp-tools/voice-create-calendar-entry.js';
+import { DeleteEntrySchema } from './mcp-tools/voice-delete-calendar-entry.js';
+import { UpdateEntrySchema } from './mcp-tools/voice-update-calendar-entry.js';
+import { SendDiscordMessageSchema } from './mcp-tools/voice-send-discord-message.js';
+import { TravelTimeSchema } from './mcp-tools/voice-get-travel-time.js';
+import { GetContractSchema } from './mcp-tools/voice-get-contract.js';
+import { GetPracticeProfileSchema } from './mcp-tools/voice-get-practice-profile.js';
+import { ScheduleRetrySchema } from './mcp-tools/voice-schedule-retry.js';
+import { AskCoreSchema } from './mcp-tools/voice-ask-core.js';
+import { RecordTurnCostSchema } from './mcp-tools/voice-record-turn-cost.js';
+import { FinalizeCallCostSchema } from './mcp-tools/voice-finalize-call-cost.js';
+import { InsertPriceSnapshotSchema } from './mcp-tools/voice-insert-price-snapshot.js';
+import { SearchCompetitorsSchema } from './mcp-tools/voice-search-competitors.js';
+import { RequestOutboundCallSchema } from './mcp-tools/voice-request-outbound-call.js';
+import { ResetMonthlyCapSchema } from './mcp-tools/voice-reset-monthly-cap.js';
+import { GetDayMonthCostSumSchema } from './mcp-tools/voice-get-day-month-cost-sum.js';
+import { OnTranscriptTurnSchema } from './mcp-tools/voice-on-transcript-turn.js';
 
 // Same allowlist as port 3200 (src/mcp-server.ts DEFAULT_ALLOWLIST).
 // 10.0.0.1 Hetzner, 10.0.0.2 self, 10.0.0.4 iPhone, 10.0.0.5 iPad.
@@ -61,6 +100,125 @@ export interface McpStreamDeps {
   log?: StreamLog;
 }
 
+// -----------------------------------------------------------------------------
+// TOOL_META — 18 voice.* tools.
+//
+// Each entry carries a non-generic description AND a zod-raw-shape input
+// schema derived from the handler's own validation schema (exported in
+// Wave 0). `server.tool(name, description, shape, handler)` enforces zod
+// pre-handler and publishes the inputSchema on tools/list so MCP clients
+// (iOS Claude-App, Claude Desktop) see full semantics.
+//
+// Mitigation T-4.5-D (Tampering via malformed args): zod shape validation
+// bounds the set of inputs that reach the handler.
+// -----------------------------------------------------------------------------
+const TOOL_META: Record<string, { description: string; shape: z.ZodRawShape }> =
+  {
+    'voice.check_calendar': {
+      description:
+        'Check calendar availability for a given date and duration. Returns available/conflicts + free slots.',
+      shape: CheckCalendarSchema.shape,
+    },
+    'voice.create_calendar_entry': {
+      description:
+        'Create a calendar entry with date/time/title/attendees. Idempotent via call_id+turn_id.',
+      shape: CreateEntrySchema.shape,
+    },
+    'voice.delete_calendar_entry': {
+      description: 'Delete a calendar entry by id.',
+      shape: DeleteEntrySchema.shape,
+    },
+    'voice.update_calendar_entry': {
+      description: 'Update selected fields of a calendar entry.',
+      shape: UpdateEntrySchema.shape,
+    },
+    'voice.send_discord_message': {
+      description:
+        'Send a Discord DM to Carsten — idempotent via content hash.',
+      shape: SendDiscordMessageSchema.shape,
+    },
+    'voice.get_travel_time': {
+      description:
+        'Get travel time from origin to destination via Google Maps Distance Matrix.',
+      shape: TravelTimeSchema.shape,
+    },
+    'voice.get_contract': {
+      description: 'Read the current Core contract document (read-only).',
+      shape: GetContractSchema.shape,
+    },
+    'voice.get_practice_profile': {
+      description:
+        'Read the practice profile (address, patient_id, authorized fields).',
+      shape: GetPracticeProfileSchema.shape,
+    },
+    'voice.schedule_retry': {
+      description: 'Schedule a retry of a failed outbound call.',
+      shape: ScheduleRetrySchema.shape,
+    },
+    'voice.ask_core': {
+      description:
+        'Async query to the Slow-Brain — returns instructions_update patch.',
+      shape: AskCoreSchema.shape,
+    },
+    'voice.record_turn_cost': {
+      description:
+        'Record a per-turn usage cost into the cost ledger. Idempotent via (call_id, turn_id).',
+      shape: RecordTurnCostSchema.shape,
+    },
+    'voice.finalize_call_cost': {
+      description:
+        'Finalize the aggregated cost for a voice call on hangup.',
+      shape: FinalizeCallCostSchema.shape,
+    },
+    'voice.insert_price_snapshot': {
+      description: 'Insert a pricing snapshot for drift detection.',
+      shape: InsertPriceSnapshotSchema.shape,
+    },
+    'voice.search_competitors': {
+      description:
+        'Search for competitor offers (graceful not_configured fallback).',
+      shape: SearchCompetitorsSchema.shape,
+    },
+    'voice.request_outbound_call': {
+      description:
+        'Request an outbound call — NanoClaw→Bridge (Case 6b).',
+      shape: RequestOutboundCallSchema.shape,
+    },
+    'voice.reset_monthly_cap': {
+      description: 'Reset the monthly cost cap counter.',
+      shape: ResetMonthlyCapSchema.shape,
+    },
+    'voice.get_day_month_cost_sum': {
+      description:
+        'Return today + current-month cumulative cost in EUR.',
+      shape: GetDayMonthCostSumSchema.shape,
+    },
+    'voice.on_transcript_turn': {
+      description:
+        'Bridge→Core: push a transcript turn for Slow-Brain processing.',
+      shape: OnTranscriptTurnSchema.shape,
+    },
+  };
+
+/**
+ * Per-session state — one entry per live Mcp-Session-Id.
+ *
+ * Invariants:
+ * - `server` is a fresh `new McpServer(...)` per session (Pitfall 1: SDK
+ *   Issue #1405 — shared McpServer causes concurrent-session hangs).
+ * - `transport` is the unique StreamableHTTPServerTransport bound to this
+ *   session; its sessionId matches the Map key.
+ * - `lastActivity` is bumped on every request that lands on this session;
+ *   idle sweep only evicts sessions where `now - lastActivity >= TTL`.
+ */
+interface Session {
+  server: McpServer;
+  transport: StreamableHTTPServerTransport;
+  sessionId: string;
+  createdAt: number;
+  lastActivity: number;
+}
+
 /**
  * Build the Express application exposing the StreamableHTTP MCP transport.
  * Throws if no bearer token is supplied — there is no insecure default.
@@ -74,6 +232,11 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
   }
   const log: StreamLog = deps.log ?? logger;
   const allowlist = deps.allowlist ?? DEFAULT_ALLOWLIST;
+
+  // Session store is PER-APP (not per-request, not module-scope) so each
+  // buildMcpStreamApp() call — including test-fixture rebuilds on ephemeral
+  // ports — gets an isolated Map. Production boots this exactly once.
+  const sessions = new Map<string, Session>();
 
   const app = express();
   app.disable('x-powered-by');
@@ -92,6 +255,7 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
       ts: Date.now(),
       bound_to: MCP_STREAM_BIND,
       tools: deps.registry.listNames(),
+      sessions: sessions.size,
     });
   });
 
@@ -127,88 +291,37 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
   );
 
   // -------------------------------------------------------------------------
-  // MCP server + transport are built PER REQUEST (stateless mode).
+  // createSession — instantiated on every initialize request that passes
+  // the cap check. One fresh McpServer + one fresh transport per session.
   //
-  // Per MCP SDK spec, an McpServer instance can only be connected to one
-  // transport at a time, and a transport can only be initialized once.
-  // Reusing a single instance across requests makes the second client's
-  // `initialize` JSON-RPC call fail with "Server already initialized"
-  // (-32600). The canonical fix is to spawn a fresh Server+Transport pair
-  // inside the request handler and tear them down when the response closes.
+  // PITFALL 1 (SDK Issue #1405): NEVER share McpServer across sessions —
+  //   the SDK's Protocol.connect() silently overwrites `this._transport`,
+  //   making session A's pending tools/call abort when session B connects.
   //
-  // Tool registration is factored out so the per-request build stays cheap
-  // (no network I/O, no zod re-compilation).
+  // PITFALL 8 (D-11): synthetic call_id/turn_id wrapping lives inside each
+  //   per-session tool handler so chat/iOS clients get a disjoint
+  //   idempotency key space regardless of which session they opened.
   //
-  // Handler wrappers are Pitfall-8-safe: they do NOT re-validate args (the
-  // Core handler has its own zod schema), they just prefix synthetic
-  // chat-<uuid> call_id / turn_id so the Phase-2 idempotency cache stays
-  // disjoint from live voice calls.
+  // ANTI-PATTERN: `registerCapabilities` MUST precede `mcp.connect(transport)`
+  //   — the SDK throws "Cannot register capabilities after connecting to a
+  //   transport" otherwise. The call comes AFTER .tool() so its
+  //   {listChanged:false} overrides the SDK's auto-injected {listChanged:true}.
   // -------------------------------------------------------------------------
-  // Tool metadata for MCP clients (iOS Claude app, Claude Desktop).
-  // Without description + paramsSchema, `tools/list` returns empty input
-  // schemas and MCP clients cannot construct a valid tools/call request.
-  // Only tools iOS is expected to invoke directly need full metadata here;
-  // others register with a generic description and a permissive passthrough
-  // schema so the client at least sees them in the list.
-  const TOOL_META: Record<
-    string,
-    { description: string; shape?: z.ZodRawShape }
-  > = {
-    'voice.check_calendar': {
-      description:
-        'Check calendar availability for a given date and duration. Returns available/conflict + free slots.',
-      shape: {
-        date: z
-          .string()
-          .regex(/^\d{4}-\d{2}-\d{2}$/)
-          .describe('ISO date YYYY-MM-DD'),
-        duration_minutes: z
-          .number()
-          .int()
-          .min(1)
-          .max(1440)
-          .describe('Requested duration in minutes'),
-      },
-    },
-    'voice.get_day_month_cost_sum': {
-      description:
-        'Return today and this-month voice-call cost totals in EUR, plus whether the channel is suspended by the monthly cap.',
-      // no parameters
-    },
-    'voice.get_travel_time': {
-      description:
-        'Google Maps travel time between origin and destination in seconds.',
-      shape: {
-        origin: z
-          .string()
-          .describe('Origin address or lat,lng (e.g. "Marienplatz, München")'),
-        destination: z.string().describe('Destination address or lat,lng'),
-        mode: z
-          .enum(['driving', 'transit', 'walking', 'bicycling'])
-          .optional()
-          .describe('Travel mode, default "driving"'),
-      },
-    },
-    'voice.ask_core': {
-      description:
-        'Ask the Core (Slow-Brain) a free-form question. Returns a voice-short answer plus optional Discord-long context.',
-      shape: {
-        question: z.string().describe('Natural-language question for Core'),
-      },
-    },
-  };
+  const createSession = async (): Promise<Session> => {
+    const mcp = new McpServer({ name: 'nanoclaw-voice', version: '1.0.0' });
 
-  const registerTools = (server: McpServer): void => {
     for (const name of deps.registry.listNames()) {
       const meta = TOOL_META[name];
       const description = meta?.description ?? `Voice MCP tool: ${name}`;
       const handler = async (args: unknown) => {
+        // Pitfall 8: every chat/iOS invocation gets synthetic IDs so its
+        // idempotency keys are disjoint from live voice calls.
         const synthetic =
           args && typeof args === 'object' && !Array.isArray(args)
             ? {
                 ...(args as Record<string, unknown>),
-                call_id: `chat-${crypto.randomUUID()}`,
-                turn_id: `chat-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+                call_id: `chat-${randomUUID()}`,
+                turn_id: `chat-${Date.now()}-${randomUUID().slice(0, 8)}`,
               }
             : args;
         const result = await deps.registry.invoke(name, synthetic);
@@ -222,46 +335,117 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
         };
       };
       if (meta?.shape) {
-        server.tool(name, description, meta.shape, handler);
+        mcp.tool(name, description, meta.shape, handler);
       } else {
-        server.tool(name, description, handler);
+        // Tool registered at runtime without TOOL_META entry — log once so
+        // we surface drift. Still registerable with a generic description.
+        log.warn(
+          { event: 'mcp_tool_missing_meta', tool_name: name },
+          'tool registered without TOOL_META entry — client will see empty inputSchema',
+        );
+        mcp.tool(name, description, handler);
       }
     }
-  };
 
-  app.all('/', async (req: Request, res: Response) => {
-    const mcp = new McpServer({
-      name: 'nanoclaw-voice',
-      version: '1.0.0',
-    });
-    registerTools(mcp);
-    // Each .tool() call inside registerTools triggers the SDK to
-    // registerCapabilities({tools:{listChanged:true}}). That default would
-    // make Claude iOS / Claude.ai web open a persistent GET for
-    // `notifications/tools/list_changed` and block the user UI while
-    // waiting for the subscription to become ready. Stateless per-request
-    // servers cannot deliver those notifications — no persistent SSE
-    // channel. registerCapabilities uses a spread-merge
-    // ({...base, ...addValue}), so calling it AFTER .tool() with
-    // listChanged:false overrides the auto-set :true. Must be done before
-    // mcp.connect(transport) — registerCapabilities throws if the
-    // transport is already attached.
-    mcp.server.registerCapabilities({
-      tools: { listChanged: false },
-    });
+    // Override SDK default: .tool() auto-sets {tools:{listChanged:true}} on
+    // the internal capabilities map; we want {listChanged:false} so iOS does
+    // not open a long-running GET for notifications/tools/list_changed.
+    // Must come BEFORE connect(transport).
+    mcp.server.registerCapabilities({ tools: { listChanged: false } });
 
     const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined, // stateless — one transport per request
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (sid) => {
+        const now = Date.now();
+        sessions.set(sid, {
+          server: mcp,
+          transport,
+          sessionId: sid,
+          createdAt: now,
+          lastActivity: now,
+        });
+        log.info(
+          { event: 'mcp_session_opened', sid: sid.slice(0, 8), createdAt: now },
+          'MCP session opened',
+        );
+      },
     });
+    transport.onclose = () => {
+      const sid = transport.sessionId;
+      if (sid && sessions.delete(sid)) {
+        log.info(
+          {
+            event: 'mcp_session_closed',
+            sid: sid.slice(0, 8),
+            reason: 'transport_close',
+          },
+          'MCP session closed',
+        );
+      }
+    };
 
-    res.on('close', () => {
-      void transport.close().catch(() => undefined);
-      void mcp.close().catch(() => undefined);
-    });
+    await mcp.connect(transport);
+    return {
+      server: mcp,
+      transport,
+      sessionId: transport.sessionId ?? '',
+      createdAt: Date.now(),
+      lastActivity: Date.now(),
+    };
+  };
+
+  // -------------------------------------------------------------------------
+  // Main MCP handler — routes by Mcp-Session-Id. Cap-check + session-required
+  // branches return structured 4xx/5xx responses BEFORE handing off to the
+  // SDK's handleRequest (so they don't get logged as transport failures).
+  // -------------------------------------------------------------------------
+  app.all('/', async (req: Request, res: Response) => {
+    const sid = req.header('Mcp-Session-Id');
+    let session: Session | undefined = sid ? sessions.get(sid) : undefined;
+
+    if (session) {
+      session.lastActivity = Date.now();
+    } else {
+      // Miss: either unknown sid OR no sid supplied. Only initialize may
+      // create a new session.
+      if (!isInitializeRequest(req.body)) {
+        res.status(400).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'session_required' },
+          id: null,
+        });
+        return;
+      }
+      if (sessions.size >= MCP_STREAM_MAX_SESSIONS) {
+        log.warn(
+          {
+            event: 'mcp_session_cap_rejected',
+            peer: req.socket.remoteAddress,
+            current_sessions: sessions.size,
+            cap: MCP_STREAM_MAX_SESSIONS,
+          },
+          'MCP session cap reached — rejecting initialize',
+        );
+        res.status(503).json({ error: 'session_cap_reached' });
+        return;
+      }
+      try {
+        session = await createSession();
+      } catch (err) {
+        log.warn(
+          {
+            event: 'mcp_stream_request_failed',
+            err: err instanceof Error ? err.message : String(err),
+          },
+          'createSession threw during initialize',
+        );
+        if (!res.headersSent) res.status(500).json({ error: 'internal' });
+        return;
+      }
+    }
 
     try {
-      await mcp.connect(transport);
-      await transport.handleRequest(req, res, req.body);
+      await session.transport.handleRequest(req, res, req.body);
     } catch (err) {
       log.warn(
         {
@@ -275,6 +459,32 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
       }
     }
   });
+
+  // -------------------------------------------------------------------------
+  // Idle sweep — every 60s, evict sessions whose lastActivity is older than
+  // MCP_STREAM_SESSION_TTL_MS. Active sessions (bumped on every request) are
+  // never swept. Cleanup is fire-and-forget with .catch() per Pitfall 4
+  // (transport.close() + server.close() idempotency).
+  // -------------------------------------------------------------------------
+  const sweeper = setInterval(() => {
+    const now = Date.now();
+    for (const [sid, s] of sessions) {
+      if (now - s.lastActivity > MCP_STREAM_SESSION_TTL_MS) {
+        void s.transport.close().catch(() => undefined);
+        void s.server.close().catch(() => undefined);
+        sessions.delete(sid);
+        log.info(
+          {
+            event: 'mcp_session_swept',
+            sid: sid.slice(0, 8),
+            age_ms: now - s.createdAt,
+          },
+          'MCP session swept (idle TTL exceeded)',
+        );
+      }
+    }
+  }, 60_000);
+  sweeper.unref();
 
   return app;
 }
@@ -303,6 +513,8 @@ export function startMcpStreamServer(deps: McpStreamDeps): HttpServer | null {
         bind: MCP_STREAM_BIND,
         port: MCP_STREAM_PORT,
         tools: deps.registry.listNames(),
+        session_ttl_ms: MCP_STREAM_SESSION_TTL_MS,
+        max_sessions: MCP_STREAM_MAX_SESSIONS,
       },
       `MCP stream server listening on ${MCP_STREAM_BIND}:${MCP_STREAM_PORT}`,
     );
