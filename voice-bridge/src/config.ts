@@ -270,7 +270,12 @@ export const CASE2_VAD_SILENCE_MS = Number(
 // Passing it as a top-level session field yields a 400 "Unknown parameter:
 // session.turn_detection" at realtime.calls.accept().
 export const SESSION_CONFIG = {
-  model: 'gpt-realtime-mini' as const,
+  // Plan 05.1 live-verification (2026-04-21): upgraded mini → full realtime.
+  // Carsten observed role-discipline failure on mini in Case-1 outbound (bot
+  // hallucinated both caller and counterpart sides of the conversation).
+  // Full gpt-realtime holds persona role more reliably on longer turns; latency
+  // still real-time appropriate for telephony per Carsten's live assessment.
+  model: 'gpt-realtime' as const,
   audio: {
     input: {
       turn_detection: {

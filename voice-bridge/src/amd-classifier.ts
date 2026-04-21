@@ -25,7 +25,7 @@ import type { Logger } from 'pino'
 
 /**
  * AMD classifier prompt — verbatim from Plan 05-03 interfaces section.
- * Instructs gpt-realtime-mini to emit amd_result WITHOUT speaking first.
+ * Instructs the Realtime model (gpt-realtime since Plan 05.1 upgrade 2026-04-21; previously mini) to emit amd_result WITHOUT speaking first.
  * Spike-A validated that function_call precedes response.audio.delta when prompt instructs it.
  */
 export const CASE2_AMD_CLASSIFIER_PROMPT = `Du bist in einem Detektions-Modus. Der Anruf wurde GERADE angenommen.

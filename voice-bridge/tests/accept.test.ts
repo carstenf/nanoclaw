@@ -88,7 +88,7 @@ describe('POST /accept — Phase 1 inbound call handler', () => {
       expect(acceptSpy).toHaveBeenCalledWith(
         'rtc_test_123',
         expect.objectContaining({
-          model: 'gpt-realtime-mini',
+          model: 'gpt-realtime',
           instructions: expect.stringContaining('NanoClaw'),
         }),
       )
@@ -292,7 +292,7 @@ describe('POST /accept — Phase 2 full-wiring', () => {
     expect(acceptSpy).toHaveBeenCalledTimes(1)
     const [calledCallId, session] = acceptSpy.mock.calls[0]
     expect(calledCallId).toBe('rtc_p2')
-    expect(session.model).toBe('gpt-realtime-mini')
+    expect(session.model).toBe('gpt-realtime')
     // Caller is Carsten CLI (+491708036426) → CASE6B_PERSONA (02-14)
     expect(session.instructions).toContain('Carsten')
     expect(session.instructions).toContain('ask_core')

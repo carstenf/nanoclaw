@@ -32,8 +32,9 @@ describe('accumulator — Pitfall 1: cached_tokens is subset of audio_tokens, no
       },
     }
     const eur = costOfResponseDone(evt)
-    // (800 * 10 + 200 * 0.30) / 1e6 USD * 0.93 EUR/USD
-    const expected = ((800 * 10 + 200 * 0.3) / 1_000_000) * 0.93
+    // Plan 05.1 upgrade 2026-04-21: gpt-realtime full-tier rates ($32 audio_in, $0.40 cached).
+    // (800 * 32 + 200 * 0.40) / 1e6 USD * 0.93 EUR/USD
+    const expected = ((800 * 32 + 200 * 0.4) / 1_000_000) * 0.93
     expect(eur).toBeCloseTo(expected, 7)
   })
 
@@ -52,8 +53,9 @@ describe('accumulator — Pitfall 1: cached_tokens is subset of audio_tokens, no
       },
     }
     const eur = costOfResponseDone(evt)
-    // (500 * 20 + 100 * 2.40) / 1e6 USD * 0.93
-    const expected = ((500 * 20 + 100 * 2.4) / 1_000_000) * 0.93
+    // Plan 05.1 upgrade 2026-04-21: gpt-realtime full-tier rates ($64 audio_out, $16 text_out).
+    // (500 * 64 + 100 * 16.0) / 1e6 USD * 0.93
+    const expected = ((500 * 64 + 100 * 16.0) / 1_000_000) * 0.93
     expect(eur).toBeCloseTo(expected, 7)
   })
 })
