@@ -172,6 +172,127 @@ describe('updateInstructions — D-26 tools-strip guard', () => {
   })
 })
 
+// Plan 05.1-01 Task 1: session.type='realtime' discriminator (defect #6 L1)
+// + error-event handler (Pitfall 2 observability).
+// Without session.type, OpenAI Realtime GA 2026 rejects session.update with
+// invalid_request_error and the persona swap never lands (defect #6 root cause).
+// See .planning/phases/05.1-amd-persona-handoff-redesign-and-asr-upgrade/05.1-RESEARCH.md §2.4 §2.6 §8.
+describe('updateInstructions session.type discriminator (defect #6 L1)', () => {
+  function openState(): SidebandState {
+    const ws = new MockWS()
+    ws.readyState = 1
+    return {
+      callId: 'c-type',
+      ready: true,
+      ws: ws as unknown as WSType,
+      openedAt: 0,
+      lastUpdateAt: 0,
+    }
+  }
+
+  it('Test A: session.update payload includes session.type="realtime"', () => {
+    const state = openState()
+    const mock = state.ws as unknown as MockWS
+    const log = mockLog()
+    updateInstructions(state, 'new persona', log)
+    expect(mock.sent).toHaveLength(1)
+    const msg = JSON.parse(mock.sent[0])
+    expect(msg).toEqual({
+      type: 'session.update',
+      session: {
+        type: 'realtime',
+        instructions: 'new persona',
+      },
+    })
+  })
+
+  it('Test B: extraSession merges with type:"realtime" without losing either field', () => {
+    const state = openState()
+    const mock = state.ws as unknown as MockWS
+    const log = mockLog()
+    updateInstructions(state, 'persona+voice', log, { voice: 'cedar' })
+    expect(mock.sent).toHaveLength(1)
+    const msg = JSON.parse(mock.sent[0])
+    expect(msg.type).toBe('session.update')
+    expect(msg.session.type).toBe('realtime')
+    expect(msg.session.voice).toBe('cedar')
+    expect(msg.session.instructions).toBe('persona+voice')
+  })
+
+  it('Test C (regression guard): no session.update is ever sent without session.type', () => {
+    // Simulate multiple updateInstructions calls across a call lifecycle
+    const state = openState()
+    const mock = state.ws as unknown as MockWS
+    const log = mockLog()
+    updateInstructions(state, 'persona 1', log)
+    updateInstructions(state, 'persona 2', log, { voice: 'cedar' })
+    updateInstructions(state, 'persona 3 — farewell', log)
+    expect(mock.sent.length).toBeGreaterThan(0)
+    mock.sent.forEach((raw) => {
+      const parsed = JSON.parse(raw)
+      if (parsed.type === 'session.update') {
+        expect(parsed.session?.type).toBe('realtime')
+      }
+    })
+  })
+})
+
+describe('openSidebandSession — error-event handler (Pitfall 2 observability)', () => {
+  beforeEach(() => {
+    process.env.OPENAI_SIP_API_KEY = 'sk-test-sideband'
+  })
+  afterEach(() => {
+    delete process.env.OPENAI_SIP_API_KEY
+  })
+
+  it('Test D: WS error event logs session_update_rejected with code, message, param, openai_event_id', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    openSidebandSession('rtc-err-1', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+    ws.emit(
+      'message',
+      JSON.stringify({
+        type: 'error',
+        event_id: 'evt_x',
+        error: {
+          type: 'invalid_request_error',
+          code: 'missing_required_parameter',
+          message: "Missing required parameter: 'session.type'.",
+          param: 'session.type',
+        },
+      }),
+    )
+    const errorCalls = (log.error as ReturnType<typeof vi.fn>).mock.calls
+    const match = errorCalls.find(
+      (c) => c[0]?.event === 'session_update_rejected',
+    )
+    expect(match).toBeDefined()
+    expect(match?.[0]?.code).toBe('missing_required_parameter')
+    expect(match?.[0]?.message).toContain('session.type')
+    expect(match?.[0]?.param).toBe('session.type')
+    expect(match?.[0]?.openai_event_id).toBe('evt_x')
+    expect(match?.[0]?.call_id).toBe('rtc-err-1')
+  })
+
+  it('Test E: non-error WS messages (response.done) do NOT trigger session_update_rejected', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    openSidebandSession('rtc-err-2', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+    ws.emit('message', JSON.stringify({ type: 'response.done', response: {} }))
+    ws.emit('message', JSON.stringify({ type: 'session.created' }))
+    const errorCalls = (log.error as ReturnType<typeof vi.fn>).mock.calls
+    expect(
+      errorCalls.some((c) => c[0]?.event === 'session_update_rejected'),
+    ).toBe(false)
+  })
+})
+
 describe('openSidebandSession — onTranscriptTurn (02-10)', () => {
   beforeEach(() => {
     process.env.OPENAI_SIP_API_KEY = 'sk-test-sideband'
