@@ -158,6 +158,15 @@ export interface SidebandOpenOpts {
   onSpeechStart?: () => void
   onSpeechStop?: () => void
   /**
+   * Plan 05.2-02 D-7 / research §4.3: bot-audio events. Used by silence-monitor
+   * to pause the silence countdown while the bot is speaking (prevents
+   * "Bist du noch da" from firing mid-bot-turn, live-defect 2026-04-21).
+   * Events are OpenAI Realtime server-events: `output_audio_buffer.started`
+   * and `output_audio_buffer.stopped`.
+   */
+  onBotStart?: () => void
+  onBotStop?: () => void
+  /**
    * Plan 04.5-03 / D-6 / Pitfall 5 (T-4.5-E): per-call MCP session handle.
    * When provided, the sideband WS-close finalizer will call
    * `coreMcp.close()` inside a try/catch — prevents server-side sessions
@@ -323,6 +332,20 @@ export function openSidebandSession(
       }
       if (parsed?.type === 'input_audio_buffer.speech_stopped') {
         opts.onSpeechStop?.()
+        return
+      }
+
+      // Plan 05.2-02 D-7 / research §4.3: bot-audio-aware silence monitor.
+      // `output_audio_buffer.stopped` fires after full response data is sent
+      // (response.done) — conservative "bot truly finished speaking" signal.
+      // See OpenAI Realtime Server Events reference:
+      // https://developers.openai.com/api/reference/resources/realtime/server-events
+      if (parsed?.type === 'output_audio_buffer.started') {
+        opts.onBotStart?.()
+        return
+      }
+      if (parsed?.type === 'output_audio_buffer.stopped') {
+        opts.onBotStop?.()
         return
       }
 

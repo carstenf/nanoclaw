@@ -128,6 +128,16 @@ export function createCallRouter(
         onSpeechStop: () => {
           router.getCall(callId)?.silence?.onSpeechStop()
         },
+        // Plan 05.2-02 D-7 / research §4.3: bot-audio events drive the
+        // bot-awareness half of the silence-monitor state machine.
+        // output_audio_buffer.started → cancel armed timer (bot is speaking);
+        // output_audio_buffer.stopped → arm timer iff caller also silent.
+        onBotStart: () => {
+          router.getCall(callId)?.silence?.onBotStart()
+        },
+        onBotStop: () => {
+          router.getCall(callId)?.silence?.onBotStop()
+        },
         // Plan 04.5-03 / Pitfall 5 / T-4.5-E: pass per-call MCP client to
         // sideband so the WS-close finalizer can close it (prevents
         // server-side sessions Map leak).
