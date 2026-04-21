@@ -1,7 +1,9 @@
 // voice-bridge/src/persona/overlays/index.ts
-// Phase 05.2 Plan 01 — Task-overlay dispatcher skeleton. Bodies land in
-// 05.2-04 (Case-2 migration). This plan ships the registration surface only;
-// Wave 1 is purely additive (new files), legacy persona.ts untouched.
+// Phase 05.2 Plan 01 — Task-overlay dispatcher skeleton.
+// Phase 05.2 Plan 04 Task 2 — body filled for case_2 (case_6b lands in Task 3).
+
+import type { Case2OutboundPersonaArgs } from '../../persona.js'
+import { buildCase2Overlay } from './case-2.js'
 
 /**
  * CaseKey union — registered task-overlay keys.
@@ -20,23 +22,24 @@ export type CaseKey =
 /**
  * Dispatch a task-overlay string for the given case.
  *
- * Wave 1 skeleton:
- *   'outbound_default_sie' and 'amd_classifier_mode_noop' return ''.
- *   'case_2' and 'case_6b_inbound_carsten' throw until 05.2-04 lands bodies.
+ * - 'outbound_default_sie' and 'amd_classifier_mode_noop' return '' (no overlay).
+ * - 'case_2' returns buildCase2Overlay(args) — args typed as Case2OutboundPersonaArgs.
+ * - 'case_6b_inbound_carsten' still throws until Plan 05.2-04 Task 3 lands
+ *   the overlay body.
  *
  * @param caseKey - registered case identifier
- * @param _caseArgs - case-specific overlay arguments (unused in skeleton; shape
- *                   defined per case in 05.2-04)
+ * @param caseArgs - case-specific overlay arguments (shape defined per case)
  */
-export function buildTaskOverlay(caseKey: CaseKey, _caseArgs: unknown): string {
+export function buildTaskOverlay(caseKey: CaseKey, caseArgs: unknown): string {
   switch (caseKey) {
     case 'outbound_default_sie':
     case 'amd_classifier_mode_noop':
       return ''
     case 'case_2':
+      return buildCase2Overlay(caseArgs as Case2OutboundPersonaArgs)
     case 'case_6b_inbound_carsten':
       throw new Error(
-        `buildTaskOverlay: caseKey='${caseKey}' not yet implemented (lands in 05.2-04)`,
+        `buildTaskOverlay: caseKey='${caseKey}' not yet implemented (lands in 05.2-04 Task 3)`,
       )
   }
 }

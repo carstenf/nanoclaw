@@ -8,6 +8,14 @@
 // This constant is the "floor" instructions passed at /accept (D-40..D-42).
 // Slow-Brain may push instructions-only session.update on top of this floor
 // (D-26); the floor persona always governs in fallback scenarios (D-27).
+//
+// Plan 05.2-04: buildCase2OutboundPersona migrated to baseline+overlay
+// composition (see buildBasePersona / buildCase2Overlay imports below).
+// Legacy CASE2_TOLERANCE_DECISION_BLOCK + CASE2_HOLD_MUSIC_CLARIFYING_BLOCK
+// removed; Case-2 specific text now lives in persona/overlays/case-2.ts.
+
+import { buildBasePersona } from './persona/baseline.js'
+import { buildCase2Overlay } from './persona/overlays/case-2.js'
 
 // Plan 02-14: Case-6b persona for calls from Carsten's CLI number.
 // Strict template from Plan truths[8] — do not modify text without Chat approval.
@@ -128,25 +136,29 @@ export function buildOutboundPersona(goal: string, context: string): string {
   )
 }
 
-// ---- Plan 05-03 Task 2: Case-2 Outbound Persona blocks ----
-// These three blocks are concatenated on top of OUTBOUND_PERSONA_TEMPLATE
-// via buildCase2OutboundPersona(). They apply ONLY to Case-2 restaurant
-// reservation calls. Case-6b persona (CASE6B_PERSONA) is NEVER modified.
+// ---- Plan 05-03 Task 2 / Plan 05.2-04: Case-2 Outbound Persona helpers ----
+// sanitizeForPersona + toGermanNumber + timeToGerman are shared with the new
+// Case-2 task overlay (persona/overlays/case-2.ts). Security invariant:
+// restaurant_name + notes are curly-brace-stripped before substitution to
+// prevent template-injection via user-supplied fields (T-05.2-04-01).
 //
-// Security: notes + restaurant_name are sanitized (curly braces stripped)
-// before substitution to prevent template-injection via user-supplied fields.
-//
-// Token budget: base OUTBOUND_PERSONA_TEMPLATE (~250 chars) + 3 blocks (~1800 chars)
-// = ~2050 chars / 3.5 ≈ 586 tokens — well under the 1500 hard ceiling from
-// Research §3.5. No log.warn needed unless custom notes are extremely long.
+// Token budget (post-migration): baseline (~515 tokens, buildBasePersona) +
+// Case-2 overlay (~200 tokens, buildCase2Overlay) ≈ 715 tokens — well under
+// the 1500-token hard ceiling from Research §3.5.
 
-/** Strip curly braces to prevent template injection via user-supplied strings. */
-function sanitizeForPersona(s: string): string {
+/**
+ * Strip curly braces to prevent template injection via user-supplied strings.
+ * Exported for overlay consumers (Plan 05.2-04: persona/overlays/case-2.ts).
+ */
+export function sanitizeForPersona(s: string): string {
   return s.replace(/[{}]/g, '')
 }
 
-/** German number-to-word for 1..30 (simple lookup for time/party). Falls back to numeric. */
-function toGermanNumber(n: number): string {
+/**
+ * German number-to-word for 1..30 (simple lookup for time/party).
+ * Falls back to numeric. Exported for overlay consumers (Plan 05.2-04).
+ */
+export function toGermanNumber(n: number): string {
   const words: Record<number, string> = {
     1: 'einem', 2: 'zwei', 3: 'drei', 4: 'vier', 5: 'fünf',
     6: 'sechs', 7: 'sieben', 8: 'acht', 9: 'neun', 10: 'zehn',
@@ -160,8 +172,11 @@ function toGermanNumber(n: number): string {
   return words[n] ?? String(n)
 }
 
-/** Convert HH:MM time string to German spoken form e.g. "19:00" → "neunzehn Uhr". */
-function timeToGerman(hhmm: string): string {
+/**
+ * Convert HH:MM time string to German spoken form e.g. "19:00" → "neunzehn Uhr".
+ * Exported for overlay consumers (Plan 05.2-04).
+ */
+export function timeToGerman(hhmm: string): string {
   const parts = hhmm.split(':')
   const hour = parseInt(parts[0] ?? '0', 10)
   const minute = parseInt(parts[1] ?? '0', 10)
@@ -171,45 +186,10 @@ function timeToGerman(hhmm: string): string {
   return `${hourWord} Uhr ${toGermanNumber(minute)}`
 }
 
-/**
- * Block 2: Tolerance-decision rules.
- * Template vars: {time_tolerance_min} substituted at build time.
- * Uses plain .replace — no eval.
- */
-export const CASE2_TOLERANCE_DECISION_BLOCK = [
-  'ENTSCHEIDUNGSREGELN bei Gegenangebot:',
-  '  - Counterpart bietet Uhrzeit INNERHALB ±{time_tolerance_min} Minuten → ZUSAGE.',
-  '    Zwei-Form-Readback (Wort + Ziffer), dann create_calendar_entry.',
-  '  - Counterpart bietet Uhrzeit AUSSERHALB Toleranz → HÖFLICH ABLEHNEN:',
-  '    "Danke für den Vorschlag, {uhrzeit} passt leider nicht für uns. Wir versuchen es nochmal."',
-  '    KEIN create_calendar_entry aufrufen. Gespräch höflich beenden (end_call), dann voice_notify_user(urgency=decision).',
-  '  - Counterpart bietet andere Personenzahl → ABLEHNEN (Personenzahl ist exakt).',
-  '  - Counterpart kann an DIESEM Tag gar nicht → ABLEHNEN + escalate',
-  '    ("Dann versuchen wir es an einem anderen Tag, danke").',
-  '  - Counterpart fragt Rückruf an ("wir rufen in 10 Min zurück") → ABLEHNEN, nicht warten:',
-  '    "Das ist lieb, aber bitte geben Sie mir jetzt eine direkte Antwort — sonst versuchen wir es nochmal."',
-].join('\n')
-
-/**
- * Block 3: Hold-music / clarifying-question handling.
- * "60 Sekunden kumulative Wartezeit" is the hard limit per Research §3.2.
- */
-export const CASE2_HOLD_MUSIC_CLARIFYING_BLOCK = [
-  'WENN der Counterpart "Moment bitte" / "einen Augenblick" sagt und Musik läuft:',
-  '  - SCHWEIGE. Rufe NICHT end_call. Halte die Leitung bis zu 45 Sekunden.',
-  '  - Wenn nach 45 Sekunden noch Musik läuft: sage "Hallo? Sind Sie noch da?" einmal.',
-  '  - Bei 60 Sekunden kumulative Wartezeit: beende höflich mit "Ich versuche es nochmal später, danke" und ruf end_call.',
-  '',
-  'WENN der Counterpart eine Rückfrage stellt:',
-  '  - "Allergien?" → Aus Auftrag vorlesen (Notes) ODER "Nein, danke."',
-  '  - "Anlass?" → Notes ODER "Nein, einfach nur ein schöner Abend."',
-  '  - "Kinderstühle?" → Notes ODER "Nein, danke."',
-  '  - "Name?" → "Carsten Freek, Freek mit zwei Es."',
-  '  - "Telefon für Rückfragen?" → NIEMALS Carstens Handynummer diktieren; sage',
-  '    "Die Sipgate-Nummer von der Sie angerufen wurden — die haben Sie ja angezeigt."',
-  '  - "Vorauszahlung?" → NIEMALS zusagen.',
-  '  - Unbekannte Rückfrage → "Dazu kann ich gerade nichts Verbindliches sagen, ich melde mich nochmal."',
-].join('\n')
+// Plan 05.2-04: CASE2_TOLERANCE_DECISION_BLOCK + CASE2_HOLD_MUSIC_CLARIFYING_BLOCK
+// constants DELETED (migrated into voice-bridge/src/persona/overlays/case-2.ts).
+// Grep-verified: no external references remained in voice-bridge/src/ outside
+// tests/persona.test.ts (updated as part of this migration).
 
 export interface Case2OutboundPersonaArgs {
   restaurant_name: string
@@ -224,52 +204,54 @@ export interface Case2OutboundPersonaArgs {
 }
 
 /**
- * Build Case-2 outbound persona: base OUTBOUND_PERSONA_TEMPLATE + goal-setting +
- * tolerance-decision + hold-music blocks. Plain string concat (no template engine).
+ * Build Case-2 outbound persona — MIGRATED in Plan 05.2-04.
  *
- * Composition:
- *   1. OUTBOUND_PERSONA_TEMPLATE with {{goal}} = structured Case-2 goal block
- *                                   {{context}} = restaurant + date + tolerance summary
- *   2. CASE2_TOLERANCE_DECISION_BLOCK with time_tolerance_min substituted
- *   3. CASE2_HOLD_MUSIC_CLARIFYING_BLOCK (static)
+ * External signature UNCHANGED (webhook.ts keeps passing the same args).
+ * Internal composition REWIRED:
+ *   baseline (buildBasePersona, outbound + Sie-form) + '\n\n' + buildCase2Overlay(args)
  *
- * Token budget: ~550 tokens (well under 1500 hard ceiling, Research §3.5).
- * If chars/3.5 > 1500, log.warn is omitted for now (budget met in practice).
+ * Baseline supplies: identity, ROLE/TURN-DISCIPLIN role-lock (D-9 fix for
+ * role-hallucination observed 2026-04-21), PERSONALITY, PRONUNCIATIONS,
+ * INSTRUCTIONS (Werkzeug-zuerst, Zwei-Form, Füll-Phrasen, Schweigen,
+ * Abschied, Offenlegung), SAFETY & ESCALATION.
+ *
+ * Overlay supplies: TASK, DECISION RULES, CLARIFYING-QUESTION ANSWERS,
+ * HOLD-MUSIC HANDLING (the 4 Case-2-specific sections from research §6.3).
+ *
+ * Token budget: baseline (~515 tokens) + overlay (~200 tokens) ≈ 715 tokens —
+ * well under the 1500-token hard ceiling (research §3.5).
  */
 export function buildCase2OutboundPersona(args: Case2OutboundPersonaArgs): string {
-  // Sanitize user-supplied strings (T-05-02-02: curly-brace strip)
   const restaurantName = sanitizeForPersona(args.restaurant_name)
-  const notes = args.notes ? sanitizeForPersona(args.notes) : undefined
 
-  // Auto-generate word forms if not supplied
-  const timeWort = args.requested_time_wort ?? timeToGerman(args.requested_time)
-  const partySizeWort = args.party_size_wort ?? toGermanNumber(args.party_size)
-  const dateWort = args.requested_date_wort ?? args.requested_date
+  // Human-readable goal + context strings for the baseline placeholders.
+  // These are INSIDE the baseline ROLE & OBJECTIVE / Kontext lines; the
+  // overlay's own ### TASK section repeats the authoritative full task detail.
+  //
+  // "im Auftrag von Carsten" preserved from legacy OUTBOUND_PERSONA_TEMPLATE:
+  // this phrasing appears in the persona floor and is load-bearing for
+  // existing integration tests (accept.test.ts:680) AND for the model's
+  // self-introduction — "NanoClaw im Auftrag von Carsten" is how outbound
+  // calls open to the counterpart.
+  const goal =
+    `Im Auftrag von Carsten eine Reservierung bei ${restaurantName} erwirken — ` +
+    `${args.requested_date} um ${args.requested_time} fuer ${args.party_size} Personen ` +
+    `(Toleranz ±${args.time_tolerance_min} Min)`
+  const context =
+    `Outbound-Anruf im Auftrag von Carsten. Restaurant ${restaurantName}, ` +
+    `Datum ${args.requested_date}, ±${args.time_tolerance_min} Min Toleranz.`
 
-  const notesText = notes ? notes : 'keine'
+  const baseline = buildBasePersona({
+    anrede_form: 'Sie',
+    counterpart_label: 'der Restaurant-Gegenueber',
+    goal,
+    context,
+    call_direction: 'outbound',
+  })
 
-  // Block 1: Goal-setting (replaces {{goal}} in OUTBOUND_PERSONA_TEMPLATE)
-  const goalBlock = [
-    `Reservierung für ${restaurantName}`,
-    `am ${dateWort}, also ${args.requested_date},`,
-    `um ${timeWort}, also ${args.requested_time},`,
-    `für ${partySizeWort}, also ${args.party_size} Person(en).`,
-    `Optionale Wünsche: ${notesText}.`,
-    `Toleranz: ±${args.time_tolerance_min} Minuten auf die Uhrzeit. Personenzahl exakt ${args.party_size}.`,
-  ].join(' ')
+  const overlay = buildCase2Overlay(args)
 
-  const contextBlock = `Restaurant ${restaurantName}, Datum ${args.requested_date}, ±${args.time_tolerance_min} Min Toleranz`
-
-  // Build base persona with placeholders substituted
-  const basePersona = OUTBOUND_PERSONA_TEMPLATE
-    .replace('{{goal}}', goalBlock)
-    .replace('{{context}}', contextBlock)
-
-  // Tolerance-decision block with time_tolerance_min substituted
-  const toleranceBlock = CASE2_TOLERANCE_DECISION_BLOCK
-    .replace(/\{time_tolerance_min\}/g, String(args.time_tolerance_min))
-
-  return [basePersona, toleranceBlock, CASE2_HOLD_MUSIC_CLARIFYING_BLOCK].join('\n\n')
+  return [baseline, overlay].join('\n\n')
 }
 
 export const PHASE2_PERSONA = [

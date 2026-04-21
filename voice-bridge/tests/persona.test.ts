@@ -103,25 +103,39 @@ describe('OUTBOUND_PERSONA_TEMPLATE + buildOutboundPersona — Plan 03-11', () =
 })
 
 // --- Plan 05-03 Task 2: CASE2_OUTBOUND_PERSONA blocks + buildCase2OutboundPersona ---
-import {
-  CASE2_TOLERANCE_DECISION_BLOCK,
-  CASE2_HOLD_MUSIC_CLARIFYING_BLOCK,
-  buildCase2OutboundPersona,
-} from '../src/persona.js'
+// Plan 05.2-04: legacy CASE2_TOLERANCE_DECISION_BLOCK + CASE2_HOLD_MUSIC_CLARIFYING_BLOCK
+// constants removed; their content migrated into persona/overlays/case-2.ts.
+// Tests 1 + 2 rewired to inspect the new buildCase2Overlay output instead.
+import { buildCase2OutboundPersona } from '../src/persona.js'
+import { buildCase2Overlay } from '../src/persona/overlays/case-2.js'
 
 describe('CASE2_OUTBOUND_PERSONA — Task 2 tests (≥9)', () => {
-  it('test 1: CASE2_TOLERANCE_DECISION_BLOCK contains tolerance-decision keywords', () => {
-    expect(typeof CASE2_TOLERANCE_DECISION_BLOCK).toBe('string')
-    expect(CASE2_TOLERANCE_DECISION_BLOCK).toContain('ENTSCHEIDUNGSREGELN bei Gegenangebot')
-    expect(CASE2_TOLERANCE_DECISION_BLOCK).toContain('ZUSAGE')
-    expect(CASE2_TOLERANCE_DECISION_BLOCK).toContain('HÖFLICH ABLEHNEN')
+  it('test 1: Case-2 overlay contains tolerance-decision keywords (migrated from CASE2_TOLERANCE_DECISION_BLOCK)', () => {
+    const overlay = buildCase2Overlay({
+      restaurant_name: 'Adria',
+      requested_date: '2026-05-15',
+      requested_time: '19:00',
+      time_tolerance_min: 30,
+      party_size: 4,
+    })
+    expect(typeof overlay).toBe('string')
+    expect(overlay).toContain('DECISION RULES')
+    expect(overlay).toContain('ZUSAGE')
+    expect(overlay).toContain('ABLEHNEN')
   })
 
-  it('test 2: CASE2_HOLD_MUSIC_CLARIFYING_BLOCK contains hold-music keywords', () => {
-    expect(typeof CASE2_HOLD_MUSIC_CLARIFYING_BLOCK).toBe('string')
-    expect(CASE2_HOLD_MUSIC_CLARIFYING_BLOCK).toContain('Moment bitte')
-    expect(CASE2_HOLD_MUSIC_CLARIFYING_BLOCK).toContain('SCHWEIGE')
-    expect(CASE2_HOLD_MUSIC_CLARIFYING_BLOCK).toContain('60 Sekunden kumulative Wartezeit')
+  it('test 2: Case-2 overlay contains hold-music keywords (migrated from CASE2_HOLD_MUSIC_CLARIFYING_BLOCK)', () => {
+    const overlay = buildCase2Overlay({
+      restaurant_name: 'Adria',
+      requested_date: '2026-05-15',
+      requested_time: '19:00',
+      time_tolerance_min: 30,
+      party_size: 4,
+    })
+    expect(typeof overlay).toBe('string')
+    expect(overlay).toContain('Moment bitte')
+    expect(overlay).toContain('schweige')
+    expect(overlay).toContain('60s')
   })
 
   it('test 4: buildCase2OutboundPersona output contains required content', () => {

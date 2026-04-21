@@ -109,11 +109,22 @@ describe('Plan 05.2-01 — buildTaskOverlay dispatcher skeleton', () => {
     expect(buildTaskOverlay('amd_classifier_mode_noop', {})).toBe('')
   })
 
-  it('Test H.3: case_2 throws NotImplemented with 05.2-04 reference', () => {
-    expect(() => buildTaskOverlay('case_2', {})).toThrow(/05\.2-04/)
+  it('Test H.3 (Plan 05.2-04 Task 2 MIGRATED): case_2 returns buildCase2Overlay(args) — dispatcher wired', () => {
+    // Plan 05.2-04 Task 2 filled the case_2 body. Dispatcher now returns a non-empty
+    // overlay string containing Case-2-specific markers.
+    const out = buildTaskOverlay('case_2', {
+      restaurant_name: 'Bellavista',
+      requested_date: '2026-05-23',
+      requested_time: '19:00',
+      time_tolerance_min: 30,
+      party_size: 4,
+    })
+    expect(typeof out).toBe('string')
+    expect(out).toContain('Bellavista')
+    expect(out).toContain('DECISION RULES')
   })
 
-  it('Test H.4: case_6b_inbound_carsten throws NotImplemented with 05.2-04 reference', () => {
+  it('Test H.4: case_6b_inbound_carsten throws NotImplemented with 05.2-04 reference (Task 3 pending)', () => {
     expect(() => buildTaskOverlay('case_6b_inbound_carsten', {})).toThrow(/05\.2-04/)
   })
 
