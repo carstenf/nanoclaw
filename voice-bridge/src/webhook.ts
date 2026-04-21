@@ -28,8 +28,144 @@ import { sendDiscordAlert } from './alerts.js'
 import {
   CASE2_AMD_CLASSIFIER_PROMPT,
   createAmdClassifier,
+  type AmdVoicemailReason,
 } from './amd-classifier.js'
 import { setAmdClassifier } from './tools/dispatch.js'
+
+// ---------------------------------------------------------------------------
+// Plan 05.1-03 (Defect #4): Case-2 onVoicemail handler factory.
+//
+// Constructs voice_case_2_schedule_retry tool-call args matching the zod
+// schema at src/mcp-tools/voice-case-2-retry.ts:36-44:
+//   { call_id, target_phone, calendar_date, prev_outcome, idempotency_key }
+// The previous inline closure sent {task_id, target_phone, case_payload,
+// prev_outcome: reason} — zod rejected every time with -32602, silently
+// dropping every voicemail retry.
+//
+// All four AMD classifier reasons ('amd_result' | 'cadence_cue' |
+// 'silence_mailbox' | 'transcript_cue') are "picked up but mailbox"
+// variants; per RESEARCH §4.3 they all map to zod enum 'voicemail'.
+// 'no_answer' / 'busy' fire from outbound-router error paths, not here.
+//
+// Fail-fast guard: if casePayload is missing requested_date or
+// idempotency_key, log case_2_schedule_retry_missing_fields and skip the
+// retry tool call. Sending empty strings would fail zod .length(64).regex
+// at Core with the exact -32602 symptom this plan fixes — log-and-skip is
+// the only correct path (the retry is orphaned but observable).
+// ---------------------------------------------------------------------------
+
+type Case2OnVoicemailActiveOutbound = {
+  task_id: string
+  target_phone: string
+}
+
+type Case2OnVoicemailCoreClient = {
+  callTool: (
+    name: string,
+    args: Record<string, unknown>,
+  ) => Promise<unknown>
+}
+
+type Case2OnVoicemailOpenAI = {
+  realtime: { calls: { hangup: (callId: string) => Promise<unknown> } }
+}
+
+export interface BuildCase2OnVoicemailHandlerParams {
+  callId: string
+  activeOutbound: Case2OnVoicemailActiveOutbound
+  casePayload: Record<string, unknown>
+  coreMcpForAmd: Case2OnVoicemailCoreClient | null
+  openai: Case2OnVoicemailOpenAI
+  log: Logger
+  setAmdClassifier: (c: null) => void
+}
+
+export function buildCase2OnVoicemailHandler(
+  params: BuildCase2OnVoicemailHandlerParams,
+): (reason: AmdVoicemailReason) => Promise<void> {
+  const { callId, activeOutbound, casePayload, coreMcpForAmd, openai, log } =
+    params
+
+  // All AMD reasons collapse to zod enum 'voicemail'. The _r argument is
+  // intentionally unused: the 4-way map is a constant. Future AMD reason
+  // codes must be added to AmdVoicemailReason to compile (TS strict
+  // enforces review of any expansion).
+  const amdReasonToPrevOutcome = (_r: AmdVoicemailReason): 'voicemail' =>
+    'voicemail'
+
+  return async function onVoicemail(reason: AmdVoicemailReason): Promise<void> {
+    log.info({
+      event: 'case_2_amd_voicemail_verdict',
+      call_id: callId,
+      reason,
+      task_id: activeOutbound.task_id,
+    })
+    try {
+      await openai.realtime.calls.hangup(callId)
+    } catch (e: unknown) {
+      log.warn({
+        event: 'case_2_voicemail_hangup_failed',
+        call_id: callId,
+        err: (e as Error)?.message,
+      })
+    }
+    // voice_case_2_schedule_retry + voice_notify_user via Core MCP
+    if (coreMcpForAmd) {
+      // Fail-fast if required zod-schema fields are missing from casePayload.
+      // casePayload.requested_date + idempotency_key are MANDATORY per Phase 5 D-7.
+      // Empty-string fallback would fail zod .length(64).regex(/^[0-9a-f]{64}$/)
+      // at Core with -32602 — the exact symptom this plan fixes.
+      const calendarDateRaw = casePayload.requested_date
+      const idempotencyKeyRaw = casePayload.idempotency_key
+      const calendarDate =
+        typeof calendarDateRaw === 'string' && calendarDateRaw.length > 0
+          ? calendarDateRaw
+          : ''
+      const idempotencyKey =
+        typeof idempotencyKeyRaw === 'string' && idempotencyKeyRaw.length > 0
+          ? idempotencyKeyRaw
+          : ''
+      if (!calendarDate || !idempotencyKey) {
+        log.warn({
+          event: 'case_2_schedule_retry_missing_fields',
+          call_id: callId,
+          has_calendar_date: Boolean(calendarDate),
+          has_idempotency_key: Boolean(idempotencyKey),
+        })
+      } else {
+        try {
+          await coreMcpForAmd.callTool('voice_case_2_schedule_retry', {
+            call_id: callId,
+            target_phone: activeOutbound.target_phone,
+            calendar_date: calendarDate,
+            prev_outcome: amdReasonToPrevOutcome(reason),
+            idempotency_key: idempotencyKey,
+          })
+        } catch (e: unknown) {
+          log.warn({
+            event: 'case_2_schedule_retry_failed',
+            call_id: callId,
+            err: (e as Error)?.message,
+          })
+        }
+      }
+      try {
+        await coreMcpForAmd.callTool('voice_notify_user', {
+          urgency: 'info',
+          text: `Voicemail erkannt bei ${String(casePayload.restaurant_name ?? 'Restaurant')} (${reason}). Nächster Versuch in Kürze.`,
+          call_id: callId,
+        })
+      } catch (e: unknown) {
+        log.warn({
+          event: 'case_2_notify_failed',
+          call_id: callId,
+          err: (e as Error)?.message,
+        })
+      }
+    }
+    params.setAmdClassifier(null)
+  }
+}
 
 export function registerWebhookRoute(
   app: FastifyInstance,
@@ -302,42 +438,20 @@ export function registerAcceptRoute(
               activeOutbound.persona_override = persona
             }
           },
-          onVoicemail: async (reason) => {
-            log.info({
-              event: 'case_2_amd_voicemail_verdict',
-              call_id: callId,
-              reason,
+          // Plan 05.1-03 defect #4: factory extracted for unit-testability.
+          // See buildCase2OnVoicemailHandler + webhook-case-2-voicemail.test.ts.
+          onVoicemail: buildCase2OnVoicemailHandler({
+            callId,
+            activeOutbound: {
               task_id: activeOutbound.task_id,
-            })
-            try {
-              await openai.realtime.calls.hangup(callId)
-            } catch (e: unknown) {
-              log.warn({ event: 'case_2_voicemail_hangup_failed', call_id: callId, err: (e as Error)?.message })
-            }
-            // voice_case_2_schedule_retry + voice_notify_user via Core MCP
-            if (coreMcpForAmd) {
-              try {
-                await coreMcpForAmd.callTool('voice_case_2_schedule_retry', {
-                  task_id: activeOutbound.task_id,
-                  target_phone: activeOutbound.target_phone,
-                  case_payload: casePayload,
-                  prev_outcome: reason,
-                })
-              } catch (e: unknown) {
-                log.warn({ event: 'case_2_schedule_retry_failed', call_id: callId, err: (e as Error)?.message })
-              }
-              try {
-                await coreMcpForAmd.callTool('voice_notify_user', {
-                  urgency: 'info',
-                  text: `Voicemail erkannt bei ${String(casePayload.restaurant_name ?? 'Restaurant')} (${reason}). Nächster Versuch in Kürze.`,
-                  call_id: callId,
-                })
-              } catch (e: unknown) {
-                log.warn({ event: 'case_2_notify_failed', call_id: callId, err: (e as Error)?.message })
-              }
-            }
-            setAmdClassifier(null)
-          },
+              target_phone: activeOutbound.target_phone,
+            },
+            casePayload,
+            coreMcpForAmd,
+            openai,
+            log,
+            setAmdClassifier,
+          }),
         })
         setAmdClassifier(classifier)
 
