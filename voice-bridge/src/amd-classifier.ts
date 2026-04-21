@@ -23,6 +23,24 @@ import type { Logger } from 'pino'
 
 // ---- Prompt ----
 
+// Plan 05.2-04 D-10 (scope clarification):
+//
+// CASE2_AMD_CLASSIFIER_PROMPT is a LISTEN-ONLY DETECTION prompt — the model
+// is in a non-conversational mode whose only output is the amd_result
+// function-call with verdict ∈ {human, voicemail, silent, noise}. It is
+// structurally distinct from the baseline+overlay conversation-mode
+// persona (voice-bridge/src/persona/baseline.ts).
+//
+// D-10: AMD classifier prompt is NOT consolidated into the new baseline in
+// Phase 05.2. If/when state-machine Phase 5 (full Pipecat-Flows-style) ships,
+// the classifier mode becomes one state ("LISTEN") with baseline+listen-overlay;
+// until then it stays as a separate, self-contained prompt.
+//
+// See:
+//   - .planning/phases/05.2-persona-redesign-and-call-flow-state-machine/05.2-CONTEXT.md D-10
+//   - .planning/research/voice-persona-architecture.md §1.2, §6.4
+//   - voice-bridge/src/persona/baseline.ts (baseline persona used post-AMD-verdict)
+
 /**
  * AMD classifier prompt — verbatim from Plan 05-03 interfaces section.
  * Instructs the Realtime model (gpt-realtime since Plan 05.1 upgrade 2026-04-21; previously mini) to emit amd_result WITHOUT speaking first.
