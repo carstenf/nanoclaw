@@ -580,6 +580,239 @@ describe('POST /accept — Case-2 outbound branch (05-03 Task 3)', () => {
       await app.close()
     }
   })
+
+  // Plan 05.1-01 Task 3: onHuman L2 defense-in-depth — synthetic user-directive
+  // injection between updateInstructions and setTimeout→requestResponse.
+  // Breaks AMD classifier conversational context contamination (RESEARCH §2.5).
+  // Asserts exact WS send order: session.update → conversation.item.create →
+  // response.create (after GREET_TRIGGER_DELAY_OUTBOUND_MS).
+  it('Test F+H: onHuman sends session.update THEN conversation.item.create THEN (after timer) response.create', async () => {
+    // Mock WS whose .send() we can inspect in order
+    const sentMessages: string[] = []
+    const mockWs = {
+      send: vi.fn((s: string) => {
+        sentMessages.push(s)
+      }),
+      readyState: 1,
+    }
+    // Mock sideband state: ready=true so updateInstructions and requestResponse proceed
+    const mockState = {
+      callId: 'rtc_c2_l2',
+      ready: true,
+      ws: mockWs as unknown as import('ws').WebSocket,
+      openedAt: 0,
+      lastUpdateAt: 0,
+    }
+
+    const outboundRouter = makeCase2OutboundRouter('case_2')
+    await new Promise((r) => setTimeout(r, 10))
+
+    const acceptSpy = vi.fn().mockResolvedValue({})
+    const openai = {
+      webhooks: {
+        unwrap: vi.fn().mockResolvedValue({
+          type: 'realtime.call.incoming',
+          data: {
+            call_id: 'rtc_c2_l2',
+            sip_headers: [{ name: 'From', value: '"Caller" <sip:+4900000@sipgate.de>' }],
+          },
+        }),
+      },
+      realtime: { calls: { accept: acceptSpy, reject: vi.fn() } },
+    }
+
+    const router = {
+      startCall: vi.fn().mockReturnValue({
+        sideband: { state: mockState },
+        close: vi.fn(),
+      }),
+      endCall: vi.fn(),
+      getCall: vi.fn(),
+      _size: vi.fn().mockReturnValue(0),
+    }
+
+    const { buildApp } = await import('../src/index.js')
+    const { getAmdClassifier, setAmdClassifier } = await import('../src/tools/dispatch.js')
+
+    const app = await buildApp({
+      openaiOverride: openai as never,
+      whitelistOverride: new Set(),
+      routerOverride: router as never,
+      outboundRouterOverride: outboundRouter,
+    })
+
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/accept',
+        headers: {
+          'content-type': 'application/json',
+          'webhook-id': 'c2-l2',
+          'webhook-timestamp': String(Math.floor(Date.now() / 1000)),
+          'webhook-signature': 'v1,xxx',
+        },
+        payload: JSON.stringify({
+          type: 'realtime.call.incoming',
+          data: { call_id: 'rtc_c2_l2' },
+        }),
+      })
+
+      expect(res.statusCode).toBe(200)
+
+      // Switch to fake timers BEFORE firing onAmdResult so the setTimeout in
+      // onHuman (GREET_TRIGGER_DELAY_OUTBOUND_MS) is trapped under our control.
+      vi.useFakeTimers()
+      try {
+        const classifier = getAmdClassifier()
+        expect(classifier).not.toBeNull()
+        // Trigger the human verdict → fires the onHuman closure in webhook.ts
+        classifier?.onAmdResult('human')
+
+        // IMMEDIATELY after onAmdResult: two sync sends must be present
+        // (updateInstructions then conversation.item.create).
+        // requestResponse is still pending in the setTimeout queue.
+        expect(sentMessages.length).toBeGreaterThanOrEqual(2)
+
+        // Test F ordering: first send = session.update with type:'realtime' + Case-2 persona
+        const firstParsed = JSON.parse(sentMessages[0])
+        expect(firstParsed.type).toBe('session.update')
+        expect(firstParsed.session?.type).toBe('realtime')
+        expect(firstParsed.session?.instructions).toContain('NanoClaw im Auftrag')
+
+        // Test F ordering: second send = conversation.item.create role=user synthetic directive
+        const secondParsed = JSON.parse(sentMessages[1])
+        expect(secondParsed.type).toBe('conversation.item.create')
+        expect(secondParsed.item?.type).toBe('message')
+        expect(secondParsed.item?.role).toBe('user')
+        expect(secondParsed.item?.content?.[0]?.type).toBe('input_text')
+        expect(secondParsed.item?.content?.[0]?.text).toContain(
+          '[System-Hinweis: AMD-Verdict war human.',
+        )
+
+        // Test H (regression): the persona-swap trigger from Wave 3 still fires —
+        // advance timers past GREET_TRIGGER_DELAY_OUTBOUND_MS, expect response.create
+        await vi.advanceTimersByTimeAsync(5000)
+        const responseCreateMsg = sentMessages.find((s) => {
+          try {
+            return JSON.parse(s).type === 'response.create'
+          } catch {
+            return false
+          }
+        })
+        expect(responseCreateMsg).toBeDefined()
+
+        // Overall ordering: session.update (idx 0) < item.create (idx 1) < response.create (later)
+        const idxSessionUpdate = sentMessages.findIndex(
+          (s) => JSON.parse(s).type === 'session.update',
+        )
+        const idxItemCreate = sentMessages.findIndex(
+          (s) => JSON.parse(s).type === 'conversation.item.create',
+        )
+        const idxResponseCreate = sentMessages.findIndex(
+          (s) => JSON.parse(s).type === 'response.create',
+        )
+        expect(idxSessionUpdate).toBe(0)
+        expect(idxItemCreate).toBe(1)
+        expect(idxResponseCreate).toBeGreaterThan(idxItemCreate)
+      } finally {
+        vi.useRealTimers()
+        // Clean up classifier registration to avoid cross-test contamination
+        setAmdClassifier(null)
+      }
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('Test G: synthetic-item text contains verbatim directive (RESEARCH §2.5, ASCII umlauts)', async () => {
+    const sentMessages: string[] = []
+    const mockWs = {
+      send: vi.fn((s: string) => {
+        sentMessages.push(s)
+      }),
+      readyState: 1,
+    }
+    const mockState = {
+      callId: 'rtc_c2_l2g',
+      ready: true,
+      ws: mockWs as unknown as import('ws').WebSocket,
+      openedAt: 0,
+      lastUpdateAt: 0,
+    }
+
+    const outboundRouter = makeCase2OutboundRouter('case_2')
+    await new Promise((r) => setTimeout(r, 10))
+
+    const acceptSpy = vi.fn().mockResolvedValue({})
+    const openai = {
+      webhooks: {
+        unwrap: vi.fn().mockResolvedValue({
+          type: 'realtime.call.incoming',
+          data: {
+            call_id: 'rtc_c2_l2g',
+            sip_headers: [{ name: 'From', value: '"Caller" <sip:+4900000@sipgate.de>' }],
+          },
+        }),
+      },
+      realtime: { calls: { accept: acceptSpy, reject: vi.fn() } },
+    }
+
+    const router = {
+      startCall: vi.fn().mockReturnValue({
+        sideband: { state: mockState },
+        close: vi.fn(),
+      }),
+      endCall: vi.fn(),
+      getCall: vi.fn(),
+      _size: vi.fn().mockReturnValue(0),
+    }
+
+    const { buildApp } = await import('../src/index.js')
+    const { getAmdClassifier, setAmdClassifier } = await import('../src/tools/dispatch.js')
+
+    const app = await buildApp({
+      openaiOverride: openai as never,
+      whitelistOverride: new Set(),
+      routerOverride: router as never,
+      outboundRouterOverride: outboundRouter,
+    })
+
+    try {
+      await app.inject({
+        method: 'POST',
+        url: '/accept',
+        headers: {
+          'content-type': 'application/json',
+          'webhook-id': 'c2-l2g',
+          'webhook-timestamp': String(Math.floor(Date.now() / 1000)),
+          'webhook-signature': 'v1,xxx',
+        },
+        payload: JSON.stringify({
+          type: 'realtime.call.incoming',
+          data: { call_id: 'rtc_c2_l2g' },
+        }),
+      })
+
+      const classifier = getAmdClassifier()
+      classifier?.onAmdResult('human')
+
+      const itemCreate = sentMessages
+        .map((s) => JSON.parse(s))
+        .find((p) => p.type === 'conversation.item.create')
+      expect(itemCreate).toBeDefined()
+      const text = itemCreate.item.content[0].text as string
+      // Verbatim phrases per RESEARCH §2.5 + ASCII umlaut convention
+      expect(text).toContain('[System-Hinweis: AMD-Verdict war human.')
+      expect(text).toContain('Reservierungs-Modus')
+      expect(text).toContain('Beginne bitte mit der Begruessung gemaess deiner neuen Anweisungen')
+      // ASCII umlauts, not unicode — project convention (Phase 2 CASE6B_PERSONA)
+      expect(text).not.toMatch(/[äöüß]/)
+
+      setAmdClassifier(null)
+    } finally {
+      await app.close()
+    }
+  })
 })
 
 // Plan 04-02 Task 3: /accept-time cost gate integration.

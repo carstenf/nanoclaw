@@ -294,6 +294,46 @@ export function registerAcceptRoute(
             if (ctxRef) {
               // Push Case-2 persona to model via session.update, then trigger greeting.
               updateInstructions(ctxRef.sideband.state, persona, log)
+
+              // Plan 05.1-01 Task 3 (defect #6 Layer 2, RESEARCH §2.5):
+              // synthetic user-directive injection between updateInstructions
+              // and the setTimeout→requestResponse. Breaks the conversational
+              // context inherited from CASE2_AMD_CLASSIFIER_PROMPT — without
+              // this, the model may still mis-read the callee's opening
+              // greeting ("Restaurant Bellavista") as evidence it should
+              // continue in AMD-helper mode instead of CASE2_OUTBOUND_PERSONA.
+              // Text uses ASCII umlauts per Phase 2 CASE6B_PERSONA convention.
+              // Pitfall 5: this item.create does NOT itself trigger a
+              // response.create (VAD only scopes audio-derived items), so
+              // the explicit requestResponse below is still required.
+              try {
+                ctxRef.sideband.state.ws?.send(
+                  JSON.stringify({
+                    type: 'conversation.item.create',
+                    item: {
+                      type: 'message',
+                      role: 'user',
+                      content: [
+                        {
+                          type: 'input_text',
+                          text: '[System-Hinweis: AMD-Verdict war human. Der Anruf laeuft jetzt im Reservierungs-Modus. Beginne bitte mit der Begruessung gemaess deiner neuen Anweisungen.]',
+                        },
+                      ],
+                    },
+                  }),
+                )
+                log.info({
+                  event: 'case_2_amd_synthetic_user_directive_sent',
+                  call_id: callId,
+                })
+              } catch (e: unknown) {
+                log.warn({
+                  event: 'case_2_amd_synthetic_user_directive_send_failed',
+                  call_id: callId,
+                  err: (e as Error)?.message,
+                })
+              }
+
               setTimeout(() => {
                 if (ctxRef) requestResponse(ctxRef.sideband.state, log)
               }, GREET_TRIGGER_DELAY_OUTBOUND_MS)

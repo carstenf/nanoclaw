@@ -36,6 +36,12 @@ let _activeClassifier: AmdClassifier | null = null
 export function setAmdClassifier(classifier: AmdClassifier | null): void {
   _activeClassifier = classifier
 }
+// Plan 05.1-01 Task 3: test-only accessor — lets accept.test.ts drive the
+// classifier's onAmdResult('human') synthetic trigger so the onHuman
+// closure's full send-ordering can be asserted end-to-end.
+export function getAmdClassifier(): AmdClassifier | null {
+  return _activeClassifier
+}
 
 // Tool-name mapping: bridge tool name → Core MCP tool name.
 // null  = not implemented (03-08 skipped or bridge-internal, stub path).
