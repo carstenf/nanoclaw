@@ -124,8 +124,13 @@ describe('Plan 05.2-01 — buildTaskOverlay dispatcher skeleton', () => {
     expect(out).toContain('DECISION RULES')
   })
 
-  it('Test H.4: case_6b_inbound_carsten throws NotImplemented with 05.2-04 reference (Task 3 pending)', () => {
-    expect(() => buildTaskOverlay('case_6b_inbound_carsten', {})).toThrow(/05\.2-04/)
+  it('Test H.4 (Plan 05.2-04 Task 3 MIGRATED): case_6b_inbound_carsten returns buildCase6bOverlay() — dispatcher wired', () => {
+    // Plan 05.2-04 Task 3 filled the case_6b body as artifact (webhook.ts inbound
+    // path still uses legacy CASE6B_PERSONA). Dispatcher returns a non-empty overlay.
+    const out = buildTaskOverlay('case_6b_inbound_carsten', {})
+    expect(typeof out).toBe('string')
+    expect(out).toContain('KALENDER-TERMIN')
+    expect(out).toContain('ask_core')
   })
 
   it('CaseKey union accepts all four registered keys (compile-time check)', () => {

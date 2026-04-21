@@ -1,9 +1,12 @@
 // voice-bridge/src/persona/overlays/index.ts
 // Phase 05.2 Plan 01 — Task-overlay dispatcher skeleton.
-// Phase 05.2 Plan 04 Task 2 — body filled for case_2 (case_6b lands in Task 3).
+// Phase 05.2 Plan 04 Task 2 — body filled for case_2.
+// Phase 05.2 Plan 04 Task 3 — body filled for case_6b_inbound_carsten (artifact;
+//   webhook.ts inbound path still on legacy CASE6B_PERSONA).
 
 import type { Case2OutboundPersonaArgs } from '../../persona.js'
 import { buildCase2Overlay } from './case-2.js'
+import { buildCase6bOverlay } from './case-6b-inbound-carsten.js'
 
 /**
  * CaseKey union — registered task-overlay keys.
@@ -24,8 +27,7 @@ export type CaseKey =
  *
  * - 'outbound_default_sie' and 'amd_classifier_mode_noop' return '' (no overlay).
  * - 'case_2' returns buildCase2Overlay(args) — args typed as Case2OutboundPersonaArgs.
- * - 'case_6b_inbound_carsten' still throws until Plan 05.2-04 Task 3 lands
- *   the overlay body.
+ * - 'case_6b_inbound_carsten' returns buildCase6bOverlay() — no per-call args.
  *
  * @param caseKey - registered case identifier
  * @param caseArgs - case-specific overlay arguments (shape defined per case)
@@ -38,8 +40,6 @@ export function buildTaskOverlay(caseKey: CaseKey, caseArgs: unknown): string {
     case 'case_2':
       return buildCase2Overlay(caseArgs as Case2OutboundPersonaArgs)
     case 'case_6b_inbound_carsten':
-      throw new Error(
-        `buildTaskOverlay: caseKey='${caseKey}' not yet implemented (lands in 05.2-04 Task 3)`,
-      )
+      return buildCase6bOverlay()
   }
 }
