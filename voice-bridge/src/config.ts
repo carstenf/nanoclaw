@@ -286,10 +286,24 @@ export const SESSION_CONFIG = {
       // Plan 05-03 Task 5 defect: whisper-1 without `language` auto-detects per
       // utterance; short German phrases ("Hallo Restaurant Bellavista") were
       // transcribed as English/Swedish, breaking CASE2_MAILBOX_CUE_REGEX_V2 and
-      // feeding the AMD model garbage input. Pin to 'de' to match the voice
-      // bridge's locale — all calls are German; if we ever serve EN callers,
-      // switch to per-call language passed via case_payload.
-      transcription: { model: 'whisper-1' as const, language: 'de' as const },
+      // feeding the AMD model garbage input. language='de' pinned in 4db252c.
+      //
+      // Plan 05.1 defect #3: whisper-1 at 8kHz telephony is structurally poor
+      // for short German utterances even with language='de' (DEFECTS §3:
+      // "Hallo, hier Restaurant Bellavista" → "Jan-Uwe das war es von
+      // Bellevista"). Upgrade to gpt-4o-mini-transcribe: documented improved
+      // FLEURS WER; drop-in because we only consume `.completed` events (no
+      // `.delta` consumer anywhere in voice-bridge/src — verified by grep at
+      // execute time, RESEARCH §3.5). Fallback candidates if quality still
+      // insufficient: gpt-4o-transcribe (full) first, then add a `prompt`
+      // field with German restaurant-reservation vocabulary (RESEARCH §3.7).
+      //
+      // Pitfall 3 (cost-cap): gpt-4o-mini-transcribe has a higher per-minute
+      // rate than whisper-1. Current CAP_PER_CALL_EUR in src/cost/gate.ts is
+      // €1.00 — verify it accommodates the new rate during 05.1-05 live
+      // verification. If cost caps trip, fallback is to revert to whisper-1
+      // plus prompt-engineering.
+      transcription: { model: 'gpt-4o-mini-transcribe' as const, language: 'de' as const },
     },
     output: { voice: 'cedar' as const },
   },
