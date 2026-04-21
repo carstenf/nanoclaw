@@ -297,7 +297,12 @@ describe('POST /accept — Phase 2 full-wiring', () => {
     expect(session.instructions).toContain('Carsten')
     expect(session.instructions).toContain('ask_core')
     expect(session.audio.input.turn_detection.type).toBe('server_vad')
-    expect(session.audio.input.turn_detection.create_response).toBe(true)
+    // Plan 05.2-03 D-8: create_response flipped true→false so the bridge
+    // decides when the bot speaks (outbound waits for caller's first Hallo
+    // via sideband.armedForFirstSpeech; inbound self-greets at 1000ms
+    // post-/accept via explicit requestResponse — both paths unaffected by
+    // this flag flip because both issue explicit response.create).
+    expect(session.audio.input.turn_detection.create_response).toBe(false)
     expect(Array.isArray(session.tools)).toBe(true)
     expect(session.tools.length).toBe(15)
     expect(session.tools[0]).toHaveProperty('type', 'function')

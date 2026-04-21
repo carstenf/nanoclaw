@@ -282,7 +282,14 @@ export const SESSION_CONFIG = {
         type: 'server_vad' as const,
         threshold: 0.55,
         silence_duration_ms: 700,
-        create_response: true,
+        // Plan 05.2-03 D-8 / research §3.1: outbound wait-for-speech. Bot no
+        // longer auto-generates a response on caller speech_stopped; the
+        // bridge pushes an explicit response.create when it WANTS the bot to
+        // speak (first caller speech on outbound per sideband.ts
+        // armedForFirstSpeech flag, or 1000ms post-/accept on inbound per
+        // webhook.ts GREET_TRIGGER_DELAY_MS). Closes Carsten's "bot sollte
+        // warten bis sich jemand meldet" requirement.
+        create_response: false,
       },
       // Plan 02-10: enable user-transcription so OpenAI emits
       // `conversation.item.input_audio_transcription.completed` events on the

@@ -74,9 +74,12 @@ describe('Plan 05.2-01 — buildBasePersona (research §6.2 verbatim)', () => {
     expect(out).not.toContain('{{counterpart_label}}')
   })
 
-  it('Test F (token budget): length < 3500 chars (1000-token ceiling with buffer)', () => {
+  it('Test F (token budget): length < 4000 chars (1000-token ceiling with buffer; Plan 05.2-03 added SCHWEIGEN ladder +~400 chars)', () => {
     const out = buildBasePersona(defaults())
-    expect(out.length).toBeLessThan(3500)
+    // Plan 05.2-03 D-1/D-2: OUTBOUND_SCHWEIGEN / INBOUND_SCHWEIGEN nudge
+    // ladder added ~400 chars. Baseline now ~3700 chars; 4000-char budget
+    // preserves 1000-token ceiling with reasonable headroom.
+    expect(out.length).toBeLessThan(4000)
   })
 
   it('Test G (disclosure + farewell preserved from legacy)', () => {
