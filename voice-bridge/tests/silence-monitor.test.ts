@@ -270,3 +270,165 @@ describe('createSilenceMonitor (03-15, REQ-VOICE-08/09)', () => {
     expect(sent.response.instructions).toBe('CUSTOM PROMPT 1')
   })
 })
+
+// Plan 05.2-02 D-7 / research §4.3: bot-audio-aware silence-monitor state
+// machine. Prior bug (live-defect 2026-04-21): monitor was armed purely on
+// caller `speech_stopped`, ignoring bot-speaking state — "Bist du noch da,
+// Carsten?" could fire mid-bot-turn because a caller `speech_stopped` event
+// arrived BEFORE the bot's own TTS finished. Fix: arm only when BOTH
+// botSpeaking AND callerSpeaking are false; cancel whenever either becomes
+// true. Events are OpenAI Realtime server-events: `output_audio_buffer.started`
+// (bot speaks), `output_audio_buffer.stopped` (bot done — conservative
+// "truly finished" signal, fires after response.done, see research §4.2).
+describe('bot-audio-aware state machine (05.2-02 D-7)', () => {
+  it('Test A (bug repro): onBotStart alone (no onBotStop) must NOT arm the timer — no response fires during bot speech', () => {
+    const { handle, ws } = makeFakeSideband()
+    const hangupCall = vi.fn().mockResolvedValue(undefined)
+    const m = createSilenceMonitor({
+      callId: 'rtc',
+      sideband: handle,
+      log: makeLog(),
+      hangupCall,
+      silenceMs: 10000,
+    })
+
+    // Bot starts speaking. While bot is speaking, silence-monitor MUST stay
+    // dormant — no timer armed, no prompt fired even after silenceMs+buffer.
+    m.onBotStart()
+    vi.advanceTimersByTime(20000)
+
+    expect(ws.send).not.toHaveBeenCalled()
+    expect(hangupCall).not.toHaveBeenCalled()
+    expect(m._round()).toBe(0)
+  })
+
+  it('Test B (arm-on-bot-stop): onBotStart → onBotStop arms the timer; round1 fires after silenceMs', () => {
+    const { handle, ws } = makeFakeSideband()
+    const hangupCall = vi.fn().mockResolvedValue(undefined)
+    const m = createSilenceMonitor({
+      callId: 'rtc',
+      sideband: handle,
+      log: makeLog(),
+      hangupCall,
+      silenceMs: 10000,
+    })
+
+    // Bot says its greeting, then finishes (output_audio_buffer.stopped).
+    m.onBotStart()
+    m.onBotStop()
+
+    vi.advanceTimersByTime(9999)
+    expect(ws.send).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(ws.send).toHaveBeenCalledOnce()
+    const sent = JSON.parse((ws.send.mock.calls[0]?.[0] as string) ?? '{}')
+    expect(sent.type).toBe('response.create')
+    expect(sent.response.instructions).toContain('Bist du noch da')
+    expect(m._round()).toBe(1)
+  })
+
+  it('Test C (bot-interrupts-arm — core bug fix): caller-armed timer is cancelled when bot starts speaking', () => {
+    const { handle, ws } = makeFakeSideband()
+    const hangupCall = vi.fn().mockResolvedValue(undefined)
+    const m = createSilenceMonitor({
+      callId: 'rtc',
+      sideband: handle,
+      log: makeLog(),
+      hangupCall,
+      silenceMs: 10000,
+    })
+
+    // Caller just finished a turn — this would arm the timer under old code.
+    m.onSpeechStop()
+    vi.advanceTimersByTime(5000)
+
+    // Bot starts its own turn BEFORE silenceMs elapsed. The timer must be
+    // cancelled — bot speaking makes "silence" meaningless.
+    m.onBotStart()
+
+    // Even if we wait silenceMs*2, round must stay 0 — no ghost prompt.
+    vi.advanceTimersByTime(20000)
+    expect(ws.send).not.toHaveBeenCalled()
+    expect(hangupCall).not.toHaveBeenCalled()
+    expect(m._round()).toBe(0)
+  })
+
+  it('Test D (both-flags-true-no-arm): onBotStop while caller still speaking → timer NOT armed until onSpeechStop', () => {
+    const { handle, ws } = makeFakeSideband()
+    const hangupCall = vi.fn().mockResolvedValue(undefined)
+    const m = createSilenceMonitor({
+      callId: 'rtc',
+      sideband: handle,
+      log: makeLog(),
+      hangupCall,
+      silenceMs: 10000,
+    })
+
+    // Barge-in: bot talking, caller starts talking (both flags true), then
+    // bot stops. Caller is STILL talking — timer must stay disarmed.
+    m.onBotStart()
+    m.onSpeechStart()
+    m.onBotStop()
+
+    vi.advanceTimersByTime(silenceMsPlusBuffer())
+    expect(ws.send).not.toHaveBeenCalled()
+    expect(m._round()).toBe(0)
+
+    // Only after caller finishes does the timer arm.
+    m.onSpeechStop()
+    vi.advanceTimersByTime(10000)
+    expect(ws.send).toHaveBeenCalledOnce()
+    expect(m._round()).toBe(1)
+  })
+
+  it('Test E (regression — full 3-round ladder fires on post-greeting silence armed from onBotStop)', async () => {
+    const { handle, ws } = makeFakeSideband()
+    const hangupCall = vi.fn().mockResolvedValue(undefined)
+    const m = createSilenceMonitor({
+      callId: 'rtc',
+      sideband: handle,
+      log: makeLog(),
+      hangupCall,
+      silenceMs: 10000,
+      hangupDelayMs: 3500,
+    })
+
+    // Post-greeting: bot finished its self-greet, counterpart totally silent.
+    m.onBotStart()
+    m.onBotStop()
+
+    vi.advanceTimersByTime(10000) // round 1 fires
+    vi.advanceTimersByTime(10000) // round 2 fires
+    vi.advanceTimersByTime(10000) // round 3 prompt fires
+    expect(ws.send).toHaveBeenCalledTimes(3)
+    const sent3 = JSON.parse((ws.send.mock.calls[2]?.[0] as string) ?? '{}')
+    expect(sent3.response.instructions).toContain('Ich lege jetzt auf')
+    expect(hangupCall).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(3500) // hangup delay elapsed
+    expect(hangupCall).toHaveBeenCalledWith('rtc')
+  })
+
+  it('Test F (regression — caller-armed path: onSpeechStop alone still arms timer as before)', () => {
+    const { handle, ws } = makeFakeSideband()
+    const hangupCall = vi.fn().mockResolvedValue(undefined)
+    const m = createSilenceMonitor({
+      callId: 'rtc',
+      sideband: handle,
+      log: makeLog(),
+      hangupCall,
+      silenceMs: 10000,
+    })
+
+    // Standard turn-end: caller finished speaking. Bot is not speaking
+    // (botSpeaking=false by default). Timer must arm as before.
+    m.onSpeechStop()
+    vi.advanceTimersByTime(10000)
+    expect(ws.send).toHaveBeenCalledOnce()
+    expect(m._round()).toBe(1)
+  })
+})
+
+function silenceMsPlusBuffer(): number {
+  return 10000 + 100
+}
