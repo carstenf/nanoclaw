@@ -526,6 +526,34 @@ export function openSidebandSession(
         return
       }
 
+      // Plan 05.1-01 (Pitfall 2 observability): explicit OpenAI WS error
+      // handler. Without this, invalid_request_error (e.g. missing
+      // session.type) is swallowed silently and defects like #6 remain
+      // invisible in logs for weeks. Log at ERROR level with full error
+      // envelope so ops can grep session_update_rejected.
+      // See .planning/phases/05.1-amd-persona-handoff-redesign-and-asr-upgrade/05.1-RESEARCH.md §8 Pitfall 2.
+      if (parsed?.type === 'error') {
+        const err =
+          (parsed as {
+            error?: {
+              code?: string
+              message?: string
+              param?: string
+              type?: string
+            }
+          })?.error ?? {}
+        log.error({
+          event: 'session_update_rejected',
+          call_id: callId,
+          code: err.code,
+          message: err.message,
+          param: err.param,
+          error_type: err.type,
+          openai_event_id: (parsed as { event_id?: string })?.event_id,
+        })
+        return
+      }
+
       // All other event types: silent ignore.
     } catch (e: unknown) {
       const err = e as Error
@@ -616,7 +644,14 @@ export function updateInstructions(
     })
     return false
   }
-  const session: Record<string, unknown> = { ...extraSession, instructions }
+  // Plan 05.1-01 (defect #6 L1): OpenAI Realtime GA 2026 requires the
+  // session.type discriminator on every session.update. Without it the
+  // server rejects with invalid_request_error(param='session.type') and the
+  // persona swap silently fails. `type` is placed FIRST so extraSession
+  // spread can still override it if a future caller explicitly needs a
+  // 'transcription' session — no production caller currently does.
+  // See .planning/phases/05.1-amd-persona-handoff-redesign-and-asr-upgrade/05.1-RESEARCH.md §2.4.
+  const session: Record<string, unknown> = { type: 'realtime', ...extraSession, instructions }
   if ('tools' in session) {
     log.error({
       event: 'slow_brain_tools_field_stripped_BUG',
