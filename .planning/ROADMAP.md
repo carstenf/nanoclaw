@@ -175,6 +175,24 @@ Plans:
 - [x] 05.1-04: same-day retry attempt_no transactional fix (defect #5) — TDD — Wave 1
 - [ ] 05.1-05: Live PSTN verification (autonomous: false) — Wave 3 (depends on 01/02/03/04)
 
+### Phase 05.2: persona-redesign-and-call-flow-state-machine (INSERTED)
+
+**Goal:** Refactor the voice persona architecture from 3 monolith per-case personas to a Baseline+Task-Overlay pattern (OpenAI Realtime Cookbook 8-section structure, single `session.update` per call). Fix three architectural issues surfaced by Phase 05.1 live verification that are NOT Phase 05.1 scope: (a) Case-1 OUTBOUND_PERSONA_TEMPLATE role-hallucination (missing role-lock clause), (b) silence-monitor premature re-prompt (state-machine bug: timer armed on caller VAD, not bot-audio-aware), (c) outbound bot-speaks-first (create_response:true). Aligns with Carsten's "skill-based, not timer-based" architectural steer. Research-driven — see `.planning/research/voice-persona-architecture.md`.
+**Requirements**: VOICE-01..12 (call-flow behavior), C2-* (Case-2 functional requirements preserved via task-overlay), C6B-* (inbound Carsten path unchanged semantically)
+**Depends on:** Phase 05.1 (code fixes shipped, live verification 05.1-05 deferred into THIS phase's verification step)
+**Plans:** TBD (run /gsd-plan-phase 05.2)
+**Source-of-truth:** `.planning/research/voice-persona-architecture.md` (819 lines, OpenAI Cookbook + Pipecat/LiveKit/Vapi/Retell/ElevenLabs/Deepgram/Twilio survey) + `.planning/phases/05.2-persona-redesign-and-call-flow-state-machine/05.2-CONTEXT.md` (10 locked decisions D-1..D-10)
+**Success criteria**:
+  1. Baseline persona (~515 tokens) + Case-2 task-overlay (~200 tokens) replace OUTBOUND_PERSONA_TEMPLATE + buildCase2OutboundPersona; ~66% token reduction at 5 cases.
+  2. Role-lock clause (D-9) present in baseline; role-hallucination ("bot plays both roles") no longer observed in live verification.
+  3. silence-monitor armed on `output_audio_buffer.stopped` (bot finished) not caller `speech_stopped`; "Bist du noch da" no longer fires right after bot's own sentence.
+  4. Outbound `turn_detection.create_response: false` + manual `response.create` — bot waits for counterpart speech; 3 re-prompt attempts ("Hallo, ist da jemand?") then apologetic Sie-form farewell.
+  5. Inbound self-greet unchanged (1000ms setTimeout post-/accept), but nudge ladder now routed through the same Baseline logic.
+  6. Combined Phase 05.1 + 05.2 live-verification: 3 PSTN scenarios (HAPPY / VOICEMAIL / BUSY-or-NO-ANSWER) pass with new traces. Replaces the deferred Phase 05.1-05 verification.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 05.2 to break down)
+
 ### Phase 6: Case 3 — Medical/Hair Appointment Outbound
 **Goal**: NanoBot places a medical/hair appointment call with practice profile loaded, remains passively on IVR hold-music without inference cost, cross-checks offered slots against Carsten's calendar with travel-buffer from home and Audi-Standort, selects minimum-disruption slot, protects authorized-data-only disclosure, and escalates cleanly if DTMF-IVR or online-portal-only is encountered.
 **Depends on**: Phase 4 and Phase 0 (legal gate). Phase 5 recommended complete for AMD/voicemail infra reuse.
