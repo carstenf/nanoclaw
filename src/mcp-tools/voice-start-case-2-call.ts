@@ -196,25 +196,46 @@ export function makeVoiceStartCase2Call(deps: VoiceStartCase2CallDeps): ToolHand
       };
     }
 
-    // Insert row with attempt_no=1, outcome=NULL (pending)
+    // Plan 05.1-04 defect #5: allocate attempt_no transactionally so same (phone, date)
+    // with different idempotency_keys (e.g. lunch + dinner at same restaurant) both
+    // succeed. Pattern mirrors src/mcp-tools/voice-case-2-retry.ts:155-184.
+    // D-7 preserved: idempotency_key dedupe happens at lines 163-197 (above) before
+    // this block; this INSERT runs only when we know the key is NEW.
+    //
+    // Safe: voice-start-case-2-call is only called from a fresh MCP request handler;
+    // no enclosing transaction context exists. See RESEARCH §8 Pitfall 4.
     const created_at = new Date(nowFn()).toISOString();
     const scheduled_for = created_at; // will be set by Bridge when call is placed
+
+    let attempt_no = 1;
     try {
-      db.prepare(
-        `INSERT INTO voice_case_2_attempts
-           (target_phone, calendar_date, attempt_no, scheduled_for, idempotency_key,
-            originating_call_id, restaurant_name, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        restaurant_phone,
-        requested_date,
-        1,
-        scheduled_for,
-        idempotency_key,
-        call_id ?? null,
-        restaurant_name,
-        created_at,
-      );
+      const tx = db.transaction(() => {
+        const row = db
+          .prepare(
+            `SELECT COALESCE(MAX(attempt_no), 0) + 1 AS next_attempt_no
+             FROM voice_case_2_attempts
+             WHERE target_phone=? AND calendar_date=?`,
+          )
+          .get(restaurant_phone, requested_date) as { next_attempt_no: number };
+        attempt_no = row.next_attempt_no;
+
+        db.prepare(
+          `INSERT INTO voice_case_2_attempts
+             (target_phone, calendar_date, attempt_no, scheduled_for, idempotency_key,
+              originating_call_id, restaurant_name, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          restaurant_phone,
+          requested_date,
+          attempt_no,
+          scheduled_for,
+          idempotency_key,
+          call_id ?? null,
+          restaurant_name,
+          created_at,
+        );
+      });
+      tx();
     } catch (err) {
       logger.warn({ event: 'voice_start_case_2_db_insert_error', err });
       return { ok: false, error: 'internal' };
