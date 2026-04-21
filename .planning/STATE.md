@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Completed 03-11-PLAN.md — Case-6b end-to-end ready, awaiting Carsten PSTN test
-last_updated: "2026-04-20T18:39:43.073Z"
-last_activity: 2026-04-20 -- Phase 05 execution started
+last_updated: "2026-04-21T06:22:56.621Z"
+last_activity: 2026-04-21 -- Phase 05.1 execution started
 progress:
-  total_phases: 9
+  total_phases: 10
   completed_phases: 3
-  total_plans: 46
-  completed_plans: 39
-  percent: 85
+  total_plans: 51
+  completed_plans: 42
+  percent: 82
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-16)
 
 **Core value:** Carsten can delegate telephone tasks without being present, with zero unauthorized commitments.
-**Current focus:** Phase 05 — case-2-restaurant-reservation-outbound
+**Current focus:** Phase 05.1 — amd-persona-handoff-redesign-and-asr-upgrade
 
 ## Current Position
 
-Phase: 05 (case-2-restaurant-reservation-outbound) — EXECUTING
+Phase: 05.1 (amd-persona-handoff-redesign-and-asr-upgrade) — EXECUTING
 Plan: 1 of 5
-Status: Executing Phase 05
-Last activity: 2026-04-20 -- Phase 05 execution started
+Status: Executing Phase 05.1
+Last activity: 2026-04-21 -- Phase 05.1 execution started
 
 Progress: [█████████░] 94%
 
