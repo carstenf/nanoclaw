@@ -198,6 +198,26 @@ Plans:
 - [x] 05.2-05-PLAN.md — AMD→baseline handoff mechanics + Q7 atomicity probe (TDD, Wave 2)
 - [ ] 05.2-06-PLAN.md — Combined Phase 05.1 + 05.2 live verification (autonomous: false, Wave 3)
 
+### Phase 05.3: refactor-cleanup-timer-removal (INSERTED)
+
+**Goal:** Code-health phase — PURE cleanup + architectural debt removal. NO new features. Net ~400 LOC reduction: (a) delete dead persona exports surfaced by Phase 05.2-04 scan (CASE2_TOLERANCE_DECISION_BLOCK, CASE2_HOLD_MUSIC_CLARIFYING_BLOCK — 0 src refs), (b) finish the CASE6B_PERSONA → baseline+case-6b-inbound-carsten overlay migration explicitly deferred in 05.2-04, (c) kill server-side UX timers (GREET_TRIGGER_DELAY_* setTimeouts + silence-monitor.ts 3-round re-prompt ladder) in favor of OpenAI Realtime native `turn_detection.idle_timeout_ms` per "skill over timer" architectural steer (feedback_no_timer_based_silence memory), (d) consolidate 135+ Plan-XX comment archaeology refs → ~20 invariant-anchor refs (1 header per file).
+**Requirements**: Code-health (no external product requirements). Preserves all Phase 0-05.2 behavior invariants (§201 StGB, wait-for-speech, AMD VAD-fallback, baseline+overlay architecture, Sie/Du whitelist).
+**Depends on:** Phase 05.2
+**Plans:** TBD (run /gsd-plan-phase 05.3)
+**Source-of-truth:** `.planning/phases/05.3-refactor-cleanup-timer-removal/05.3-CONTEXT.md` (8 locked decisions D-1..D-8) + live scan 2026-04-22 post-Phase-05.2 merge
+**Success criteria**:
+  1. `voice-bridge/src` LOC drops by ≥300 (scan: 7021 → target <6700). Core files shrink: `silence-monitor.ts` retired or <50 lines; `persona.ts` loses 4+ dead exports; webhook.ts setTimeouts removed.
+  2. Zero `setTimeout` calls in UX paths (webhook.ts /accept, silence handling). setTimeout allowed only in HARD-safety (cost-gate, heartbeat, abort-controllers).
+  3. `turn_detection.idle_timeout_ms` configured and native Realtime event triggers nudge ladder via persona (no server-side 10s round timer).
+  4. CASE6B_PERSONA export deleted from persona.ts; inbound /accept uses `buildBasePersona() + buildTaskOverlay('case_6b_inbound_carsten')`.
+  5. `tsc --noUnusedLocals --noUnusedParameters` exits clean (today: 1 flagged, `INVALID_TOOL_RESPONSE` import).
+  6. Plan-XX comment refs in voice-bridge/src/*.ts reduced from 135+ to ≤30.
+  7. Full test suite green post-refactor with NO assertion-value changes (only path/import renames allowed) — proves D-6 "no behavior change in happy path".
+  8. Pre-plan research deliverable `idle-timeout-finding.md` documents OpenAI Realtime `idle_timeout_ms` behavior before Plan D writes timer-removal code.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 05.3 to break down)
+
 ### Phase 6: Case 3 — Medical/Hair Appointment Outbound
 **Goal**: NanoBot places a medical/hair appointment call with practice profile loaded, remains passively on IVR hold-music without inference cost, cross-checks offered slots against Carsten's calendar with travel-buffer from home and Audi-Standort, selects minimum-disruption slot, protects authorized-data-only disclosure, and escalates cleanly if DTMF-IVR or online-portal-only is encountered.
 **Depends on**: Phase 4 and Phase 0 (legal gate). Phase 5 recommended complete for AMD/voicemail infra reuse.
