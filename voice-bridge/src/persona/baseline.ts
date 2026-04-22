@@ -26,6 +26,38 @@ export interface BasePersonaArgs {
 }
 
 /**
+ * Plan 05.2-03 D-1 (3 attempts) + D-2 (apologetic Sie-form outbound farewell).
+ * Outbound nudge ladder — fires when the counterpart stays silent post-pickup.
+ * Timing is the MODEL's decision based on these instructions
+ * (feedback_no_timer_based_silence memory); silence-monitor.ts is a HARD-safety
+ * floor only (cost-cap, infinite-loop guard) — not the UX driver.
+ * ASCII-umlaut convention per project standard: "Hoeren", "spaeter".
+ */
+const OUTBOUND_SCHWEIGEN = [
+  'Wenn der Gegenueber nach dem Verbindungsaufbau nicht spricht:',
+  '  - Nudge-1 (nach etwa 6 Sekunden Stille): Sage "Hallo, ist da jemand?"',
+  '  - Nudge-2 (nach weiteren 6 Sekunden Stille): Sage "Hallo? Hoeren Sie mich?"',
+  '  - Nudge-3 / Verabschiedung (nach nochmal 6 Sekunden Stille):',
+  '    Sage "Ich erreiche Sie gerade nicht, ich versuche es spaeter nochmal. Auf Wiederhoeren."',
+  '    UND rufe SOFORT danach end_call mit reason=\'silence\'.',
+  '  - NIEMALS mehr als 3 Nudges. Nach der Verabschiedung: Anruf beenden.',
+].join('\n')
+
+/**
+ * Plan 05.2-03 D-2 inbound variant: Du-form + Carsten name (known owner).
+ * Differs from OUTBOUND_SCHWEIGEN only in tone — identical structure/count.
+ */
+const INBOUND_SCHWEIGEN = [
+  'Wenn der Gegenueber (Carsten) nach dem Verbindungsaufbau nicht spricht:',
+  '  - Nudge-1 (nach etwa 6 Sekunden Stille): Sage "Hallo, bist du da?"',
+  '  - Nudge-2 (nach weiteren 6 Sekunden Stille): Sage "Hallo? Hoerst du mich, Carsten?"',
+  '  - Nudge-3 / Verabschiedung (nach nochmal 6 Sekunden Stille):',
+  '    Sage "Ich melde mich spaeter nochmal, Carsten — tschau!"',
+  '    UND rufe SOFORT danach end_call mit reason=\'silence\'.',
+  '  - NIEMALS mehr als 3 Nudges. Nach der Verabschiedung: Anruf beenden.',
+].join('\n')
+
+/**
  * BASELINE_PERSONA_TEMPLATE — verbatim research §6.2 lines 567-644.
  *
  * Placeholders:
@@ -93,10 +125,6 @@ export const BASELINE_PERSONA_TEMPLATE = [
   'Fuell-Phrasen (vor Werkzeugen > 500ms):',
   '- Sage "Einen Moment bitte..." vor JEDEM Werkzeug-Aufruf.',
   '',
-  'Schweigen:',
-  '- Wenn der Gegenueber nicht antwortet: die Bruecke wird dich prompten. Sprich',
-  '  DANN exakt den vorgegebenen Satz und NICHTS anderes.',
-  '',
   'Abschied:',
   '- Auf "Tschuess" / "Auf Wiedersehen" / "Ciao" / "Bye" antwortest du kurz',
   '  und rufst SOFORT end_call mit reason=\'farewell\'.',
@@ -107,6 +135,9 @@ export const BASELINE_PERSONA_TEMPLATE = [
   '- Auf "{{anrede_disclosure}} ein Bot?" antwortest du wahrheitsgemaess:',
   '  "Ja, ich bin eine KI."',
   '- Du gibst dich NIEMALS als eine namentlich genannte Person aus.',
+  '',
+  '### CONVERSATION FLOW (Schweigen)',
+  '{{SCHWEIGEN_LADDER}}',
   '',
   '### SAFETY & ESCALATION',
   '- 2 fehlgeschlagene Werkzeug-Aufrufe auf dieselbe Aufgabe -> sag: "Das',
@@ -131,6 +162,13 @@ export function buildBasePersona(args: BasePersonaArgs): string {
   const anredePron = args.anrede_form === 'Du' ? 'du' : 'Sie'
   const anredeDisc = args.anrede_form === 'Du' ? 'Bist du' : 'Sind Sie'
 
+  // Plan 05.2-03 D-1/D-2: pick the directional nudge ladder. Outbound gets
+  // Sie-form + apologetic farewell; inbound (Carsten) gets Du-form + name.
+  // Exactly one ladder ends up in the rendered persona; the other constant
+  // is not referenced, preventing cross-contamination (see tests H, I).
+  const schweigenLadder =
+    args.call_direction === 'outbound' ? OUTBOUND_SCHWEIGEN : INBOUND_SCHWEIGEN
+
   return BASELINE_PERSONA_TEMPLATE
     .replace(/\{\{anrede_form\}\}/g, args.anrede_form)
     .replace(/\{\{anrede_capitalized\}\}/g, anredeCap)
@@ -140,4 +178,5 @@ export function buildBasePersona(args: BasePersonaArgs): string {
     .replace(/\{\{goal\}\}/g, args.goal)
     .replace(/\{\{context\}\}/g, args.context)
     .replace(/\{\{call_direction\}\}/g, args.call_direction)
+    .replace(/\{\{SCHWEIGEN_LADDER\}\}/g, schweigenLadder)
 }

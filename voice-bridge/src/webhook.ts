@@ -579,18 +579,24 @@ export function registerAcceptRoute(
         if (isCase2) {
           // Case-2: NO proactive requestResponse — AMD classifier must fire first.
           // Wire ctxRef so the onHuman callback (closure above) can reach sideband.
+          // armedForFirstSpeech stays false; the onHuman closure requests response.create
+          // explicitly post-AMD verdict.
           ctxRef = ctx
         } else {
-          // Non-Case-2 outbound: skip pre-greet, trigger proactive response.create.
-          setTimeout(() => {
-            requestResponse(ctx.sideband.state, log)
-            log.info({
-              event: 'greet_response_create_sent',
-              call_id: callId,
-              delay_ms: GREET_TRIGGER_DELAY_OUTBOUND_MS,
-              outbound: true,
-            })
-          }, GREET_TRIGGER_DELAY_OUTBOUND_MS)
+          // Plan 05.2-03 D-8: Case-1 (non-Case-2) outbound arms
+          // armedForFirstSpeech=true so sideband waits for counterpart's first
+          // speech_stopped before firing response.create. Replaces the previous
+          // proactive setTimeout+requestResponse (which caused the bot to speak
+          // before the counterpart said hello — user complaint 2026-04-21).
+          // Silence + nudge ladder is persona-driven via baseline OUTBOUND_SCHWEIGEN
+          // block (D-1 3 attempts, D-2 Sie-form apologetic farewell) — no server
+          // timer per feedback_no_timer_based_silence memory.
+          ctx.sideband.state.armedForFirstSpeech = true
+          log.info({
+            event: 'armed_for_first_speech',
+            call_id: callId,
+            outbound: true,
+          })
         }
       } catch (e: unknown) {
         const err = e as Error

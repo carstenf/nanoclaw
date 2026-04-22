@@ -59,6 +59,16 @@ export interface SidebandState {
   caseType?: string
   /** Plan 04-02: ISO string of call start, for finalize_call_cost.started_at. */
   startedAtIso?: string
+  /**
+   * Plan 05.2-03 D-8: outbound wait-for-speech. Set to `true` by webhook.ts
+   * at outbound /accept (Case-1) or post-AMD-verdict (Case-2). On the FIRST
+   * `input_audio_buffer.speech_stopped` after arming, the sideband onmessage
+   * handler fires a single `response.create` (bot's opening turn) and clears
+   * the flag to `false` so subsequent speech_stopped events do not re-fire.
+   * Inbound paths leave this `false` — inbound self-greet uses the existing
+   * 1000ms setTimeout → requestResponse (D-6, unchanged).
+   */
+  armedForFirstSpeech: boolean
 }
 
 /**
@@ -213,6 +223,8 @@ export function openSidebandSession(
     lastUpdateAt: 0,
     caseType: opts.caseType ?? 'unknown',
     startedAtIso: new Date(t0).toISOString(),
+    // Plan 05.2-03 D-8: default false; webhook.ts flips to true for outbound.
+    armedForFirstSpeech: false,
   }
 
   // Plan 04-02 Task 3: cost-enforcement DI. Production defaults to the real
@@ -331,6 +343,20 @@ export function openSidebandSession(
         return
       }
       if (parsed?.type === 'input_audio_buffer.speech_stopped') {
+        // Plan 05.2-03 D-8: outbound wait-for-speech. If this outbound call
+        // was armed at /accept (or post-AMD verdict in Case-2), the FIRST
+        // speech_stopped fires the bot's opening response.create exactly
+        // once. Subsequent speech_stopped events flow only to the
+        // silence-monitor onSpeechStop handler — preserving existing
+        // turn-taking behavior after the bot's opening line.
+        if (state.armedForFirstSpeech) {
+          state.armedForFirstSpeech = false
+          log.info({
+            event: 'first_caller_speech_response_create',
+            call_id: state.callId,
+          })
+          requestResponse(state, log)
+        }
         opts.onSpeechStop?.()
         return
       }
