@@ -79,11 +79,17 @@ describe('Plan 05.2-04 — buildCase2OutboundPersona migration golden-regression
     expect(out).toContain('SPRICHST NUR deine Rolle')
   })
 
-  it('Test M (combined byte budget: baseline + overlay < 5000 bytes ≈ 1430 tokens)', () => {
+  it('Test M (combined byte budget: baseline + overlay < 6000 bytes ≈ 1715 tokens)', () => {
+    // Budget relaxed from 5000 → 6000 bytes after Plan 05.2-03 added
+    // OUTBOUND_SCHWEIGEN + INBOUND_SCHWEIGEN ladder texts (D-1, D-2) to the
+    // baseline. These are real new features (persona-driven nudge ladder
+    // per feedback_no_timer_based_silence memory), not bloat. 6000 bytes ≈
+    // 1715 tokens — still well under the 2000-token OpenAI Realtime soft
+    // ceiling per research §3.5.
     const out = buildCase2OutboundPersona(
       stdArgs({ notes: 'Tisch draussen wenn moeglich, Geburtstag' }),
     )
-    expect(out.length).toBeLessThan(5000)
+    expect(out.length).toBeLessThan(6000)
   })
 
   it('Test N (sanitization preserved: curly-brace strip in restaurant_name + notes)', () => {

@@ -197,7 +197,12 @@ describe('CASE2_OUTBOUND_PERSONA — Task 2 tests (≥9)', () => {
     expect(result).toMatch(/neunzehn/i)
   })
 
-  it('test 8: token budget — chars/3.5 approximation under 1500 hard ceiling', () => {
+  it('test 8: token budget — chars/3.5 approximation under 1700 ceiling (post-05.2-03 nudge ladders)', () => {
+    // Ceiling raised from 1500 → 1700 after Plan 05.2-03 added
+    // OUTBOUND_SCHWEIGEN + INBOUND_SCHWEIGEN ladder texts (D-1, D-2) to the
+    // baseline — real new features (persona-driven nudge ladder per
+    // feedback_no_timer_based_silence memory). Research §3.5 soft ceiling
+    // is 2000 tokens; 1700 preserves headroom.
     const result = buildCase2OutboundPersona({
       restaurant_name: 'Adria',
       requested_date: '2026-05-15',
@@ -207,7 +212,7 @@ describe('CASE2_OUTBOUND_PERSONA — Task 2 tests (≥9)', () => {
       notes: 'Tisch draussen wenn moeglich',
     })
     const approxTokens = result.length / 3.5
-    expect(approxTokens).toBeLessThan(1500)
+    expect(approxTokens).toBeLessThan(1700)
   })
 
   it('test 9: Case-6b persona regression — CASE6B_PERSONA byte-identical after changes', () => {
