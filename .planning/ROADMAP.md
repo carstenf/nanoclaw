@@ -203,7 +203,7 @@ Plans:
 **Goal:** Code-health phase — PURE cleanup + architectural debt removal. NO new features. Net ~400 LOC reduction: (a) delete dead persona exports surfaced by Phase 05.2-04 scan (CASE2_TOLERANCE_DECISION_BLOCK, CASE2_HOLD_MUSIC_CLARIFYING_BLOCK — 0 src refs), (b) finish the CASE6B_PERSONA → baseline+case-6b-inbound-carsten overlay migration explicitly deferred in 05.2-04, (c) kill server-side UX timers (GREET_TRIGGER_DELAY_* setTimeouts + silence-monitor.ts 3-round re-prompt ladder) in favor of OpenAI Realtime native `turn_detection.idle_timeout_ms` per "skill over timer" architectural steer (feedback_no_timer_based_silence memory), (d) consolidate 135+ Plan-XX comment archaeology refs → ~20 invariant-anchor refs (1 header per file).
 **Requirements**: Code-health (no external product requirements). Preserves all Phase 0-05.2 behavior invariants (§201 StGB, wait-for-speech, AMD VAD-fallback, baseline+overlay architecture, Sie/Du whitelist).
 **Depends on:** Phase 05.2
-**Plans:** 3/7 plans executed
+**Plans:** 4/7 plans executed
 **Source-of-truth:** `.planning/phases/05.3-refactor-cleanup-timer-removal/05.3-CONTEXT.md` (8 locked decisions D-1..D-8) + live scan 2026-04-22 post-Phase-05.2 merge
 **Success criteria**:
   1. `voice-bridge/src` LOC drops by ≥300 (scan: 7021 → target <6700). Core files shrink: `silence-monitor.ts` retired or <50 lines; `persona.ts` loses 4+ dead exports; webhook.ts setTimeouts removed.
@@ -219,7 +219,7 @@ Plans:
 - [x] 05.3-01-PLAN.md — Wave 1 — Delete 3 dead exports (CASE2_TOLERANCE/HOLD_MUSIC blocks + INVALID_TOOL_RESPONSE unused import) — D-1
 - [x] 05.3-03-PLAN.md — Wave 2 — CASE6B_PERSONA → baseline + case_6b_inbound_carsten overlay webhook.ts rewire + const delete — D-2 (depends on 01)
 - [x] 05.3-04-PLAN.md — Wave 3 — Research deliverable: idle-timeout-finding.md answering D-4 Q1-Q4 + silence-monitor disposition verdict (autonomous: false) (depends on 03)
-- [ ] 05.3-05a-PLAN.md — Wave 4 — Config + webhook setTimeout removal: SESSION_CONFIG idle_timeout_ms + GREET_TRIGGER_DELAY_* deleted + 2 webhook.ts UX setTimeouts removed (autonomous: false) — D-3 part 1 (depends on 04)
+- [x] 05.3-05a-PLAN.md — Wave 4 — Config + webhook setTimeout removal: SESSION_CONFIG idle_timeout_ms + GREET_TRIGGER_DELAY_* deleted + 2 webhook.ts UX setTimeouts removed (autonomous: false) — D-3 part 1 (depends on 04)
 - [ ] 05.3-05b-PLAN.md — Wave 5 — Silence-monitor retirement + call-router simplification per idle-timeout-finding.md verdict; Branch A=FULLY-DELETE, B=SHRINK-TO-STUB, C=RETAIN-AS-IS-with-escalation (autonomous: false) — D-3 part 2 (depends on 05a)
 - [ ] 05.3-02-PLAN.md — Wave 6 — Plan-XX comment archaeology consolidation: 79 → ≤30 invariant-anchor refs across 17 files — D-5 (depends on 01/03/05b)
 - [ ] 05.3-06-PLAN.md — Wave 7 — Phase-exit: full regression sweep + 8 ROADMAP criteria verification + STATE/ROADMAP rollup + push (autonomous: false) (depends on 02/05b)
