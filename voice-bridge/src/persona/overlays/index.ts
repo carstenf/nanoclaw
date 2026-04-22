@@ -1,8 +1,9 @@
 // voice-bridge/src/persona/overlays/index.ts
 // Phase 05.2 Plan 01 — Task-overlay dispatcher skeleton.
 // Phase 05.2 Plan 04 Task 2 — body filled for case_2.
-// Phase 05.2 Plan 04 Task 3 — body filled for case_6b_inbound_carsten (artifact;
-//   webhook.ts inbound path still on legacy CASE6B_PERSONA).
+// Phase 05.2 Plan 04 Task 3 — body filled for case_6b_inbound_carsten.
+// Phase 05.3 Plan 03 D-2 — case_6b_inbound_carsten now wired into webhook.ts
+//   inbound /accept (legacy CASE6B_PERSONA monolith retired).
 
 import type { Case2OutboundPersonaArgs } from '../../persona.js'
 import { buildCase2Overlay } from './case-2.js'
