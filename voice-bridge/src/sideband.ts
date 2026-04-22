@@ -65,8 +65,9 @@ export interface SidebandState {
    * `input_audio_buffer.speech_stopped` after arming, the sideband onmessage
    * handler fires a single `response.create` (bot's opening turn) and clears
    * the flag to `false` so subsequent speech_stopped events do not re-fire.
-   * Inbound paths leave this `false` — inbound self-greet uses the existing
-   * 1000ms setTimeout → requestResponse (D-6, unchanged).
+   * Inbound paths leave this `false` — inbound self-greet fires
+   * requestResponse synchronously at the end of /accept's pre-greet finally
+   * handler (Plan 05.3-05a D-3 removed the legacy 1000ms setTimeout).
    */
   armedForFirstSpeech: boolean
 }
@@ -372,6 +373,32 @@ export function openSidebandSession(
       }
       if (parsed?.type === 'output_audio_buffer.stopped') {
         opts.onBotStop?.()
+        return
+      }
+
+      // Plan 05.3-05a D-3 / 05.3-04 D-4: native idle_timeout fired. Server
+      // auto-commits empty audio via input_audio_buffer.committed AND auto-
+      // generates a model response (persona OUTBOUND_SCHWEIGEN /
+      // INBOUND_SCHWEIGEN ladder steers the nudge text from session
+      // instructions). No bridge action required — this log is for metric
+      // parity with legacy silence_round_* events. See
+      // .planning/phases/05.3-refactor-cleanup-timer-removal/idle-timeout-finding.md
+      // §"Impact on sideband.ts event-handler wiring" Handler 1.
+      if (parsed?.type === 'input_audio_buffer.timeout_triggered') {
+        const p = parsed as {
+          audio_start_ms?: unknown
+          audio_end_ms?: unknown
+          item_id?: unknown
+        }
+        log.info({
+          event: 'idle_timeout_triggered',
+          call_id: state.callId,
+          audio_start_ms:
+            typeof p.audio_start_ms === 'number' ? p.audio_start_ms : null,
+          audio_end_ms:
+            typeof p.audio_end_ms === 'number' ? p.audio_end_ms : null,
+          item_id: typeof p.item_id === 'string' ? p.item_id : null,
+        })
         return
       }
 

@@ -89,20 +89,23 @@ export const SIDEBAND_WS_URL_TEMPLATE =
   process.env.SIDEBAND_WS_URL_TEMPLATE ??
   'wss://api.openai.com/v1/realtime?call_id={callId}'
 
-// Plan 03-15 fix 22:18 PSTN: extra delay AFTER pre-greet completes before the
-// initial response.create push. Default 1000ms — caller reported greet was
-// audible too soon after pickup, leading to clipped first word. Tuneable via
-// env without rebuild.
-export const GREET_TRIGGER_DELAY_MS = Number(
-  process.env.GREET_TRIGGER_DELAY_MS ?? 1000,
-)
+// Plan 05.3-05a D-3: legacy greet-trigger-delay constants DELETED (commit
+// history preserves the archaeology; file kept grep-clean per plan acceptance
+// criteria). Server-side UX setTimeouts replaced by native
+// turn_detection.idle_timeout_ms (see SESSION_CONFIG below) + wait-for-speech
+// trigger (sideband.ts D-8).
+// See .planning/phases/05.3-refactor-cleanup-timer-removal/idle-timeout-finding.md
 
-// Plan 03-11 fix 09:58 PSTN: outbound calls need a longer delay than inbound
-// because Sipgate's two-leg bridge takes ~1.5-2s extra to settle the caller
-// audio path after pickup. Carsten reported greet was 1-2s too early. Without
-// this, the bot starts speaking before the callee can hear it.
-export const GREET_TRIGGER_DELAY_OUTBOUND_MS = Number(
-  process.env.GREET_TRIGGER_DELAY_OUTBOUND_MS ?? 2500,
+// Plan 05.3-05a D-3: native OpenAI Realtime idle-timeout window (ms).
+// Replaces silence-monitor.ts 10s round timer + bridge-side UX setTimeouts.
+// API bounds: 5000..30000 (server rejects out-of-range values with 400).
+// Env override supported for live PSTN tuning without rebuild; clamped here
+// to API bounds to prevent /accept from failing on typo'd env values.
+// Recommended value from idle-timeout-finding.md: 8000ms (German etiquette
+// slack over baseline.ts OUTBOUND_SCHWEIGEN "etwa 6 Sekunden" copy).
+export const IDLE_TIMEOUT_MS = Math.max(
+  5000,
+  Math.min(30000, Number(process.env.IDLE_TIMEOUT_MS ?? 8000)),
 )
 
 // ----- Plan 03-11 pivot 2026-04-19: Sipgate REST-API outbound -----
@@ -286,10 +289,17 @@ export const SESSION_CONFIG = {
         // longer auto-generates a response on caller speech_stopped; the
         // bridge pushes an explicit response.create when it WANTS the bot to
         // speak (first caller speech on outbound per sideband.ts
-        // armedForFirstSpeech flag, or 1000ms post-/accept on inbound per
-        // webhook.ts GREET_TRIGGER_DELAY_MS). Closes Carsten's "bot sollte
-        // warten bis sich jemand meldet" requirement.
+        // armedForFirstSpeech flag, or synchronously post-/accept on inbound
+        // per webhook.ts inbound self-greet requestResponse). Closes Carsten's
+        // "bot sollte warten bis sich jemand meldet" requirement.
         create_response: false,
+        // Plan 05.3-05a D-3: native idle-timeout replaces server-side setTimeouts.
+        // See .planning/phases/05.3-refactor-cleanup-timer-removal/idle-timeout-finding.md
+        // Q4: idle_timeout and create_response:false are INDEPENDENT trigger
+        // paths — idle_timeout fires regardless (per OpenAI server-events spec).
+        // Chains off response.done → dormant before first bot turn → preserves
+        // §201 StGB AMD-gate invariant (no audio leak pre-verdict).
+        idle_timeout_ms: IDLE_TIMEOUT_MS,
       },
       // Plan 02-10: enable user-transcription so OpenAI emits
       // `conversation.item.input_audio_transcription.completed` events on the

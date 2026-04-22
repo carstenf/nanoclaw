@@ -18,10 +18,6 @@ import { CORE_MCP_URL, CORE_MCP_TOKEN } from './config.js'
 import type { CoreClientLike } from './slow-brain.js'
 import { requestResponse, updateInstructions } from './sideband.js'
 import {
-  GREET_TRIGGER_DELAY_MS,
-  GREET_TRIGGER_DELAY_OUTBOUND_MS,
-} from './config.js'
-import {
   checkCostCaps,
   CAP_DAILY_EUR,
   CAP_MONTHLY_EUR,
@@ -455,15 +451,17 @@ export function registerAcceptRoute(
 
               // Plan 05.1-01 Task 3 (defect #6 Layer 2, RESEARCH §2.5):
               // synthetic user-directive injection between updateInstructions
-              // and the setTimeout→requestResponse. Breaks the conversational
-              // context inherited from CASE2_AMD_CLASSIFIER_PROMPT — without
-              // this, the model may still mis-read the callee's opening
-              // greeting ("Restaurant Bellavista") as evidence it should
-              // continue in AMD-helper mode instead of CASE2_OUTBOUND_PERSONA.
-              // Text uses ASCII umlauts per project-wide persona convention.
-              // Pitfall 5: this item.create does NOT itself trigger a
-              // response.create (VAD only scopes audio-derived items), so
-              // the explicit requestResponse below is still required.
+              // and the subsequent synchronous requestResponse (Plan 05.3-05a
+              // D-3 removed the legacy wrapping timer). Breaks the
+              // conversational context inherited from CASE2_AMD_CLASSIFIER_PROMPT
+              // — without this, the model may still mis-read the callee's
+              // opening greeting ("Restaurant Bellavista") as evidence it
+              // should continue in AMD-helper mode instead of
+              // CASE2_OUTBOUND_PERSONA. Text uses ASCII umlauts per
+              // project-wide persona convention. Pitfall 5: this item.create
+              // does NOT itself trigger a response.create (VAD only scopes
+              // audio-derived items), so the explicit requestResponse below
+              // is still required.
               try {
                 ctxRef.sideband.state.ws?.send(
                   JSON.stringify({
@@ -492,9 +490,15 @@ export function registerAcceptRoute(
                 })
               }
 
-              setTimeout(() => {
-                if (ctxRef) requestResponse(ctxRef.sideband.state, log)
-              }, GREET_TRIGGER_DELAY_OUTBOUND_MS)
+              // Plan 05.3-05a D-3: setTimeout removed. wait-for-speech
+              // (sideband.ts armedForFirstSpeech + onmessage:346-360) is the
+              // audio-path-ready signal. Atomic session.update +
+              // conversation.item.create is sufficient (Plan 05.2-05 Q7 docs-
+              // lean ATOMIC verdict); the response.create fires synchronously
+              // here, and native turn_detection.idle_timeout_ms (config.ts
+              // SESSION_CONFIG) governs subsequent silence-driven nudges via
+              // persona OUTBOUND_SCHWEIGEN ladder (no bridge-side timer).
+              if (ctxRef) requestResponse(ctxRef.sideband.state, log)
             } else {
               // startCall hasn't returned yet (extremely rare). Store persona for fallback.
               activeOutbound.persona_override = persona
@@ -608,7 +612,7 @@ export function registerAcceptRoute(
           // Plan 05.2-03 D-8: Case-1 (non-Case-2) outbound arms
           // armedForFirstSpeech=true so sideband waits for counterpart's first
           // speech_stopped before firing response.create. Replaces the previous
-          // proactive setTimeout+requestResponse (which caused the bot to speak
+          // proactive bridge-side greeting push (which caused the bot to speak
           // before the counterpart said hello — user complaint 2026-04-21).
           // Silence + nudge ladder is persona-driven via baseline OUTBOUND_SCHWEIGEN
           // block (D-1 3 attempts, D-2 Sie-form apologetic farewell) — no server
@@ -756,17 +760,18 @@ export function registerAcceptRoute(
           // until an event drives a response. After pre-greet finishes (with
           // or without injection), push a response.create so the model emits
           // its opening line based on the (possibly updated) instructions.
-          // Plan 03-15 fix 22:18 PSTN: Carsten reported greet was audible too
-          // soon after pickup → first word clipped. Wait GREET_TRIGGER_DELAY_MS
-          // (default 1000ms) so the audio path settles before the model speaks.
-          setTimeout(() => {
-            requestResponse(ctx.sideband.state, log)
-            log.info({
-              event: 'greet_response_create_sent',
-              call_id: callId,
-              delay_ms: GREET_TRIGGER_DELAY_MS,
-            })
-          }, GREET_TRIGGER_DELAY_MS)
+          // Plan 05.3-05a D-3: setTimeout removed. Inbound self-greet fires
+          // response.create synchronously; the legacy 1000ms audio-path-settle
+          // compensation is no longer needed (Sipgate single-leg inbound bridge
+          // is fast enough per idle-timeout-finding.md §"Impact on sideband.ts
+          // event-handler wiring" — and API-min 5000ms for idle_timeout_ms
+          // cannot emulate 1000ms semantics anyway). Native idle_timeout_ms
+          // governs POST-first-bot-turn silences (config.ts SESSION_CONFIG).
+          requestResponse(ctx.sideband.state, log)
+          log.info({
+            event: 'greet_response_create_sent',
+            call_id: callId,
+          })
         })
     } catch (e: unknown) {
       const err = e as Error
