@@ -6,7 +6,9 @@ import type { FastifyInstance } from 'fastify'
 import OpenAI from 'openai'
 import type { Logger } from 'pino'
 import { CARSTEN_CLI_NUMBER, SESSION_CONFIG } from './config.js'
-import { CASE6B_PERSONA, PHASE2_PERSONA, buildCase2OutboundPersona } from './persona.js'
+import { PHASE2_PERSONA, buildCase2OutboundPersona } from './persona.js'
+import { buildBasePersona } from './persona/baseline.js'
+import { buildTaskOverlay } from './persona/overlays/index.js'
 import { getAllowlist, type ToolEntry } from './tools/allowlist.js'
 import type { CallRouter } from './call-router.js'
 import type { OutboundRouter } from './outbound-router.js'
@@ -458,7 +460,7 @@ export function registerAcceptRoute(
               // this, the model may still mis-read the callee's opening
               // greeting ("Restaurant Bellavista") as evidence it should
               // continue in AMD-helper mode instead of CASE2_OUTBOUND_PERSONA.
-              // Text uses ASCII umlauts per Phase 2 CASE6B_PERSONA convention.
+              // Text uses ASCII umlauts per project-wide persona convention.
               // Pitfall 5: this item.create does NOT itself trigger a
               // response.create (VAD only scopes audio-derived items), so
               // the explicit requestResponse below is still required.
@@ -653,11 +655,26 @@ export function registerAcceptRoute(
 
     // Accept — Phase 2 full session config (D-39..D-43):
     // allowlist tools, persona (case6b or phase2), server_vad + create_response, de-DE.
-    // Plan 02-14: select persona based on caller number.
+    // Plan 05.3-03 D-2: inbound Carsten composes baseline + case_6b_inbound_carsten
+    // overlay (retires legacy CASE6B_PERSONA). Mirrors outbound Case-2 composition
+    // pattern at persona.ts:224-255 / webhook.ts:445-452. personaLabel literal
+    // 'case6b' preserved byte-identical (D-6: log-observer contract unchanged).
+    const carstenBaseline = buildBasePersona({
+      anrede_form: 'Du',
+      counterpart_label: 'Carsten',
+      goal: 'Inbound-Anruf von Carsten: Kalender pflegen, Reisezeiten, Recherche delegieren',
+      context: 'Inbound-Anruf von Carstens CLI',
+      call_direction: 'inbound',
+    })
+    const carstenInstructions = [
+      carstenBaseline,
+      buildTaskOverlay('case_6b_inbound_carsten', {}),
+    ].join('\n\n')
+
     const personaLabel =
       callerNumber === CARSTEN_CLI_NUMBER ? 'case6b' : 'phase2'
     const instructions =
-      callerNumber === CARSTEN_CLI_NUMBER ? CASE6B_PERSONA : PHASE2_PERSONA
+      callerNumber === CARSTEN_CLI_NUMBER ? carstenInstructions : PHASE2_PERSONA
 
     const allowlist = getAllowlist()
     const toolsPayload = allowlist.map((e: ToolEntry) => {
