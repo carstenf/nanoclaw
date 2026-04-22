@@ -186,10 +186,10 @@ export function timeToGerman(hhmm: string): string {
   return `${hourWord} Uhr ${toGermanNumber(minute)}`
 }
 
-// Plan 05.2-04: CASE2_TOLERANCE_DECISION_BLOCK + CASE2_HOLD_MUSIC_CLARIFYING_BLOCK
-// constants DELETED (migrated into voice-bridge/src/persona/overlays/case-2.ts).
-// Grep-verified: no external references remained in voice-bridge/src/ outside
-// tests/persona.test.ts (updated as part of this migration).
+// Plan 05.3-01 D-1: CASE2_TOLERANCE_DECISION_BLOCK + CASE2_HOLD_MUSIC_CLARIFYING_BLOCK
+// constants DELETED (0 src refs; migrated into voice-bridge/src/persona/overlays/case-2.ts
+// during Phase 05.2). Grep-verified: no external references remained in voice-bridge/src/
+// outside tests/persona.test.ts (updated as part of this migration).
 
 export interface Case2OutboundPersonaArgs {
   restaurant_name: string

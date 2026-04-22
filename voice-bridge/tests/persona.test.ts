@@ -103,14 +103,15 @@ describe('OUTBOUND_PERSONA_TEMPLATE + buildOutboundPersona — Plan 03-11', () =
 })
 
 // --- Plan 05-03 Task 2: CASE2_OUTBOUND_PERSONA blocks + buildCase2OutboundPersona ---
-// Plan 05.2-04: legacy CASE2_TOLERANCE_DECISION_BLOCK + CASE2_HOLD_MUSIC_CLARIFYING_BLOCK
-// constants removed; their content migrated into persona/overlays/case-2.ts.
-// Tests 1 + 2 rewired to inspect the new buildCase2Overlay output instead.
+// Plan 05.3-01 D-1: legacy CASE2_TOLERANCE_DECISION_BLOCK +
+// CASE2_HOLD_MUSIC_CLARIFYING_BLOCK constants are fully retired. Content now lives
+// in persona/overlays/case-2.ts. Tests 1 + 2 below inspect the buildCase2Overlay
+// output (kept as golden-regression coverage of the migrated text).
 import { buildCase2OutboundPersona } from '../src/persona.js'
 import { buildCase2Overlay } from '../src/persona/overlays/case-2.js'
 
 describe('CASE2_OUTBOUND_PERSONA — Task 2 tests (≥9)', () => {
-  it('test 1: Case-2 overlay contains tolerance-decision keywords (migrated from CASE2_TOLERANCE_DECISION_BLOCK)', () => {
+  it('test 1: Case-2 overlay contains tolerance-decision keywords (migrated to persona/overlays/case-2.ts)', () => {
     const overlay = buildCase2Overlay({
       restaurant_name: 'Adria',
       requested_date: '2026-05-15',
@@ -124,7 +125,7 @@ describe('CASE2_OUTBOUND_PERSONA — Task 2 tests (≥9)', () => {
     expect(overlay).toContain('ABLEHNEN')
   })
 
-  it('test 2: Case-2 overlay contains hold-music keywords (migrated from CASE2_HOLD_MUSIC_CLARIFYING_BLOCK)', () => {
+  it('test 2: Case-2 overlay contains hold-music keywords (migrated to persona/overlays/case-2.ts)', () => {
     const overlay = buildCase2Overlay({
       restaurant_name: 'Adria',
       requested_date: '2026-05-15',
