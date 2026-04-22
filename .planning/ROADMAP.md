@@ -180,7 +180,7 @@ Plans:
 **Goal:** Refactor the voice persona architecture from 3 monolith per-case personas to a Baseline+Task-Overlay pattern (OpenAI Realtime Cookbook 8-section structure, single `session.update` per call). Fix three architectural issues surfaced by Phase 05.1 live verification that are NOT Phase 05.1 scope: (a) Case-1 OUTBOUND_PERSONA_TEMPLATE role-hallucination (missing role-lock clause), (b) silence-monitor premature re-prompt (state-machine bug: timer armed on caller VAD, not bot-audio-aware), (c) outbound bot-speaks-first (create_response:true). Aligns with Carsten's "skill-based, not timer-based" architectural steer. Research-driven — see `.planning/research/voice-persona-architecture.md`.
 **Requirements**: VOICE-01..12 (call-flow behavior), C2-* (Case-2 functional requirements preserved via task-overlay), C6B-* (inbound Carsten path unchanged semantically)
 **Depends on:** Phase 05.1 (code fixes shipped, live verification 05.1-05 deferred into THIS phase's verification step)
-**Plans:** 4/6 plans executed
+**Plans:** 5/6 plans executed
 **Source-of-truth:** `.planning/research/voice-persona-architecture.md` (819 lines, OpenAI Cookbook + Pipecat/LiveKit/Vapi/Retell/ElevenLabs/Deepgram/Twilio survey) + `.planning/phases/05.2-persona-redesign-and-call-flow-state-machine/05.2-CONTEXT.md` (10 locked decisions D-1..D-10)
 **Success criteria**:
   1. Baseline persona (~515 tokens) + Case-2 task-overlay (~200 tokens) replace OUTBOUND_PERSONA_TEMPLATE + buildCase2OutboundPersona; ~66% token reduction at 5 cases.
@@ -195,7 +195,7 @@ Plans:
 - [x] 05.2-02-PLAN.md — silence-monitor state-machine rewire D-7 (TDD, Wave 1)
 - [x] 05.2-03-PLAN.md — Outbound wait-for-speech + nudge ladder D-8 (TDD, Wave 2)
 - [x] 05.2-04-PLAN.md — Case-2 task-overlay migration + Case-6b overlay extract (TDD, Wave 2)
-- [ ] 05.2-05-PLAN.md — AMD→baseline handoff mechanics + Q7 atomicity probe (TDD, Wave 2)
+- [x] 05.2-05-PLAN.md — AMD→baseline handoff mechanics + Q7 atomicity probe (TDD, Wave 2)
 - [ ] 05.2-06-PLAN.md — Combined Phase 05.1 + 05.2 live verification (autonomous: false, Wave 3)
 
 ### Phase 6: Case 3 — Medical/Hair Appointment Outbound
