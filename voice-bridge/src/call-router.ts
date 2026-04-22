@@ -12,7 +12,7 @@ import { startTeardown } from './teardown.js'
 import { runGhostScan } from './ghost-scan.js'
 import { clearCall as clearIdempotencyCache } from './idempotency.js'
 import { createSilenceMonitor, type SilenceMonitor } from './silence-monitor.js'
-import { getHangupCallback } from './tools/dispatch.js'
+import { getHangupCallback, getAmdClassifier } from './tools/dispatch.js'
 import type { CoreMcpClient } from './core-mcp-client.js'
 
 export interface CallContext {
@@ -120,13 +120,22 @@ export function createCallRouter(
             return
           }
           existing.slowBrain.push({ turnId, transcript })
+          // Plan 05.2 follow-up 2026-04-22: AMD VAD-fallback human path.
+          // Forward transcript to classifier; classifier.onTranscript checks
+          // mailbox regex + settles human if non-mailbox after speech cycle.
+          getAmdClassifier()?.onTranscript(transcript)
         },
-        // Plan 03-15: VAD events drive silence-monitor (REQ-VOICE-08/09)
+        // Plan 03-15: VAD events drive silence-monitor (REQ-VOICE-08/09).
+        // Plan 05.2 follow-up 2026-04-22: also forward to AMD classifier so
+        // Timer B (silence gate) gets cancelled when caller speaks and the
+        // VAD-fallback path in onTranscript can observe speech cycle.
         onSpeechStart: () => {
           router.getCall(callId)?.silence?.onSpeechStart()
+          getAmdClassifier()?.onSpeechStarted()
         },
         onSpeechStop: () => {
           router.getCall(callId)?.silence?.onSpeechStop()
+          getAmdClassifier()?.onSpeechStopped()
         },
         // Plan 05.2-02 D-7 / research §4.3: bot-audio events drive the
         // bot-awareness half of the silence-monitor state machine.

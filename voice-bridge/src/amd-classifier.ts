@@ -236,6 +236,28 @@ export function createAmdClassifier(opts: AmdClassifierOpts): AmdClassifier {
       CASE2_MAILBOX_CUE_REGEX_V2.lastIndex = 0
       if (CASE2_MAILBOX_CUE_REGEX_V2.test(text)) {
         settleVoicemail('transcript_cue')
+        return
+      }
+
+      // Stage 2 (Plan 05.2 follow-up 2026-04-22): VAD-fallback human path.
+      // gpt-realtime does not reliably emit amd_result=human even for clear
+      // human greetings (observed 2026-04-21 + 2026-04-22 live tests). If we
+      // have BOTH speech_started AND speech_stopped AND a non-trivial
+      // non-mailbox transcript (>= 3 non-whitespace chars), default to human.
+      // This makes verdict non-dependent on the unreliable function_call.
+      // §201 is preserved: settleHuman fires ONLY after the caller has clearly
+      // spoken, so there is no bot audio before the verdict regardless.
+      if (
+        speechStartedObserved &&
+        speechStoppedObserved &&
+        text.replace(/\s/g, '').length >= 3
+      ) {
+        opts.log.info({
+          event: 'case_2_amd_vad_fallback_human',
+          call_id: opts.callId,
+          transcript_preview: text.slice(0, 60),
+        })
+        settleHuman()
       }
     },
 
