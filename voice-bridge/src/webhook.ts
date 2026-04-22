@@ -428,6 +428,26 @@ export function registerAcceptRoute(
               task_id: activeOutbound.task_id,
             })
             if (ctxRef) {
+              // Plan 05.2-05 Q7 finding (.planning/phases/05.2-persona-redesign-and-call-flow-state-machine/q7-atomicity-finding.md):
+              // Does a single session.update with BOTH instructions AND tools
+              // replace them atomically on the OpenAI server? Verdict is
+              // INCONCLUSIVE with a docs-lean toward ATOMIC per OpenAI
+              // Cookbook "Dynamic Conversation Flow via session.updates".
+              // Key narrowing: this handoff pushes instructions-ONLY —
+              // updateInstructions() at sideband.ts:704-710 actively strips
+              // the tools field (D-26/AC-05 invariant). The Case-2 tool list
+              // (13 tools including amd_result) was fixed at /accept and is
+              // not re-pushed here. Q7 therefore does NOT affect this code
+              // path under the current architecture. If Phase 5 state-graph
+              // transitions push instructions+tools together, re-visit this
+              // call site and run voice-bridge/scripts/session-update-atomicity-probe.ts.
+              //
+              // Also: Plan 05.2-04 migrated buildCase2OutboundPersona to
+              // compose baseline (persona/baseline.ts) + Case-2 overlay
+              // (persona/overlays/case-2.ts). Callsite signature unchanged;
+              // the `persona` string now contains baseline role-lock + overlay
+              // task details. See tests/webhook-amd-handoff.test.ts Test A.
+              //
               // Push Case-2 persona to model via session.update, then trigger greeting.
               updateInstructions(ctxRef.sideband.state, persona, log)
 
