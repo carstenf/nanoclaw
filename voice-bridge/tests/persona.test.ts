@@ -21,35 +21,11 @@ describe('PHASE2_PERSONA — required directives', () => {
   })
 })
 
-// --- CASE6B_PERSONA tests (02-14) ---
-import { CASE6B_PERSONA } from '../src/persona.js'
-
-describe('CASE6B_PERSONA — Case-6b persona for Carsten CLI calls', () => {
-  it('is a non-empty string', () => {
-    expect(typeof CASE6B_PERSONA).toBe('string')
-    expect(CASE6B_PERSONA.length).toBeGreaterThan(200)
-  })
-
-  it('contains greeting hint for Carsten', () => {
-    expect(CASE6B_PERSONA).toContain('Carsten')
-  })
-
-  it('contains ask_core delegation instruction', () => {
-    expect(CASE6B_PERSONA).toContain('ask_core')
-  })
-
-  it("contains Filler-Phrase 'Moment, ich frage Andy'", () => {
-    expect(CASE6B_PERSONA).toContain('Moment, ich frage Andy')
-  })
-
-  it('contains passive disclosure directive', () => {
-    expect(CASE6B_PERSONA).toContain('Bist du ein Bot?')
-  })
-
-  it('is different from PHASE2_PERSONA', () => {
-    expect(CASE6B_PERSONA).not.toBe(PHASE2_PERSONA)
-  })
-})
+// Plan 05.3-03 D-2: legacy CASE6B_PERSONA constant is retired; inbound /accept
+// webhook composes baseline + buildTaskOverlay('case_6b_inbound_carsten').
+// Coverage for that composition now lives in tests/persona-migration-case-6b.test.ts
+// (7 golden-regression assertions). The former six CASE6B_PERSONA-shape tests
+// in this file are deleted (constant no longer exists to inspect).
 
 // --- OUTBOUND_PERSONA_TEMPLATE + buildOutboundPersona tests (03-11) ---
 import { OUTBOUND_PERSONA_TEMPLATE, buildOutboundPersona } from '../src/persona.js'
@@ -216,15 +192,10 @@ describe('CASE2_OUTBOUND_PERSONA — Task 2 tests (≥9)', () => {
     expect(approxTokens).toBeLessThan(1700)
   })
 
-  it('test 9: Case-6b persona regression — CASE6B_PERSONA byte-identical after changes', () => {
-    // CASE6B_PERSONA should still contain the canonical markers
-    expect(CASE6B_PERSONA).toContain('Carsten Freek')
-    expect(CASE6B_PERSONA).toContain('Bist du ein Bot?')
-    expect(CASE6B_PERSONA).toContain('ask_core')
-    // It must NOT contain Case-2-specific markers (stays separate)
-    expect(CASE6B_PERSONA).not.toContain('ENTSCHEIDUNGSREGELN bei Gegenangebot')
-    expect(CASE6B_PERSONA).not.toContain('buildCase2OutboundPersona')
-  })
+  // Plan 05.3-03 D-2: former "test 9: CASE6B_PERSONA byte-identical" DELETED —
+  // constant no longer exists (retired in favor of baseline+overlay composition).
+  // Equivalent coverage: tests/persona-migration-case-6b.test.ts (7 assertions on
+  // the composed inbound Carsten instructions).
 
   it('test 3: CASE2_GOAL_SETTING_BLOCK via buildCase2OutboundPersona substitutes all fields', () => {
     const result = buildCase2OutboundPersona({

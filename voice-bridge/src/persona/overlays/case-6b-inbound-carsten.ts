@@ -1,13 +1,11 @@
 // voice-bridge/src/persona/overlays/case-6b-inbound-carsten.ts
 // Phase 05.2 Plan 04 Task 3 — Case-6b inbound-Carsten task overlay.
+// Phase 05.3 Plan 03 D-2 — WIRED into webhook.ts inbound /accept path
+// (replaces legacy CASE6B_PERSONA monolith; see webhook.ts:658-677).
 //
 // Case-6b = inbound call from Carsten's CLI number (Du-form).
-// Extracted from legacy CASE6B_PERSONA case-specific sections only.
 // Baseline (05.2-01) supplies identity, Werkzeug-zuerst, Zwei-Form,
 // Schweigen, Abschied, Offenlegung — NOT duplicated here.
-//
-// NOT YET WIRED: webhook.ts inbound path still uses legacy CASE6B_PERSONA.
-// This file is an ARTIFACT for a future inbound migration plan.
 
 /**
  * Build Case-6b (inbound-from-Carsten) task overlay.
