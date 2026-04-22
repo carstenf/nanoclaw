@@ -11,9 +11,10 @@ import { startSlowBrain } from './slow-brain.js'
 import { startTeardown } from './teardown.js'
 import { runGhostScan } from './ghost-scan.js'
 import { clearCall as clearIdempotencyCache } from './idempotency.js'
-import { createSilenceMonitor, type SilenceMonitor } from './silence-monitor.js'
+import { armHardHangup, type HardHangupHandle } from './silence-monitor.js'
 import { getHangupCallback, getAmdClassifier } from './tools/dispatch.js'
 import type { CoreMcpClient } from './core-mcp-client.js'
+import { OUTBOUND_CALL_MAX_DURATION_MS } from './config.js'
 
 export interface CallContext {
   callId: string
@@ -22,7 +23,13 @@ export interface CallContext {
   turnLog: TurnLog
   sideband: SidebandHandle
   slowBrain: SlowBrainWorker
-  silence: SilenceMonitor | null
+  /**
+   * Plan 05.3-05b D-3 PART 2: hard-safety hangup floor (pure wall-clock timer,
+   * no VAD awareness). Retired the legacy silence-monitor VAD state machine +
+   * 3-round nudge ladder — native idle_timeout_ms (Plan 05.3-05a) + persona
+   * OUTBOUND_SCHWEIGEN / INBOUND_SCHWEIGEN now drive the UX layer.
+   */
+  hardHangup: HardHangupHandle | null
   /**
    * Plan 04.5-03 / D-6 / Pitfall 5 (T-4.5-E): per-call MCP session.
    * Set by webhook.ts /accept via startCall({ coreMcp }). The sideband
@@ -125,27 +132,16 @@ export function createCallRouter(
           // mailbox regex + settles human if non-mailbox after speech cycle.
           getAmdClassifier()?.onTranscript(transcript)
         },
-        // Plan 03-15: VAD events drive silence-monitor (REQ-VOICE-08/09).
-        // Plan 05.2 follow-up 2026-04-22: also forward to AMD classifier so
-        // Timer B (silence gate) gets cancelled when caller speaks and the
-        // VAD-fallback path in onTranscript can observe speech cycle.
+        // Plan 05.3-05b D-3 PART 2: VAD events now ONLY drive the AMD
+        // classifier (Case-2 Timer B / VAD-fallback human path). Legacy
+        // silence-monitor forwards retired with the UX state machine — see
+        // silence-monitor.ts header. onBotStart/onBotStop handlers are gone
+        // entirely (hard-safety stub has no VAD awareness).
         onSpeechStart: () => {
-          router.getCall(callId)?.silence?.onSpeechStart()
           getAmdClassifier()?.onSpeechStarted()
         },
         onSpeechStop: () => {
-          router.getCall(callId)?.silence?.onSpeechStop()
           getAmdClassifier()?.onSpeechStopped()
-        },
-        // Plan 05.2-02 D-7 / research §4.3: bot-audio events drive the
-        // bot-awareness half of the silence-monitor state machine.
-        // output_audio_buffer.started → cancel armed timer (bot is speaking);
-        // output_audio_buffer.stopped → arm timer iff caller also silent.
-        onBotStart: () => {
-          router.getCall(callId)?.silence?.onBotStart()
-        },
-        onBotStop: () => {
-          router.getCall(callId)?.silence?.onBotStop()
         },
         // Plan 04.5-03 / Pitfall 5 / T-4.5-E: pass per-call MCP client to
         // sideband so the WS-close finalizer can close it (prevents
@@ -158,16 +154,15 @@ export function createCallRouter(
       })
       logs.set(callId, log)
       const slowBrain = fSlow(log, sideband.state)
-      // Plan 03-15: per-call silence monitor. Skipped if no hangup callback is
-      // wired (tests, or buildApp variants without OpenAI client).
+      // Plan 05.3-05b D-3 PART 2: per-call hard-safety hangup floor. Pure
+      // wall-clock ceiling — fires hangup after OUTBOUND_CALL_MAX_DURATION_MS
+      // regardless of VAD state. Outbound also has its own durationTimer in
+      // outbound-router.ts; this is belt-and-braces for outbound and the sole
+      // ceiling for inbound. Skipped if no hangup callback is wired (tests,
+      // buildApp variants without OpenAI client).
       const hangupCb = getHangupCallback()
-      const silence = hangupCb
-        ? createSilenceMonitor({
-            callId,
-            sideband,
-            log,
-            hangupCall: hangupCb,
-          })
+      const hardHangup = hangupCb
+        ? armHardHangup(callId, OUTBOUND_CALL_MAX_DURATION_MS, hangupCb, log)
         : null
       const ctx: CallContext = {
         callId,
@@ -176,7 +171,7 @@ export function createCallRouter(
         turnLog,
         sideband,
         slowBrain,
-        silence,
+        hardHangup,
         coreMcp: startOpts.coreMcp,
       }
       map.set(callId, ctx)
@@ -197,7 +192,7 @@ export function createCallRouter(
         memBaselineMB: ctx.memBaselineMB,
       })
       teardown.markClosed()
-      ctx.silence?.stop()
+      ctx.hardHangup?.cancel()
       ctx.slowBrain.stop().catch((e: Error) => {
         log.warn({
           event: 'slow_brain_stop_failed',
