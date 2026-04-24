@@ -57,9 +57,9 @@ describe('SESSION_CONFIG idle_timeout (Plan 05.3-05a D-3)', () => {
     ).toBe(8000)
   })
 
-  it('D-8 invariant preserved: create_response:false', () => {
+  it('Phase 05.4 Block-3: create_response=true default (REQ-VOICE-04; D-8 narrowed to case-2 only, override at webhook /accept)', () => {
     expect(SESSION_CONFIG.audio.input.turn_detection.create_response).toBe(
-      false,
+      true,
     )
   })
 

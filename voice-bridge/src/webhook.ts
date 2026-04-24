@@ -585,13 +585,31 @@ export function registerAcceptRoute(
       // for audio.delta bytes is already enforced in maybeWriteTrace().
       const traceEventsPath =
         `/tmp/spike-a-trace-${callId.replace(/[^a-zA-Z0-9_-]/g, '_')}.jsonl`
+      // Phase 05.4 Block-3: D-8 narrowed to case_type='case_2' only. Case-2
+      // still needs `create_response:false` at /accept so the bot stays silent
+      // until AMD classifies voicemail vs human. Case-1 / Case-6b outbound use
+      // the REQ-VOICE-04 default (`create_response:true`) + speak-first — bot
+      // greets on call connect, counterpart responds, native server_vad drives
+      // subsequent turns. Eliminates the Q2-silent-pickup hang class.
+      const audioForAccept = isCase2
+        ? {
+            ...SESSION_CONFIG.audio,
+            input: {
+              ...SESSION_CONFIG.audio.input,
+              turn_detection: {
+                ...SESSION_CONFIG.audio.input.turn_detection,
+                create_response: false,
+              },
+            },
+          }
+        : SESSION_CONFIG.audio
       try {
         await openai.realtime.calls.accept(callId, {
           type: 'realtime',
           model: SESSION_CONFIG.model,
           instructions: outboundInstructions,
           tools: toolsPayloadOut,
-          audio: SESSION_CONFIG.audio,
+          audio: audioForAccept,
         } as unknown as Parameters<typeof openai.realtime.calls.accept>[1])
         const ctx = router.startCall(callId, log, { traceEventsPath })
         log.info({
@@ -609,18 +627,20 @@ export function registerAcceptRoute(
         if (isCase2) {
           // Case-2: NO proactive requestResponse — AMD classifier must fire first.
           // Wire ctxRef so the onHuman callback (closure above) can reach sideband.
-          // armedForFirstSpeech stays false; the onHuman closure requests response.create
-          // explicitly post-AMD verdict.
+          // armedForFirstSpeech stays false; the onHuman closure requests
+          // response.create + flips create_response:true explicitly post-AMD verdict.
           ctxRef = ctx
         } else {
-          // D-8 wait-for-speech (Case-1 non-Case-2 outbound): arm
-          // armedForFirstSpeech=true so sideband waits for counterpart's first
-          // speech_stopped before firing response.create. Silence + nudge
-          // ladder is persona-driven via baseline OUTBOUND_SCHWEIGEN — no
-          // server-side timer (feedback_no_timer_based_silence).
-          ctx.sideband.state.armedForFirstSpeech = true
+          // Phase 05.4 Block-3: Case-1 / Case-6b outbound — speak-first per
+          // REQ-VOICE-04 (auto_create_response=true). Fire a synchronous
+          // response.create so the model opens with its persona-directed
+          // greeting ("NanoClaw im Auftrag von Carsten…"). Subsequent turns
+          // are handled natively by server_vad + create_response:true.
+          // armedForFirstSpeech stays false (the whole arm-then-fire pattern
+          // is case-2-specific now).
+          requestResponse(ctx.sideband.state, log)
           log.info({
-            event: 'armed_for_first_speech',
+            event: 'outbound_speak_first',
             call_id: callId,
             outbound: true,
           })

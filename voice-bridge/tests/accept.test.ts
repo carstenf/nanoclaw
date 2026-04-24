@@ -297,12 +297,12 @@ describe('POST /accept — Phase 2 full-wiring', () => {
     expect(session.instructions).toContain('Carsten')
     expect(session.instructions).toContain('ask_core')
     expect(session.audio.input.turn_detection.type).toBe('server_vad')
-    // Plan 05.2-03 D-8: create_response flipped true→false so the bridge
-    // decides when the bot speaks (outbound waits for caller's first Hallo
-    // via sideband.armedForFirstSpeech; inbound self-greets at 1000ms
-    // post-/accept via explicit requestResponse — both paths unaffected by
-    // this flag flip because both issue explicit response.create).
-    expect(session.audio.input.turn_detection.create_response).toBe(false)
+    // Phase 05.4 Block-3: D-8 (create_response=false) narrowed to
+    // case_type='case_2' only (overridden at /accept in webhook.ts). Inbound
+    // case6b uses the REQ-VOICE-04 default (`true`) and still issues an
+    // explicit requestResponse for the self-greet; subsequent turns are
+    // handled natively by server_vad.
+    expect(session.audio.input.turn_detection.create_response).toBe(true)
     expect(Array.isArray(session.tools)).toBe(true)
     expect(session.tools.length).toBe(15)
     expect(session.tools[0]).toHaveProperty('type', 'function')
@@ -353,10 +353,12 @@ describe('POST /accept — Phase 2 full-wiring', () => {
     expect(router.startCall).not.toHaveBeenCalled()
   })
 
-  // Plan 05.2-03 Task 3 (Test I): Case-1 default-outbound /accept path arms
-  // armedForFirstSpeech=true so the bridge waits for the counterpart's first
-  // speech_stopped before firing response.create (D-8 wait-for-speech).
-  it('Test I (Plan 05.2-03 D-8): Case-1 default-outbound /accept sets ctx.sideband.state.armedForFirstSpeech=true', async () => {
+  // Phase 05.4 Block-3: D-8 narrowed to case_type='case_2'. Case-1 default-
+  // outbound now speaks-first per REQ-VOICE-04 (auto_create_response=true) —
+  // /accept fires a proactive response.create on WS.send, and
+  // armedForFirstSpeech stays false (the arm-then-fire pattern is case-2-
+  // specific now). Test updated accordingly (was: asserted armed=true).
+  it('Test I (Phase 05.4 Block-3): Case-1 default-outbound /accept speak-first (no armedForFirstSpeech arming)', async () => {
     // No fake timers needed — my edit replaced the outbound setTimeout with a
     // synchronous state assignment. Test asserts on the sync state after /accept
     // completes. Fake timers caused the test to hang under real-timer-dependent
@@ -434,8 +436,21 @@ describe('POST /accept — Phase 2 full-wiring', () => {
           }),
         })
         expect(res.statusCode).toBe(200)
-        // Plan 05.2-03 D-8: outbound Case-1 /accept arms the flag synchronously.
-        expect(sidebandState.armedForFirstSpeech).toBe(true)
+        // Phase 05.4 Block-3: Case-1 non-case-2 outbound — armedForFirstSpeech
+        // stays false (arming is case-2-only now).
+        expect(sidebandState.armedForFirstSpeech).toBe(false)
+        // Speak-first: a response.create event was sent on the sideband WS so
+        // the model opens with its persona-directed greeting.
+        const createCalls = (sendSpy as ReturnType<typeof vi.fn>).mock.calls
+          .map((c) => {
+            try {
+              return JSON.parse(c[0] as string) as { type?: string }
+            } catch {
+              return null
+            }
+          })
+          .filter((m): m is { type: string } => m?.type === 'response.create')
+        expect(createCalls.length).toBeGreaterThanOrEqual(1)
       } finally {
         await app.close()
       }

@@ -295,14 +295,20 @@ export const SESSION_CONFIG = {
           Math.min(1.0, Number(process.env.VAD_THRESHOLD ?? 0.4)),
         ),
         silence_duration_ms: 700,
-        // create_response:false — D-8 wait-for-speech invariant. Bot never
-        // auto-speaks on caller speech_stopped; the bridge drives
-        // response.create via sideband armedForFirstSpeech (outbound) or
-        // synchronous post-/accept self-greet (inbound).
-        create_response: false,
+        // Phase 05.4 Block-3: create_response DEFAULT is `true` per
+        // REQ-VOICE-04 ("auto_create_response=true"). This is the correct
+        // setting for Case-1 / Case-6b outbound (speak-first) and all
+        // inbound paths. Case-2 AMD-gate overrides this to `false` at
+        // /accept time in webhook.ts so the bot stays silent until the AMD
+        // classifier produces a verdict — see D-8 invariant narrowed to
+        // case_type='case_2' in phase 05.4 review (briefing 2026-04-24,
+        // chat against voice-channel-spec/REQUIREMENTS.md). D-8 as
+        // universal default contradicted REQ-VOICE-04 and produced the
+        // Q2-outbound-silent-pickup hang; this narrowing resolves it.
+        create_response: true,
         // idle_timeout_ms — native post-bot-turn silence trigger; independent
         // of create_response; chains off response.done so dormant before first
-        // bot turn (§201 StGB AMD-gate invariant preserved).
+        // bot turn (§201 StGB AMD-gate invariant preserved for Case-2).
         idle_timeout_ms: IDLE_TIMEOUT_MS,
       },
       // User-transcription — emits conversation.item.input_audio_transcription

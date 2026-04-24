@@ -170,9 +170,9 @@ describe('Plan 05.2-03 — sideband wait-for-speech (D-8)', () => {
     handle.close()
   })
 
-  it('Test D (config D-8): SESSION_CONFIG.audio.input.turn_detection.create_response === false', () => {
+  it('Test D (Phase 05.4 Block-3): SESSION_CONFIG.audio.input.turn_detection.create_response === true (D-8 narrowed to case-2; override at webhook /accept)', () => {
     expect(SESSION_CONFIG.audio.input.turn_detection.create_response).toBe(
-      false,
+      true,
     )
   })
 })
