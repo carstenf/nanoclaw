@@ -153,6 +153,21 @@ Plans:
 **UI hint**: no
 **Scope note**: All `carsten_bot` scope but GATED ON PHASE 0 legal completion. First real external call = first §201 exposure. Must not ship before lawyer opinion lands.
 
+### Phase 05.5: Slow-Brain Removal & Container-Agent Reasoning Layer (INSERTED)
+
+**Goal:** Remove the in-bridge Slow-Brain worker entirely. The NanoClaw container-agent (same agent serving WhatsApp/Discord) becomes the per-turn reasoning layer, invoked via a standard MCP connection. The Bridge becomes a zero-reasoning transport. A new `voice-personas` skill in NanoClaw owns baseline + case-overlays; the Bridge keeps only a minimal generic fallback string. Strengthens CONOPS MOS-4 ("Voice ist dünner Channel-Adapter; alle Brain-Funktionen bleiben im NanoClaw-Core"). Source: `~/nanoclaw-state/voice-channel-spec/decisions/2026-04-24-slow-brain-removal-phase-6.md` + REQUIREMENTS.md Extension 2026-04-24 (REQ-DIR-06/11/12/14/15/16/17/18/19 + REQ-VOICE-13 + REQ-COST-06).
+**Requirements**: REQ-DIR-06 (Phase 6), REQ-DIR-11 (Phase 6), REQ-DIR-12 (Phase 6), REQ-DIR-14, REQ-DIR-15, REQ-DIR-16, REQ-DIR-17, REQ-DIR-18, REQ-DIR-19, REQ-VOICE-13 (Phase 6), REQ-COST-06
+**Depends on:** Phase 05.4 (Phase-5 closure before handover)
+**Plans:** 6 plans
+
+Plans:
+- [ ] 05.5-01-PLAN.md — Wave 1: VoiceTriggerQueue + voice_triggers_init/transcript MCP-tools + gc hook (REQ-DIR-14/15/17, INFRA-16)
+- [ ] 05.5-02-PLAN.md — Wave 1: voice-personas skill (SKILL.md + baseline.md + case-2/case-6b overlays) (REQ-DIR-18)
+- [ ] 05.5-03-PLAN.md — Wave 2: NanoclawMcpClient + REASONING_MODE flag + FALLBACK_PERSONA (REQ-DIR-16/18/20)
+- [ ] 05.5-04-PLAN.md — Wave 3: Bridge wiring at /accept + onTranscriptTurn branch + branch tests (REQ-DIR-06/11/12/19, VOICE-13)
+- [ ] 05.5-05-PLAN.md — Wave 3: Cost-ledger trigger_type + per-trigger recording (REQ-COST-06)
+- [ ] 05.5-06-PLAN.md — Wave 4: Live PSTN tests (synth + inbound + outbound) + hard cleanup commit (autonomous: false, Carsten-gate) (REQ-VOICE-13)
+
 ### Phase 05.4: voice-bridge-outbound-fixes-and-call-tracing (INSERTED)
 
 **Goal:** [Urgent work - to be planned]
