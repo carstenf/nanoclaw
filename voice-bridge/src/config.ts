@@ -283,7 +283,17 @@ export const SESSION_CONFIG = {
     input: {
       turn_detection: {
         type: 'server_vad' as const,
-        threshold: 0.55,
+        // Phase 05.4 Bug-5: lowered from 0.55 → 0.4 after live observation
+        // 2026-04-24 (two-hello regression: first quiet/short "Hallo" fell
+        // below threshold, callee had to repeat before VAD fired). Env
+        // override `VAD_THRESHOLD` for runtime tuning (0.0..1.0). Lower =
+        // more sensitive (catches quieter speech, risks false barge-in on
+        // background noise); higher = stricter (rejects noise, may miss
+        // quiet speech).
+        threshold: Math.max(
+          0.0,
+          Math.min(1.0, Number(process.env.VAD_THRESHOLD ?? 0.4)),
+        ),
         silence_duration_ms: 700,
         // create_response:false — D-8 wait-for-speech invariant. Bot never
         // auto-speaks on caller speech_stopped; the bridge drives
