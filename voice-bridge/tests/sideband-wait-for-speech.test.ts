@@ -14,6 +14,7 @@ import type { Logger } from 'pino'
 import type { WebSocket as WSType } from 'ws'
 import {
   END_CALL_AUDIO_WAIT_MS,
+  SILENCE_FALLBACK_MS,
   enableAutoResponseCreate,
   openSidebandSession,
   waitForBotAudioDone,
@@ -492,5 +493,162 @@ describe('Phase 05.4 Bug-3 — waitForBotAudioDone + end_call dispatch deferral'
   it('END_CALL_AUDIO_WAIT_MS default sane (1–10 s)', () => {
     expect(END_CALL_AUDIO_WAIT_MS).toBeGreaterThanOrEqual(1000)
     expect(END_CALL_AUDIO_WAIT_MS).toBeLessThanOrEqual(10000)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Phase 05.4 Bug-4 — silence fallback (backstop for OpenAI idle_timeout
+// non-re-arm after auto-generated nudge response)
+// ---------------------------------------------------------------------------
+
+describe('Phase 05.4 Bug-4 — silence fallback timer', () => {
+  beforeEach(() => {
+    process.env.OPENAI_SIP_API_KEY = 'sk-test-silence-fallback'
+  })
+  afterEach(() => {
+    delete process.env.OPENAI_SIP_API_KEY
+    vi.useRealTimers()
+  })
+
+  it('arms on output_audio_buffer.stopped and fires response.create after SILENCE_FALLBACK_MS', async () => {
+    vi.useFakeTimers()
+    const ws = new MockWS()
+    const log = mockLog()
+    const handle = openSidebandSession('rtc-bug4-arm-fire', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+    ws.simulateMessage({ type: 'output_audio_buffer.started' })
+    ws.simulateMessage({ type: 'output_audio_buffer.stopped' })
+    expect(handle.state.silenceFallbackTimerId).not.toBe(null)
+
+    // Not yet — before the timeout
+    await vi.advanceTimersByTimeAsync(SILENCE_FALLBACK_MS - 100)
+    let sent = parseSent(ws).filter((m) => m.type === 'response.create')
+    expect(sent).toHaveLength(0)
+
+    // Cross the threshold
+    await vi.advanceTimersByTimeAsync(200)
+    sent = parseSent(ws).filter((m) => m.type === 'response.create')
+    expect(sent).toHaveLength(1)
+    expect(handle.state.silenceFallbackTimerId).toBe(null)
+
+    const infoCalls = (log.info as ReturnType<typeof vi.fn>).mock.calls
+    expect(
+      infoCalls.some((c) => c[0]?.event === 'silence_fallback_fired'),
+    ).toBe(true)
+    handle.close()
+  })
+
+  it('input_audio_buffer.speech_started clears the timer', async () => {
+    vi.useFakeTimers()
+    const ws = new MockWS()
+    const log = mockLog()
+    const handle = openSidebandSession('rtc-bug4-user-speaks', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+    ws.simulateMessage({ type: 'output_audio_buffer.stopped' })
+    expect(handle.state.silenceFallbackTimerId).not.toBe(null)
+
+    ws.simulateMessage({ type: 'input_audio_buffer.speech_started' })
+    expect(handle.state.silenceFallbackTimerId).toBe(null)
+
+    await vi.advanceTimersByTimeAsync(SILENCE_FALLBACK_MS + 500)
+    const sent = parseSent(ws).filter((m) => m.type === 'response.create')
+    expect(sent).toHaveLength(0)
+    handle.close()
+  })
+
+  it('response.created clears the timer (native idle_timeout wins)', async () => {
+    vi.useFakeTimers()
+    const ws = new MockWS()
+    const log = mockLog()
+    const handle = openSidebandSession('rtc-bug4-native-wins', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+    ws.simulateMessage({ type: 'output_audio_buffer.stopped' })
+    expect(handle.state.silenceFallbackTimerId).not.toBe(null)
+
+    // Simulate native idle_timeout firing: response.created arrives before
+    // the Bridge fallback would fire.
+    ws.simulateMessage({ type: 'response.created' })
+    expect(handle.state.silenceFallbackTimerId).toBe(null)
+
+    await vi.advanceTimersByTimeAsync(SILENCE_FALLBACK_MS + 500)
+    const sent = parseSent(ws).filter((m) => m.type === 'response.create')
+    expect(sent).toHaveLength(0)
+    handle.close()
+  })
+
+  it('output_audio_buffer.started clears the timer (new bot turn rendering)', () => {
+    vi.useFakeTimers()
+    const ws = new MockWS()
+    const log = mockLog()
+    const handle = openSidebandSession('rtc-bug4-new-bot-turn', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+    ws.simulateMessage({ type: 'output_audio_buffer.stopped' })
+    expect(handle.state.silenceFallbackTimerId).not.toBe(null)
+
+    ws.simulateMessage({ type: 'output_audio_buffer.started' })
+    expect(handle.state.silenceFallbackTimerId).toBe(null)
+    handle.close()
+  })
+
+  it('re-arms on every output_audio_buffer.stopped (multi-turn silence cycle)', async () => {
+    vi.useFakeTimers()
+    const ws = new MockWS()
+    const log = mockLog()
+    const handle = openSidebandSession('rtc-bug4-rearm', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+
+    // First bot turn ends.
+    ws.simulateMessage({ type: 'output_audio_buffer.stopped' })
+    await vi.advanceTimersByTimeAsync(SILENCE_FALLBACK_MS + 100)
+    // Fallback fired → response.create sent.
+    expect(parseSent(ws).filter((m) => m.type === 'response.create')).toHaveLength(1)
+
+    // Next bot turn plays (Nudge-1). Simulate the full response lifecycle.
+    ws.simulateMessage({ type: 'response.created' })
+    ws.simulateMessage({ type: 'output_audio_buffer.started' })
+    ws.simulateMessage({ type: 'output_audio_buffer.stopped' })
+    // Timer re-armed — this is the scenario that fails natively.
+    expect(handle.state.silenceFallbackTimerId).not.toBe(null)
+
+    await vi.advanceTimersByTimeAsync(SILENCE_FALLBACK_MS + 100)
+    // Second fallback → second response.create (Nudge-2 trigger).
+    expect(parseSent(ws).filter((m) => m.type === 'response.create')).toHaveLength(2)
+    handle.close()
+  })
+
+  it('ws close clears the timer', async () => {
+    vi.useFakeTimers()
+    const ws = new MockWS()
+    const log = mockLog()
+    const handle = openSidebandSession('rtc-bug4-close', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+    ws.simulateMessage({ type: 'output_audio_buffer.stopped' })
+    expect(handle.state.silenceFallbackTimerId).not.toBe(null)
+
+    handle.close()
+    expect(handle.state.silenceFallbackTimerId).toBe(null)
+
+    await vi.advanceTimersByTimeAsync(SILENCE_FALLBACK_MS + 500)
+    // No late fallback fires after close.
+    const sent = parseSent(ws).filter((m) => m.type === 'response.create')
+    expect(sent).toHaveLength(0)
+  })
+
+  it('SILENCE_FALLBACK_MS default > idle_timeout_ms (native wins when it fires)', () => {
+    expect(SILENCE_FALLBACK_MS).toBeGreaterThan(
+      SESSION_CONFIG.audio.input.turn_detection.idle_timeout_ms,
+    )
   })
 })

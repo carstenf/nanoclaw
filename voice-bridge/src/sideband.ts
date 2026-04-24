@@ -47,6 +47,21 @@ import { sendDiscordAlert as defaultSendDiscordAlert } from './alerts.js'
 /** Cost-hard-stop: farewell hold before ws.close. */
 export const FAREWELL_TTS_HOLD_MS = 4000
 
+/**
+ * Phase 05.4 Bug-4 fix: Bridge-side silence fallback interval. Armed on
+ * `output_audio_buffer.stopped`; fires `requestResponse()` if no
+ * `speech_started`, `response.created`, or new bot turn arrives within the
+ * window. Set slightly longer than SESSION_CONFIG.audio.input.turn_detection
+ * .idle_timeout_ms (default 8000) so the native OpenAI trigger wins when it
+ * fires. The fallback only kicks in when the server fails to re-arm its
+ * idle_timeout after an auto-generated nudge (empirically confirmed live
+ * 2026-04-24). Env override: `SILENCE_FALLBACK_MS`.
+ */
+export const SILENCE_FALLBACK_MS = Math.max(
+  1000,
+  Number(process.env.SILENCE_FALLBACK_MS ?? 9000),
+)
+
 /** Cost-hard-stop session.update instructions — instructions-only (D-26/AC-05). */
 export const FAREWELL_INSTR =
   "Dein Zeitbudget für dieses Gespräch ist aufgebraucht. Verabschiede dich jetzt höflich mit einem einzigen Satz, z.B. 'Vielen Dank, ich melde mich später erneut. Auf Wiederhören.' und sage danach nichts mehr."
@@ -99,6 +114,21 @@ export interface SidebandState {
    * null when no wait is pending.
    */
   endCallAudioWaitResolve: (() => void) | null
+  /**
+   * Phase 05.4 Bug-4 fix: Bridge-side silence fallback timer id. Armed on
+   * `output_audio_buffer.stopped` (bot just finished) and cleared on
+   * `input_audio_buffer.speech_started` (user speaking), `response.created`
+   * (native idle_timeout or manual response winning), or
+   * `output_audio_buffer.started` (new bot turn). Fires `requestResponse()`
+   * if nothing else happened within SILENCE_FALLBACK_MS — backstops the
+   * empirically observed gap where OpenAI's native `idle_timeout_ms` fails
+   * to re-arm after an auto-generated nudge response (live trace
+   * 2026-04-24, rtc_u7_DYCdePtOupEi3nW83gqrM: first timeout fires, second
+   * never does on sustained silence). Content (Nudge-1/2/3 ladder + final
+   * farewell + end_call) still comes from the persona — this timer only
+   * provides the trigger.
+   */
+  silenceFallbackTimerId: ReturnType<typeof setTimeout> | null
 }
 
 /**
@@ -261,6 +291,8 @@ export function openSidebandSession(
     // Phase 05.4 Bug-3 fix: tracked via output_audio_buffer.{started,stopped}.
     botSpeaking: false,
     endCallAudioWaitResolve: null,
+    // Phase 05.4 Bug-4 fix: armed/cleared by onmessage silence-fallback helpers.
+    silenceFallbackTimerId: null,
   }
 
   // Cost-enforcement DI. Production defaults to the real accumulator/core-mcp/
@@ -375,6 +407,8 @@ export function openSidebandSession(
 
       // VAD speech-segment events — currently consumed by AMD-classifier only.
       if (parsed?.type === 'input_audio_buffer.speech_started') {
+        // Phase 05.4 Bug-4: user is speaking → cancel silence fallback.
+        clearSilenceFallback(state)
         opts.onSpeechStart?.()
         return
       }
@@ -414,6 +448,9 @@ export function openSidebandSession(
       // finished speaking" signal.
       if (parsed?.type === 'output_audio_buffer.started') {
         state.botSpeaking = true
+        // Phase 05.4 Bug-4: a new bot turn is rendering — cancel any
+        // fallback that was armed after the previous stopped event.
+        clearSilenceFallback(state)
         opts.onBotStart?.()
         return
       }
@@ -426,6 +463,12 @@ export function openSidebandSession(
           state.endCallAudioWaitResolve = null
           resolve()
         }
+        // Phase 05.4 Bug-4: arm the Bridge-side silence fallback. Native
+        // OpenAI idle_timeout_ms still has first shot (it fires 8000 ms
+        // after response.done + audio-playback); this fallback at
+        // SILENCE_FALLBACK_MS (default 9000) only kicks in when the server
+        // fails to re-arm its native timer after a prior auto-nudge.
+        armSilenceFallback(state, log, SILENCE_FALLBACK_MS)
         opts.onBotStop?.()
         return
       }
@@ -521,6 +564,15 @@ export function openSidebandSession(
         } else {
           runDispatch()
         }
+        return
+      }
+
+      // Phase 05.4 Bug-4: response.created → a response is now in flight
+      // (either native idle_timeout won, user-speech triggered auto-create,
+      // or our Bridge fallback fired requestResponse). Cancel the silence
+      // fallback so we don't double-fire when the response completes.
+      if (parsed?.type === 'response.created') {
+        clearSilenceFallback(state)
         return
       }
 
@@ -709,6 +761,8 @@ export function openSidebandSession(
   ws.on('close', () => {
     state.ready = false
     clearTimeout(timer)
+    // Phase 05.4 Bug-4: ensure no dangling silence fallback after ws teardown.
+    clearSilenceFallback(state)
     log.info({ event: 'sideband_closed', call_id: callId })
     // Close the per-call MCP session so the server-side sessions Map doesn't
     // leak one session per call. Fire-and-forget with try/catch so a close
@@ -932,6 +986,48 @@ export function enableAutoResponseCreate(
 
 /** Phase 05.4 Bug-3: max wait for farewell TTS before end_call hangup. */
 export const END_CALL_AUDIO_WAIT_MS = 4000
+
+/**
+ * Phase 05.4 Bug-4 fix: clear any pending silence fallback timer. Idempotent
+ * (safe to call when no timer is armed).
+ */
+function clearSilenceFallback(state: SidebandState): void {
+  if (state.silenceFallbackTimerId !== null) {
+    clearTimeout(state.silenceFallbackTimerId)
+    state.silenceFallbackTimerId = null
+  }
+}
+
+/**
+ * Phase 05.4 Bug-4 fix: arm the Bridge-side silence fallback timer. Replaces
+ * any pending timer (last-writer-wins — safe because the next event to fire
+ * will either be a clear or a new arm). On expiry, logs
+ * `silence_fallback_fired` and sends `response.create` so the model picks the
+ * next SCHWEIGEN-ladder nudge from session instructions.
+ *
+ * Clear conditions (whichever fires first):
+ *  - `input_audio_buffer.speech_started`: user started speaking (real turn)
+ *  - `response.created`: a response is now in flight (native idle_timeout
+ *    won, or the Bridge fallback itself fired)
+ *  - `output_audio_buffer.started`: new bot turn has begun rendering
+ *  - ws close / teardown
+ */
+function armSilenceFallback(
+  state: SidebandState,
+  log: Logger,
+  timeoutMs: number,
+): void {
+  clearSilenceFallback(state)
+  state.silenceFallbackTimerId = setTimeout(() => {
+    state.silenceFallbackTimerId = null
+    log.info({
+      event: 'silence_fallback_fired',
+      call_id: state.callId,
+      fallback_ms: timeoutMs,
+    })
+    requestResponse(state, log)
+  }, timeoutMs)
+}
 
 /**
  * Phase 05.4 Bug-3 fix: wait for the model's current TTS response to reach
