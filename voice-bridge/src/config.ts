@@ -117,6 +117,27 @@ export const IDLE_TIMEOUT_MS = Math.max(
   Math.min(30000, Number(process.env.IDLE_TIMEOUT_MS ?? 10000)),
 )
 
+// Phase 05.4 Block-5: per-call sideband-event trace directory. Replaces the
+// interim `/tmp/spike-a-trace-*.jsonl` path (commit d6bf803) with the
+// REQ-INFRA-05 / REQ-VOICE-10 location:
+//   `~/nanoclaw/voice-container/runs/turns-{call_id}.jsonl`
+// §201-redaction of `response.audio.delta` bytes is enforced in
+// sideband.ts `maybeWriteTrace` (`delta_bytes` count only, no PCM payload).
+// Retention: external trace-sweeper (see scripts/trace-sweep.sh + the
+// voice-channel-spec/tracing-contract.md) rotates + gzips after 7 days and
+// deletes after 90 days. Env override VOICE_TRACE_DIR for tests / local dev.
+export const VOICE_TRACE_DIR =
+  process.env.VOICE_TRACE_DIR ??
+  (process.env.HOME
+    ? `${process.env.HOME}/nanoclaw/voice-container/runs`
+    : '/home/carsten_bot/nanoclaw/voice-container/runs')
+
+/** Build the REQ-INFRA-05 trace path for a given callId (ASCII-safe). */
+export function buildTracePath(callId: string): string {
+  const safe = callId.replace(/[^a-zA-Z0-9_-]/g, '_')
+  return `${VOICE_TRACE_DIR}/turns-${safe}.jsonl`
+}
+
 // ----- Sipgate REST-API outbound (Basic accounts don't support trunk-outbound) -----
 // Decision-doc: ~/nanoclaw-state/decisions/2026-04-19-outbound-rest-api-pivot.md
 export const SIPGATE_TOKEN_ID = process.env.SIPGATE_TOKEN_ID ?? ''

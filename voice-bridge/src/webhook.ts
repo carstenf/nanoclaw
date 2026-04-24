@@ -22,7 +22,7 @@
 import type { FastifyInstance } from 'fastify'
 import OpenAI from 'openai'
 import type { Logger } from 'pino'
-import { CARSTEN_CLI_NUMBER, SESSION_CONFIG } from './config.js'
+import { CARSTEN_CLI_NUMBER, SESSION_CONFIG, buildTracePath } from './config.js'
 import { PHASE2_PERSONA, buildCase2OutboundPersona } from './persona.js'
 import { buildBasePersona } from './persona/baseline.js'
 import { buildTaskOverlay } from './persona/overlays/index.js'
@@ -579,12 +579,14 @@ export function registerAcceptRoute(
         })
       }
 
-      // INTERIM (pre-Phase-05.4 proper call-tracing infra): unconditionally
-      // write per-call sideband event trace — debuggability requires full
-      // visibility on every call, not just Case-2/override paths. §201-redaction
-      // for audio.delta bytes is already enforced in maybeWriteTrace().
-      const traceEventsPath =
-        `/tmp/spike-a-trace-${callId.replace(/[^a-zA-Z0-9_-]/g, '_')}.jsonl`
+      // Phase 05.4 Block-5: per-call sideband event trace at REQ-INFRA-05 /
+      // REQ-VOICE-10 path `~/nanoclaw/voice-container/runs/turns-{call_id}
+      // .jsonl`. §201-redaction for audio.delta bytes enforced in
+      // sideband.ts maybeWriteTrace (delta_bytes count only, never PCM).
+      // Supersedes the interim `/tmp/spike-a-trace-*.jsonl` path (commit
+      // d6bf803). See voice-channel-spec/tracing-contract.md for the full
+      // redaction + retention contract.
+      const traceEventsPath = buildTracePath(callId)
       // Phase 05.4 Block-3: D-8 narrowed to case_type='case_2' only. Case-2
       // still needs `create_response:false` at /accept so the bot stays silent
       // until AMD classifies voicemail vs human. Case-1 / Case-6b outbound use
@@ -725,7 +727,14 @@ export function registerAcceptRoute(
         tools: toolsPayload,
         audio: SESSION_CONFIG.audio,
       } as unknown as Parameters<typeof openai.realtime.calls.accept>[1])
-      const ctx = router.startCall(callId, log, { coreMcp })
+      // Phase 05.4 Block-5: inbound trace at REQ-INFRA-05 / REQ-VOICE-10
+      // path. §201-redaction identical to outbound (audio.delta → delta_bytes
+      // count only, no PCM). Matches the unconditional tracing decision from
+      // commit d6bf803 now that the path is production-grade.
+      const ctx = router.startCall(callId, log, {
+        coreMcp,
+        traceEventsPath: buildTracePath(callId),
+      })
       log.info({
         event: 'call_accepted',
         call_id: callId,
