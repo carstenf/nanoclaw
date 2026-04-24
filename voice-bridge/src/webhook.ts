@@ -33,7 +33,7 @@ import { maybeInjectPreGreet } from './pre-greet.js'
 import { CoreMcpClient } from './core-mcp-client.js'
 import { CORE_MCP_URL, CORE_MCP_TOKEN } from './config.js'
 import type { CoreClientLike } from './slow-brain.js'
-import { requestResponse, updateInstructions } from './sideband.js'
+import { enableAutoResponseCreate, requestResponse, updateInstructions } from './sideband.js'
 import {
   checkCostCaps,
   CAP_DAILY_EUR,
@@ -493,7 +493,16 @@ export function registerAcceptRoute(
               // here, and native turn_detection.idle_timeout_ms (config.ts
               // SESSION_CONFIG) governs subsequent silence-driven nudges via
               // persona OUTBOUND_SCHWEIGEN ladder (no bridge-side timer).
-              if (ctxRef) requestResponse(ctxRef.sideband.state, log)
+              //
+              // Phase 05.4 Bug-1 fix: after the post-AMD-verdict opening turn,
+              // flip turn_detection.create_response to true so turns 2..N are
+              // handled natively by server_vad. D-8 first-turn invariant is
+              // preserved because this fires only after the verified-human
+              // opening has been dispatched (no pre-AMD bot audio possible).
+              if (ctxRef) {
+                requestResponse(ctxRef.sideband.state, log)
+                enableAutoResponseCreate(ctxRef.sideband.state, log)
+              }
             } else {
               // startCall hasn't returned yet (extremely rare). Store persona for fallback.
               activeOutbound.persona_override = persona

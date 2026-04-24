@@ -482,39 +482,66 @@ describe('Plan 05.2-05 — AMD→baseline+Case-2 handoff integration', () => {
         (s) => JSON.parse(s).type === 'session.update',
       )
 
+      // Phase 05.4 Bug-1 fix: the onHuman closure now ALSO emits a
+      // second session.update that flips `audio.input.turn_detection
+      // .create_response` from false → true, so counterpart turns 2..N are
+      // handled natively by server_vad. This is distinct from the persona-swap
+      // session.update and is verified separately below.
+      const personaSwapSends = sessionUpdateSends.filter((s) => {
+        const session = (JSON.parse(s) as { session: Record<string, unknown> })
+          .session
+        return typeof session.instructions === 'string'
+      })
+      const autoResponseFlipSends = sessionUpdateSends.filter((s) => {
+        const session = (JSON.parse(s) as { session: Record<string, unknown> })
+          .session
+        const audio = session.audio as
+          | { input?: { turn_detection?: Record<string, unknown> } }
+          | undefined
+        return audio?.input?.turn_detection?.create_response === true
+      })
+
+      // Exactly one create_response flip regardless of atomicity verdict.
+      expect(autoResponseFlipSends.length).toBe(1)
+      const flipSession = (JSON.parse(autoResponseFlipSends[0]) as {
+        session: Record<string, unknown>
+      }).session
+      expect(flipSession.type).toBe('realtime')
+      expect('tools' in flipSession).toBe(false)
+
       if (verdict === 'NON-ATOMIC') {
-        // Branch B: expect TWO session.update messages. First carries tools,
-        // second carries instructions. Current code does not implement this;
-        // this assertion guides Task 3 Branch B if/when verdict flips.
-        expect(sessionUpdateSends.length).toBe(2)
-        const firstSession = (JSON.parse(sessionUpdateSends[0]) as {
+        // Branch B: two persona-swap session.update messages (tools + instr),
+        // plus the one create_response flip — total 3.
+        expect(sessionUpdateSends.length).toBe(3)
+        expect(personaSwapSends.length).toBeGreaterThanOrEqual(1)
+        const firstSession = (JSON.parse(personaSwapSends[0]) as {
           session: { tools?: unknown; instructions?: string }
         }).session
-        const secondSession = (JSON.parse(sessionUpdateSends[1]) as {
+        const lastSession = (JSON.parse(
+          personaSwapSends[personaSwapSends.length - 1],
+        ) as {
           session: { tools?: unknown; instructions?: string }
         }).session
-        // First message in two-step carries tools (not instructions); second
-        // carries instructions (not tools). Exact shape is workaround-specific.
-        // Minimum assertion: at least one message carries each field.
         const anyHasTools =
-          'tools' in firstSession || 'tools' in secondSession
+          'tools' in firstSession || 'tools' in lastSession
         const anyHasInstructions =
           typeof firstSession.instructions === 'string' ||
-          typeof secondSession.instructions === 'string'
+          typeof lastSession.instructions === 'string'
         expect(anyHasTools).toBe(true)
         expect(anyHasInstructions).toBe(true)
       } else {
-        // ATOMIC or INCONCLUSIVE: expect exactly ONE session.update.
-        // This is the current shipping behavior (matches Plan 05.1-01).
-        expect(sessionUpdateSends.length).toBe(1)
-        const session = (JSON.parse(sessionUpdateSends[0]) as {
+        // ATOMIC or INCONCLUSIVE: ONE persona-swap session.update (instructions
+        // only, no tools) + ONE create_response flip — total 2.
+        expect(sessionUpdateSends.length).toBe(2)
+        expect(personaSwapSends.length).toBe(1)
+        const session = (JSON.parse(personaSwapSends[0]) as {
           session: { type: string; instructions: string; tools?: unknown }
         }).session
         expect(session.type).toBe('realtime')
         expect(typeof session.instructions).toBe('string')
-        // D-26/AC-05 invariant (sideband.ts:704-710): tools field is stripped
-        // from instructions-only updates. The post-handoff session.update
-        // MUST NOT carry tools — the tools list was fixed at /accept.
+        // D-26/AC-05 invariant (sideband.ts updateInstructions): tools is
+        // stripped from instructions-only updates. The post-handoff persona
+        // swap MUST NOT carry tools — the tools list was fixed at /accept.
         expect('tools' in session).toBe(false)
       }
     } finally {

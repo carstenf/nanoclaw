@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'node:events'
 import type { Logger } from 'pino'
 import type { WebSocket as WSType } from 'ws'
-import { openSidebandSession } from '../src/sideband.js'
+import { enableAutoResponseCreate, openSidebandSession } from '../src/sideband.js'
 import { SESSION_CONFIG } from '../src/config.js'
 
 class MockWS extends EventEmitter {
@@ -168,5 +168,140 @@ describe('Plan 05.2-03 — sideband wait-for-speech (D-8)', () => {
     expect(SESSION_CONFIG.audio.input.turn_detection.create_response).toBe(
       false,
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Phase 05.4 Bug-1 fix: post-first-turn create_response flip via session.update
+// ---------------------------------------------------------------------------
+
+function parseSent(ws: MockWS): Array<Record<string, unknown>> {
+  return ws.sent
+    .map((s) => {
+      try {
+        return JSON.parse(s) as Record<string, unknown>
+      } catch {
+        return null
+      }
+    })
+    .filter((m): m is Record<string, unknown> => m !== null)
+}
+
+describe('Phase 05.4 Bug-1 — enableAutoResponseCreate flip after first turn', () => {
+  beforeEach(() => {
+    process.env.OPENAI_SIP_API_KEY = 'sk-test-auto-response-flip'
+  })
+  afterEach(() => {
+    delete process.env.OPENAI_SIP_API_KEY
+  })
+
+  it('armed + first speech_stopped → response.create AND session.update with create_response:true', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const handle = openSidebandSession('rtc-auto-flip-A', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+    handle.state.armedForFirstSpeech = true
+
+    ws.simulateMessage({ type: 'input_audio_buffer.speech_stopped' })
+
+    const sent = parseSent(ws)
+    const createCalls = sent.filter((m) => m.type === 'response.create')
+    const sessionUpdates = sent.filter((m) => m.type === 'session.update')
+
+    expect(createCalls).toHaveLength(1)
+    expect(sessionUpdates).toHaveLength(1)
+
+    // Full turn_detection resent; create_response flipped to true, other
+    // SESSION_CONFIG fields preserved.
+    const session = sessionUpdates[0].session as Record<string, unknown>
+    expect(session.type).toBe('realtime')
+    const audio = session.audio as { input: { turn_detection: Record<string, unknown> } }
+    const td = audio.input.turn_detection
+    expect(td.create_response).toBe(true)
+    expect(td.type).toBe(SESSION_CONFIG.audio.input.turn_detection.type)
+    expect(td.threshold).toBe(SESSION_CONFIG.audio.input.turn_detection.threshold)
+    expect(td.silence_duration_ms).toBe(
+      SESSION_CONFIG.audio.input.turn_detection.silence_duration_ms,
+    )
+    expect(td.idle_timeout_ms).toBe(
+      SESSION_CONFIG.audio.input.turn_detection.idle_timeout_ms,
+    )
+
+    // No `tools` in payload — AC-04/AC-05 invariant.
+    expect('tools' in session).toBe(false)
+
+    // State flag set so subsequent calls no-op.
+    expect(handle.state.autoResponseEnabled).toBe(true)
+
+    const infoCalls = (log.info as ReturnType<typeof vi.fn>).mock.calls
+    expect(
+      infoCalls.some((c) => c[0]?.event === 'auto_response_create_enabled'),
+    ).toBe(true)
+
+    handle.close()
+  })
+
+  it('idempotent: second invocation does NOT re-send session.update', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const handle = openSidebandSession('rtc-auto-flip-idem', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+
+    expect(enableAutoResponseCreate(handle.state, log)).toBe(true)
+    expect(enableAutoResponseCreate(handle.state, log)).toBe(false)
+    expect(enableAutoResponseCreate(handle.state, log)).toBe(false)
+
+    const sessionUpdates = parseSent(ws).filter(
+      (m) => m.type === 'session.update',
+    )
+    expect(sessionUpdates).toHaveLength(1)
+    handle.close()
+  })
+
+  it('WS not ready → skip with warn; flag stays false', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const handle = openSidebandSession('rtc-auto-flip-notready', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    // Do NOT simulateOpen — state.ready stays false.
+
+    expect(enableAutoResponseCreate(handle.state, log)).toBe(false)
+    expect(handle.state.autoResponseEnabled).toBe(false)
+
+    const warnCalls = (log.warn as ReturnType<typeof vi.fn>).mock.calls
+    expect(
+      warnCalls.some(
+        (c) =>
+          c[0]?.event === 'sideband_auto_response_enable_skipped' &&
+          c[0]?.reason === 'not_ready',
+      ),
+    ).toBe(true)
+
+    handle.close()
+  })
+
+  it('NOT armed (inbound) → no flip on speech_stopped (D-8 inbound-separation preserved)', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const handle = openSidebandSession('rtc-auto-flip-inbound', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+    // armedForFirstSpeech stays false — inbound path.
+
+    ws.simulateMessage({ type: 'input_audio_buffer.speech_stopped' })
+
+    const sessionUpdates = parseSent(ws).filter(
+      (m) => m.type === 'session.update',
+    )
+    expect(sessionUpdates).toHaveLength(0)
+    expect(handle.state.autoResponseEnabled).toBe(false)
+
+    handle.close()
   })
 })

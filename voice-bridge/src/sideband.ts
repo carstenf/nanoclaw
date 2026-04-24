@@ -22,6 +22,7 @@ import { dirname } from 'node:path'
 import type { Logger } from 'pino'
 import WebSocketLib, { type WebSocket as WSType } from 'ws'
 import {
+  SESSION_CONFIG,
   SIDEBAND_CONNECT_TIMEOUT_MS,
   SIDEBAND_WS_URL_TEMPLATE,
   getApiKey,
@@ -71,6 +72,18 @@ export interface SidebandState {
    * handler.
    */
   armedForFirstSpeech: boolean
+  /**
+   * Phase 05.4 Bug-1 fix: idempotency guard for `enableAutoResponseCreate`.
+   * D-8 wait-for-speech protects the FIRST outbound turn only (pre-AMD-verdict
+   * voicemail-gate). Once the first bot turn has been explicitly driven by the
+   * Bridge (armedForFirstSpeech path in Case-1/generic outbound, or the
+   * post-AMD-verdict synchronous requestResponse in Case-2), we flip
+   * `turn_detection.create_response` to `true` via session.update so the
+   * OpenAI server handles subsequent turns natively. This flag guards against
+   * double-sending the session.update from parallel entry points or from
+   * repeated speech_stopped events.
+   */
+  autoResponseEnabled: boolean
 }
 
 /**
@@ -227,6 +240,9 @@ export function openSidebandSession(
     startedAtIso: new Date(t0).toISOString(),
     // D-8 wait-for-speech: default false; webhook.ts flips to true for outbound /accept.
     armedForFirstSpeech: false,
+    // Phase 05.4 Bug-1 fix: default false; flipped to true by
+    // enableAutoResponseCreate() after the first Bridge-driven bot turn.
+    autoResponseEnabled: false,
   }
 
   // Cost-enforcement DI. Production defaults to the real accumulator/core-mcp/
@@ -356,6 +372,17 @@ export function openSidebandSession(
             call_id: state.callId,
           })
           requestResponse(state, log)
+          // Phase 05.4 Bug-1 fix: after the first Bridge-driven bot turn, flip
+          // turn_detection.create_response to true via session.update so that
+          // subsequent counterpart speech_stopped events auto-generate
+          // response.create server-side (native server_vad turn-taking).
+          // D-8 first-turn invariant is preserved because SESSION_CONFIG still
+          // ships false at /accept — the flip only happens post-first-speech.
+          // Idempotency is guarded by state.autoResponseEnabled inside the
+          // helper. See .planning/phases/05.3-refactor-cleanup-timer-removal/
+          // idle-timeout-finding.md Q3 for the "mid-call turn_detection
+          // session.update is ATOMIC" evidence.
+          enableAutoResponseCreate(state, log)
         }
         opts.onSpeechStop?.()
         return
@@ -775,6 +802,82 @@ export function requestResponse(
     const err = e as Error
     log.warn({
       event: 'sideband_response_create_failed',
+      call_id: state.callId,
+      err: err.message,
+    })
+    return false
+  }
+}
+
+/**
+ * Phase 05.4 Bug-1 fix: flip `audio.input.turn_detection.create_response` from
+ * `false` (D-8 wait-for-speech, set at /accept) to `true` so the OpenAI
+ * Realtime server auto-generates `response.create` on every subsequent
+ * counterpart VAD-stop event. Callers invoke this AFTER the first
+ * Bridge-driven bot turn has been dispatched via `requestResponse()`:
+ *
+ *  - Case-1 / generic outbound: sideband onmessage handler, armedForFirstSpeech
+ *    branch (the first `input_audio_buffer.speech_stopped` after /accept).
+ *  - Case-2: webhook.ts `onHuman` callback, immediately after the synchronous
+ *    post-AMD-verdict requestResponse.
+ *
+ * D-8 invariant is preserved because `SESSION_CONFIG` still ships
+ * `create_response: false` at /accept — the flip only happens after the first
+ * verified-human bot turn, so no bot-audio leaks before AMD classification.
+ *
+ * Idempotency: `state.autoResponseEnabled` guards against redundant sends from
+ * parallel entry points (e.g. a post-AMD-verdict call-path that also triggers
+ * an armed speech_stopped). First invocation sends session.update + flips the
+ * flag; subsequent invocations no-op.
+ *
+ * Payload shape: the full `turn_detection` object is resent (not just the
+ * `create_response` field) to avoid any ambiguity about nested-object merge
+ * semantics on the server side. All other fields (threshold,
+ * silence_duration_ms, idle_timeout_ms, type) preserve their SESSION_CONFIG
+ * values.
+ *
+ * Evidence for safety of mid-call turn_detection session.update:
+ * `.planning/phases/05.3-refactor-cleanup-timer-removal/idle-timeout-finding.md`
+ * Q3 — Plan 05.2-05 Q7 probe showed `session.update` is ATOMIC when not
+ * co-sent with a `tools` field (AC-04/AC-05 are specifically about `tools`
+ * mid-call, not `turn_detection`).
+ */
+export function enableAutoResponseCreate(
+  state: SidebandState,
+  log: Logger,
+): boolean {
+  if (state.autoResponseEnabled) {
+    return false
+  }
+  if (!state.ready || !state.ws) {
+    log.warn({
+      event: 'sideband_auto_response_enable_skipped',
+      call_id: state.callId,
+      reason: 'not_ready',
+    })
+    return false
+  }
+  const turnDetection = {
+    ...SESSION_CONFIG.audio.input.turn_detection,
+    create_response: true,
+  }
+  const session = {
+    type: 'realtime',
+    audio: { input: { turn_detection: turnDetection } },
+  }
+  try {
+    state.ws.send(JSON.stringify({ type: 'session.update', session }))
+    state.autoResponseEnabled = true
+    state.lastUpdateAt = Date.now()
+    log.info({
+      event: 'auto_response_create_enabled',
+      call_id: state.callId,
+    })
+    return true
+  } catch (e: unknown) {
+    const err = e as Error
+    log.warn({
+      event: 'sideband_auto_response_enable_failed',
       call_id: state.callId,
       err: err.message,
     })
