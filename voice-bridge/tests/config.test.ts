@@ -43,18 +43,18 @@ describe('SESSION_CONFIG transcription (defect #3 — Plan 05.1)', () => {
  *   - type='server_vad' invariant preserved
  */
 describe('SESSION_CONFIG idle_timeout (Plan 05.3-05a D-3)', () => {
-  it('IDLE_TIMEOUT_MS defaults to 8000ms (from idle-timeout-finding.md)', () => {
-    expect(IDLE_TIMEOUT_MS).toBe(8000)
+  it('Phase 05.4 Block-4: IDLE_TIMEOUT_MS defaults to 10000ms (REQ-VOICE-08 "10s silence")', () => {
+    expect(IDLE_TIMEOUT_MS).toBe(10000)
   })
 
-  it('SESSION_CONFIG turn_detection.idle_timeout_ms matches finding value', () => {
+  it('Phase 05.4 Block-4: SESSION_CONFIG turn_detection.idle_timeout_ms matches REQ-VOICE-08', () => {
     expect(
       (
         SESSION_CONFIG.audio.input.turn_detection as {
           idle_timeout_ms: number
         }
       ).idle_timeout_ms,
-    ).toBe(8000)
+    ).toBe(10000)
   })
 
   it('Phase 05.4 Block-3: create_response=true default (REQ-VOICE-04; D-8 narrowed to case-2 only, override at webhook /accept)', () => {

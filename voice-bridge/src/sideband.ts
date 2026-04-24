@@ -52,14 +52,18 @@ export const FAREWELL_TTS_HOLD_MS = 4000
  * `output_audio_buffer.stopped`; fires `requestResponse()` if no
  * `speech_started`, `response.created`, or new bot turn arrives within the
  * window. Set slightly longer than SESSION_CONFIG.audio.input.turn_detection
- * .idle_timeout_ms (default 8000) so the native OpenAI trigger wins when it
- * fires. The fallback only kicks in when the server fails to re-arm its
- * idle_timeout after an auto-generated nudge (empirically confirmed live
- * 2026-04-24). Env override: `SILENCE_FALLBACK_MS`.
+ * .idle_timeout_ms so the native OpenAI trigger wins when it fires. The
+ * fallback only kicks in when the server fails to re-arm its idle_timeout
+ * after an auto-generated nudge (empirically confirmed live 2026-04-24).
+ *
+ * Phase 05.4 Block-4: default raised 9000 → 10500 to pair with
+ * IDLE_TIMEOUT_MS=10000 (REQ-VOICE-08 "10s silence" compliance). 500ms jitter
+ * covers the response.done → output_audio_buffer.stopped gap so native always
+ * has first shot.
  */
 export const SILENCE_FALLBACK_MS = Math.max(
   1000,
-  Number(process.env.SILENCE_FALLBACK_MS ?? 9000),
+  Number(process.env.SILENCE_FALLBACK_MS ?? 10500),
 )
 
 /** Cost-hard-stop session.update instructions — instructions-only (D-26/AC-05). */

@@ -7,14 +7,16 @@
 //
 // Load-bearing invariants inside SESSION_CONFIG (canonical reference — do NOT
 // edit without re-reading D-8 + idle-timeout-finding):
-//   - turn_detection.create_response = false (D-8 wait-for-speech): bot never
-//     auto-speaks on caller speech_stopped; bridge drives response.create via
-//     armedForFirstSpeech (sideband.ts) or synchronous self-greet (webhook.ts).
+//   - turn_detection.create_response = true (REQ-VOICE-04 default as of Phase
+//     05.4 Block-3). D-8 wait-for-speech narrowed to case_type='case_2' where
+//     webhook.ts /accept overrides this to false so the bot stays silent
+//     until AMD classifies voicemail vs human. Case-1 / Case-6b / inbound
+//     use the true default + speak-first (native server_vad turn-taking).
 //   - turn_detection.idle_timeout_ms = IDLE_TIMEOUT_MS (5000..30000 API bounds,
-//     default 8000): native post-bot-turn silence trigger; independent of
-//     create_response; chains off response.done so it's dormant before the
-//     first bot turn — preserves §201 StGB AMD-gate invariant (no audio leak
-//     pre-verdict).
+//     default 10000 per REQ-VOICE-08): native post-bot-turn silence trigger;
+//     independent of create_response; chains off response.done so it's
+//     dormant before the first bot turn — preserves §201 StGB AMD-gate
+//     invariant (no audio leak pre-verdict).
 // See .planning/phases/05.3-refactor-cleanup-timer-removal/idle-timeout-finding.md
 
 // Port 4402 — 4401 is reserved by NanoClaw Core's Twilio voice-server (src/voice-server.ts)
@@ -106,11 +108,13 @@ export const SIDEBAND_WS_URL_TEMPLATE =
 // Native OpenAI Realtime idle-timeout window (ms). Replaces legacy server-side
 // UX setTimeouts (greet-trigger-delay constants retired). API bounds 5000..30000
 // (server rejects out-of-range with 400); env override clamped here for safety.
-// Default 8000ms gives 2s German-etiquette slack over baseline.ts
-// OUTBOUND_SCHWEIGEN "etwa 6 Sekunden" copy.
+// Phase 05.4 Block-4: default raised 8000 → 10000 for REQ-VOICE-08 compliance
+// ("No-speech for 10s → 'Sind Sie noch da?'"). Paired with SILENCE_FALLBACK_MS
+// = 10500 in sideband.ts (covers native 10s + 500ms race-jitter) so the Bridge
+// backstop only fires when OpenAI's re-arm fails (Bug-4 evidence).
 export const IDLE_TIMEOUT_MS = Math.max(
   5000,
-  Math.min(30000, Number(process.env.IDLE_TIMEOUT_MS ?? 8000)),
+  Math.min(30000, Number(process.env.IDLE_TIMEOUT_MS ?? 10000)),
 )
 
 // ----- Sipgate REST-API outbound (Basic accounts don't support trunk-outbound) -----
