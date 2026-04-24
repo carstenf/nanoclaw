@@ -76,6 +76,7 @@ Progress: [█████████░] 94%
 ### Roadmap Evolution
 
 - Phase 05.1 inserted after Phase 05: AMD persona handoff redesign and ASR upgrade (URGENT) — blocks Phase 05 Plan 05-03 Task 5 live verification (Defects #4, #5, #6)
+- Phase 05.4 inserted after Phase 5: voice-bridge-outbound-fixes-and-call-tracing (URGENT) — 2 live-confirmed BUGs block Case-2 end-to-end: (1) generic-outbound one-shot-bot (`create_response:false` + only-once requestResponse), (2) container-agent selects `voice_request_outbound_call` instead of `voice_start_case_2_call`. Plus: proper call-tracing infra (replaces interim chore d6bf803).
 
 ### Decisions
 

@@ -153,6 +153,16 @@ Plans:
 **UI hint**: no
 **Scope note**: All `carsten_bot` scope but GATED ON PHASE 0 legal completion. First real external call = first §201 exposure. Must not ship before lawyer opinion lands.
 
+### Phase 05.4: voice-bridge-outbound-fixes-and-call-tracing (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 5
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 05.4 to break down)
+
 ### Phase 05.1: AMD persona handoff redesign and ASR upgrade (INSERTED)
 
 **Goal:** Close the 4 open structural defects surfaced by Phase 05 Plan 03 Task 5 live verification (defects #3 ASR quality, #4 retry-args zod contract, #5 same-day-retry UNIQUE violation, #6 persona handoff broken) so that the Case-2 outbound flow is live-test-passable. Surgical patch phase — Wave 3 architecture (AMD classifier, persona content, VAD thresholds, pre-greet, outbound-router) stays intact.
