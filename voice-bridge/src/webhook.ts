@@ -1,7 +1,24 @@
-// src/webhook.ts — POST /webhook (stub) + POST /accept (Phase 2 full wiring)
-// Owns HMAC re-verification (defense-in-depth per D-18 / T-05-01).
-// Per T-05-04: only event_type + call_id + size logged at INFO; full payload at DEBUG.
-// /accept owns openai.realtime.calls.accept() per REQ-DIR-01, AC-07.
+// voice-bridge/src/webhook.ts
+// Phase 05.3 — OpenAI Realtime /webhook (HMAC re-verify + ack) and /accept
+// (inbound + outbound /accept, persona selection, cost gate, AMD handoff
+// bootstrapping, pre-greet fire-and-forget, sideband WS open via call-router).
+//
+// Owning plans: 05.1-01 (session.type, AMD defect #6), 05.1-03 (Case-2 voicemail
+// factory), 05.2-03 D-8 (wait-for-speech armedForFirstSpeech), 05.2-04/05 +
+// 05.3-03 D-2 (inbound Carsten baseline+overlay composition), 05.3-05a D-3
+// (UX setTimeouts removed; synchronous requestResponse).
+//
+// Load-bearing invariants (inline-anchored below):
+//   - Plan 05.2-05 Q7: session.update is instructions-only (updateInstructions
+//     strips `tools`); tools are fixed at /accept and not re-pushed (§201 StGB
+//     AMD-gate invariant preserved under Case-2 persona handoff).
+//   - Plan 05.1-01 Task 3: synthetic user-directive between updateInstructions
+//     and requestResponse on AMD-handoff (breaks classifier conversational
+//     context so Case-2 opening greeting is not misread).
+//   - Plan 05.3-05a D-3: both UX setTimeouts removed (outbound AMD-handoff +
+//     inbound self-greet) — wait-for-speech D-8 is the audio-path-ready signal.
+//
+// ASCII-umlaut convention enforced project-wide (see persona/baseline.ts header).
 import type { FastifyInstance } from 'fastify'
 import OpenAI from 'openai'
 import type { Logger } from 'pino'
@@ -31,25 +48,22 @@ import {
 import { setAmdClassifier } from './tools/dispatch.js'
 
 // ---------------------------------------------------------------------------
-// Plan 05.1-03 (Defect #4): Case-2 onVoicemail handler factory.
+// Case-2 onVoicemail handler factory.
 //
 // Constructs voice_case_2_schedule_retry tool-call args matching the zod
-// schema at src/mcp-tools/voice-case-2-retry.ts:36-44:
+// schema at src/mcp-tools/voice-case-2-retry.ts:
 //   { call_id, target_phone, calendar_date, prev_outcome, idempotency_key }
-// The previous inline closure sent {task_id, target_phone, case_payload,
-// prev_outcome: reason} — zod rejected every time with -32602, silently
-// dropping every voicemail retry.
 //
 // All four AMD classifier reasons ('amd_result' | 'cadence_cue' |
 // 'silence_mailbox' | 'transcript_cue') are "picked up but mailbox"
-// variants; per RESEARCH §4.3 they all map to zod enum 'voicemail'.
-// 'no_answer' / 'busy' fire from outbound-router error paths, not here.
+// variants and all map to zod enum 'voicemail'. 'no_answer' / 'busy' fire
+// from outbound-router error paths, not here.
 //
 // Fail-fast guard: if casePayload is missing requested_date or
 // idempotency_key, log case_2_schedule_retry_missing_fields and skip the
 // retry tool call. Sending empty strings would fail zod .length(64).regex
-// at Core with the exact -32602 symptom this plan fixes — log-and-skip is
-// the only correct path (the retry is orphaned but observable).
+// at Core with -32602 — log-and-skip is the only correct path (the retry
+// is orphaned but observable).
 // ---------------------------------------------------------------------------
 
 type Case2OnVoicemailActiveOutbound = {
@@ -286,10 +300,9 @@ export function registerAcceptRoute(
       return reply.code(200).send({ ok: true })
     }
 
-    // Plan 04-02 Task 3 (COST-02, COST-03): /accept-time cost gate.
-    // Query Core SUM, reject with SIP 503 if daily (€3) / monthly (€25) cap
-    // hit or suspension flag set. Pitfall 2-safe: gate fires ONCE per call,
-    // before openai.realtime.calls.accept. Fail-open on Core outage (logged).
+    // /accept-time cost gate — query Core SUM, reject with SIP 503 if daily
+    // (€3) / monthly (€25) cap hit or suspension flag set. Gate fires ONCE per
+    // call, before openai.realtime.calls.accept. Fail-open on Core outage (logged).
     const gate = await checkCostCaps(log)
     if (gate.decision !== 'allow') {
       log.warn({
@@ -329,10 +342,10 @@ export function registerAcceptRoute(
       return reply.code(200).send({ ok: true })
     }
 
-    // Plan 03-11 rewrite: outbound detection. If outboundRouter has an active
-    // task with no openai_call_id yet, this incoming OpenAI webhook is for
-    // the call WE initiated via ESL → bypass whitelist, use OUTBOUND_PERSONA,
-    // bind the call_id back to the task for end-of-call correlation.
+    // Outbound detection. If outboundRouter has an active task with no
+    // openai_call_id yet, this incoming OpenAI webhook is for the call WE
+    // initiated via ESL → bypass whitelist, use the outbound persona, bind
+    // the call_id back to the task for end-of-call correlation.
     const activeOutbound =
       outboundRouter?.getActiveTask() ?? null
     const isOutbound =
@@ -340,18 +353,17 @@ export function registerAcceptRoute(
     if (isOutbound && activeOutbound) {
       outboundRouter?.bindOpenaiCallId(activeOutbound.task_id, callId)
 
-      // Plan 05-03 Task 3: Case-2 AMD branch.
-      // When case_type='case_2', use CASE2_AMD_CLASSIFIER_PROMPT as instructions
-      // and add amd_result inline to the tools list (Bridge-internal, NOT in
-      // allowlist.ts — T-05-03-07). Drop 3 Case-6-specific tools that are
-      // irrelevant for restaurant reservations (REQ-TOOLS-09: 15 - 3 + 1 = 13).
-      // CAUTION: amd_result NOT added to allowlist.ts — compile-time cap stays 15.
+      // Case-2 AMD branch — when case_type='case_2', use CASE2_AMD_CLASSIFIER_PROMPT
+      // as initial instructions and add amd_result inline to the tools list
+      // (Bridge-internal, NOT in allowlist.ts). Drop 3 Case-6-specific tools
+      // that are irrelevant for restaurant reservations (15 - 3 + 1 = 13 tools).
       const isCase2 = activeOutbound.case_type === 'case_2'
 
-      // Plan 05-00 Task 1 / Wave 3 prep: honor per-call override envelope.
-      //   persona_override — use verbatim as instructions (skips buildOutboundPersona)
+      // Honor per-call override envelope (Spike-A / Wave 3):
+      //   persona_override — use verbatim as instructions
       //   tools_override   — REPLACE the default allowlist for THIS call only
-      // When neither is present and it's not Case-2, the pre-existing outbound path runs unchanged.
+      // When neither is present and it's not Case-2, the standard outbound
+      // path runs unchanged.
       const hasPersonaOverride =
         typeof activeOutbound.persona_override === 'string' &&
         activeOutbound.persona_override.length > 0
@@ -426,40 +438,23 @@ export function registerAcceptRoute(
               task_id: activeOutbound.task_id,
             })
             if (ctxRef) {
-              // Plan 05.2-05 Q7 finding (.planning/phases/05.2-persona-redesign-and-call-flow-state-machine/q7-atomicity-finding.md):
-              // Does a single session.update with BOTH instructions AND tools
-              // replace them atomically on the OpenAI server? Verdict is
-              // INCONCLUSIVE with a docs-lean toward ATOMIC per OpenAI
-              // Cookbook "Dynamic Conversation Flow via session.updates".
-              // Key narrowing: this handoff pushes instructions-ONLY —
-              // updateInstructions() at sideband.ts:704-710 actively strips
-              // the tools field (D-26/AC-05 invariant). The Case-2 tool list
-              // (13 tools including amd_result) was fixed at /accept and is
-              // not re-pushed here. Q7 therefore does NOT affect this code
-              // path under the current architecture. If Phase 5 state-graph
-              // transitions push instructions+tools together, re-visit this
-              // call site and run voice-bridge/scripts/session-update-atomicity-probe.ts.
-              //
-              // Also: Plan 05.2-04 migrated buildCase2OutboundPersona to
-              // compose baseline (persona/baseline.ts) + Case-2 overlay
-              // (persona/overlays/case-2.ts). Callsite signature unchanged;
-              // the `persona` string now contains baseline role-lock + overlay
-              // task details. See tests/webhook-amd-handoff.test.ts Test A.
-              //
-              // Push Case-2 persona to model via session.update, then trigger greeting.
+              // Plan 05.2-05 Q7 invariant: instructions-only session.update at
+              // AMD-handoff. updateInstructions() strips `tools` (D-26/AC-05);
+              // the Case-2 tool list (13 tools incl. amd_result) is fixed at
+              // /accept and never re-pushed — so the atomicity question around
+              // instructions+tools co-pushes does NOT affect this code path.
+              // Re-visit if a future state-graph transition pushes both together
+              // (see q7-atomicity-finding.md + session-update-atomicity-probe.ts).
+              // `persona` is baseline + Case-2 overlay (post-Plan 05.2-04 migration).
               updateInstructions(ctxRef.sideband.state, persona, log)
 
-              // Plan 05.1-01 Task 3 (defect #6 Layer 2, RESEARCH §2.5):
-              // synthetic user-directive injection between updateInstructions
-              // and the subsequent synchronous requestResponse (Plan 05.3-05a
-              // D-3 removed the legacy wrapping timer). Breaks the
-              // conversational context inherited from CASE2_AMD_CLASSIFIER_PROMPT
-              // — without this, the model may still mis-read the callee's
-              // opening greeting ("Restaurant Bellavista") as evidence it
-              // should continue in AMD-helper mode instead of
-              // CASE2_OUTBOUND_PERSONA. Text uses ASCII umlauts per
-              // project-wide persona convention. Pitfall 5: this item.create
-              // does NOT itself trigger a response.create (VAD only scopes
+              // Plan 05.1-01 Task 3 invariant: synthetic user-directive between
+              // updateInstructions and the synchronous requestResponse on
+              // AMD-handoff. Breaks the conversational context inherited from
+              // CASE2_AMD_CLASSIFIER_PROMPT — without this, the model may
+              // mis-read the callee's opening greeting as evidence it should
+              // continue in AMD-helper mode instead of CASE2_OUTBOUND_PERSONA.
+              // Does NOT itself trigger response.create (VAD only scopes
               // audio-derived items), so the explicit requestResponse below
               // is still required.
               try {
@@ -504,8 +499,8 @@ export function registerAcceptRoute(
               activeOutbound.persona_override = persona
             }
           },
-          // Plan 05.1-03 defect #4: factory extracted for unit-testability.
-          // See buildCase2OnVoicemailHandler + webhook-case-2-voicemail.test.ts.
+          // Factory extracted for unit-testability — see
+          // buildCase2OnVoicemailHandler + webhook-case-2-voicemail.test.ts.
           onVoicemail: buildCase2OnVoicemailHandler({
             callId,
             activeOutbound: {
@@ -575,8 +570,9 @@ export function registerAcceptRoute(
         })
       }
 
-      // Plan 05-00 Task 1 (Spike-A): when override is active, enable per-call
-      // sideband event trace to a deterministic path. Spike script tails it.
+      // Spike-A: when override is active (or Case-2 AMD branch), enable
+      // per-call sideband event trace to a deterministic path. Spike script
+      // tails it.
       const traceEventsPath =
         (hasPersonaOverride || hasToolsOverride || isCase2)
           ? `/tmp/spike-a-trace-${callId.replace(/[^a-zA-Z0-9_-]/g, '_')}.jsonl`
@@ -609,14 +605,11 @@ export function registerAcceptRoute(
           // explicitly post-AMD verdict.
           ctxRef = ctx
         } else {
-          // Plan 05.2-03 D-8: Case-1 (non-Case-2) outbound arms
+          // D-8 wait-for-speech (Case-1 non-Case-2 outbound): arm
           // armedForFirstSpeech=true so sideband waits for counterpart's first
-          // speech_stopped before firing response.create. Replaces the previous
-          // proactive bridge-side greeting push (which caused the bot to speak
-          // before the counterpart said hello — user complaint 2026-04-21).
-          // Silence + nudge ladder is persona-driven via baseline OUTBOUND_SCHWEIGEN
-          // block (D-1 3 attempts, D-2 Sie-form apologetic farewell) — no server
-          // timer per feedback_no_timer_based_silence memory.
+          // speech_stopped before firing response.create. Silence + nudge
+          // ladder is persona-driven via baseline OUTBOUND_SCHWEIGEN — no
+          // server-side timer (feedback_no_timer_based_silence).
           ctx.sideband.state.armedForFirstSpeech = true
           log.info({
             event: 'armed_for_first_speech',
@@ -657,12 +650,11 @@ export function registerAcceptRoute(
       return reply.code(200).send({ ok: true })
     }
 
-    // Accept — Phase 2 full session config (D-39..D-43):
-    // allowlist tools, persona (case6b or phase2), server_vad + create_response, de-DE.
-    // Plan 05.3-03 D-2: inbound Carsten composes baseline + case_6b_inbound_carsten
-    // overlay (retires legacy CASE6B_PERSONA). Mirrors outbound Case-2 composition
-    // pattern at persona.ts:224-255 / webhook.ts:445-452. personaLabel literal
-    // 'case6b' preserved byte-identical (D-6: log-observer contract unchanged).
+    // Accept — full session config: allowlist tools, persona (case6b or phase2),
+    // server_vad + create_response:false, de-DE. Inbound Carsten composes
+    // baseline + case_6b_inbound_carsten overlay (retires legacy CASE6B_PERSONA)
+    // mirroring outbound Case-2 composition. personaLabel literal 'case6b'
+    // preserved byte-identical (log-observer contract unchanged).
     const carstenBaseline = buildBasePersona({
       anrede_form: 'Du',
       counterpart_label: 'Carsten',
@@ -690,10 +682,9 @@ export function registerAcceptRoute(
         parameters: e.schema,
       }
     })
-    // Plan 04.5-03 / D-6 / Pitfall 5 (T-4.5-E): per-call MCP session.
-    // Construct the CoreMcpClient BEFORE router.startCall() so it flows
-    // through to openSidebandSession's ws.on('close') finalizer, which
-    // calls coreMcp.close() on hangup. Without this, the server-side
+    // Per-call MCP session: construct the CoreMcpClient BEFORE router.startCall()
+    // so it flows through to openSidebandSession's ws.on('close') finalizer,
+    // which calls coreMcp.close() on hangup. Without this, the server-side
     // sessions Map leaks one session per call.
     const coreMcp = CORE_MCP_URL
       ? new CoreMcpClient(new URL(CORE_MCP_URL), CORE_MCP_TOKEN)
@@ -719,13 +710,11 @@ export function registerAcceptRoute(
         persona_selected: personaLabel,
       })
 
-      // Plan 03-14 / REQ-VOICE-13: fire-and-forget Slow-Brain pre-greet
-      // injection. <2000ms budget, fallback to static persona on timeout
-      // or no instructions returned. Never blocks accept-handler return.
-      //
-      // Plan 04.5-03: adapt the per-call CoreMcpClient into the
-      // CoreClientLike shape slow-brain/pre-greet expect. The result cast
-      // to { ok, instructions_update? } mirrors v1's return-shape contract.
+      // Fire-and-forget Slow-Brain pre-greet injection (<2000ms budget,
+      // fallback to static persona on timeout or no instructions returned;
+      // never blocks accept-handler return). Adapt the per-call CoreMcpClient
+      // into the CoreClientLike shape slow-brain/pre-greet expect. The result
+      // cast to { ok, instructions_update? } mirrors v1's return-shape contract.
       const coreClient: CoreClientLike = coreMcp
         ? {
             callTool: async (name, args, o) =>
@@ -756,10 +745,10 @@ export function registerAcceptRoute(
           })
         })
         .finally(() => {
-          // Plan 03-15: explicit greet-trigger. OpenAI Realtime stays silent
-          // until an event drives a response. After pre-greet finishes (with
-          // or without injection), push a response.create so the model emits
-          // its opening line based on the (possibly updated) instructions.
+          // Explicit greet-trigger — OpenAI Realtime stays silent until an
+          // event drives a response. After pre-greet finishes (with or without
+          // injection), push a response.create so the model emits its opening
+          // line based on the (possibly updated) instructions.
           // Plan 05.3-05a D-3: setTimeout removed. Inbound self-greet fires
           // response.create synchronously; the legacy 1000ms audio-path-settle
           // compensation is no longer needed (Sipgate single-leg inbound bridge

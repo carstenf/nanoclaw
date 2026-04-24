@@ -1,6 +1,17 @@
 // voice-bridge/src/call-router.ts
-// Per-call state registry + lifecycle orchestration.
-// /accept -> startCall() ; realtime.call.completed -> endCall()
+// Phase 05.3 — Per-call state registry + lifecycle orchestration. /accept
+// bootstraps via startCall() (opens sideband WS, starts slow-brain, arms
+// hard-safety hangup floor); sideband WS-close fires endCall() (teardown,
+// ghost-scan, MCP-close via SidebandOpenOpts.coreMcp).
+//
+// Owning plans: 04.5-03 (per-call MCP session, Pitfall 5), 05.2 VAD wiring
+// (AMD-classifier forward, Case-2 VAD-fallback human path), 05.3-05b D-3 PART 2
+// (silence-monitor retired; hardHangup stub replaces VAD state machine).
+//
+// Load-bearing invariants:
+//   - AMD-classifier VAD-fallback human path: onSpeechStart/Stop/Transcript
+//     forwards to getAmdClassifier() (see closures below).
+//   - Hard-safety hangup floor: pure wall-clock ceiling, no VAD awareness.
 import type { Logger } from 'pino'
 import type { SidebandHandle } from './sideband.js'
 import type { SlowBrainWorker } from './slow-brain.js'
@@ -24,32 +35,29 @@ export interface CallContext {
   sideband: SidebandHandle
   slowBrain: SlowBrainWorker
   /**
-   * Plan 05.3-05b D-3 PART 2: hard-safety hangup floor (pure wall-clock timer,
-   * no VAD awareness). Retired the legacy silence-monitor VAD state machine +
-   * 3-round nudge ladder — native idle_timeout_ms (Plan 05.3-05a) + persona
-   * OUTBOUND_SCHWEIGEN / INBOUND_SCHWEIGEN now drive the UX layer.
+   * Hard-safety hangup floor (pure wall-clock timer, no VAD awareness).
+   * Replaces the legacy silence-monitor VAD state machine + 3-round nudge
+   * ladder — native idle_timeout_ms + persona OUTBOUND_SCHWEIGEN /
+   * INBOUND_SCHWEIGEN drive the UX layer (Plan 05.3-05a/b).
    */
   hardHangup: HardHangupHandle | null
   /**
-   * Plan 04.5-03 / D-6 / Pitfall 5 (T-4.5-E): per-call MCP session.
-   * Set by webhook.ts /accept via startCall({ coreMcp }). The sideband
-   * ws.on('close') handler receives this via SidebandOpenOpts.coreMcp and
-   * closes the MCP session — prevents server-side sessions Map leak.
-   * Optional — undefined when CORE_MCP_URL is unset (dev/test) or in
-   * test fixtures that don't need MCP plumbing.
+   * Per-call MCP session. Set by webhook.ts /accept via startCall({ coreMcp }).
+   * The sideband ws.on('close') handler receives this via SidebandOpenOpts.coreMcp
+   * and closes the MCP session — prevents server-side sessions Map leak.
+   * Optional — undefined when CORE_MCP_URL is unset (dev/test) or in test
+   * fixtures that don't need MCP plumbing.
    */
   coreMcp?: CoreMcpClient
 }
 
 /**
- * Plan 04.5-03: opts passed through startCall() into openSidebandSession
- * for the Pitfall-5 finalizer. Kept as its own interface so tests can
- * construct a router without worrying about MCP plumbing.
- *
- * Plan 05-00 Task 1 (Spike-A): traceEventsPath also flows through here so
- * that webhook.ts /accept can enable per-call event tracing when an
- * outbound task carries an override envelope. Production callers (non-
- * spike) leave this unset — null passthrough = no instrumentation.
+ * Opts passed through startCall() into openSidebandSession for the MCP-close
+ * finalizer. Kept as its own interface so tests can construct a router without
+ * worrying about MCP plumbing. `traceEventsPath` also flows through here so
+ * webhook.ts /accept can enable per-call Spike-A event tracing when an
+ * outbound task carries an override envelope. Production callers (non-spike)
+ * leave this unset — null passthrough = no instrumentation.
  */
 export interface StartCallOpts {
   coreMcp?: CoreMcpClient
@@ -58,9 +66,8 @@ export interface StartCallOpts {
 
 export interface CallRouter {
   /**
-   * Plan 04.5-03: `opts.coreMcp` — per-call MCP client (D-6). When
-   * provided, flows through to openSidebandSession so the WS-close
-   * finalizer can close the MCP session (Pitfall 5 / T-4.5-E).
+   * `opts.coreMcp` — per-call MCP client. When provided, flows through to
+   * openSidebandSession so the WS-close finalizer can close the MCP session.
    * Production caller: webhook.ts /accept; tests typically omit.
    */
   startCall: (callId: string, log: Logger, opts?: StartCallOpts) => CallContext
@@ -75,7 +82,7 @@ export interface CallRouterFactories {
   startSlowBrain?: typeof startSlowBrain
   runGhostScan?: typeof runGhostScan
   clearIdempotencyCache?: (callId: string) => void
-  /** Plan 03-11 rewrite: notify outbound-router when an outbound call ends. */
+  /** Notify outbound-router when an outbound call ends (task mark-done + next-queued). */
   onCallEndExtra?: (callId: string, reason: string) => void | Promise<void>
 }
 
@@ -113,9 +120,9 @@ export function createCallRouter(
           const closeLog = logs.get(id) ?? log
           router.endCall(id, closeLog)
         },
-        // Plan 02-10: Wire Sideband user-transcript-completed events into the
-        // Slow-Brain worker. Lookup via router.getCall so the closure doesn't
-        // capture a stale ctx before it's been registered in `map`.
+        // Wire Sideband user-transcript-completed events into the Slow-Brain
+        // worker. Lookup via router.getCall so the closure doesn't capture a
+        // stale ctx before it's been registered in `map`.
         onTranscriptTurn: (turnId, transcript) => {
           const existing = router.getCall(callId)
           if (!existing) {
@@ -127,39 +134,36 @@ export function createCallRouter(
             return
           }
           existing.slowBrain.push({ turnId, transcript })
-          // Plan 05.2 follow-up 2026-04-22: AMD VAD-fallback human path.
-          // Forward transcript to classifier; classifier.onTranscript checks
-          // mailbox regex + settles human if non-mailbox after speech cycle.
+          // Plan 05.2-06 AMD VAD-fallback invariant: forward transcript to
+          // classifier; classifier.onTranscript checks mailbox regex + settles
+          // verdict=human if non-mailbox after a speech cycle (Case-2 human path).
           getAmdClassifier()?.onTranscript(transcript)
         },
-        // Plan 05.3-05b D-3 PART 2: VAD events now ONLY drive the AMD
-        // classifier (Case-2 Timer B / VAD-fallback human path). Legacy
-        // silence-monitor forwards retired with the UX state machine — see
-        // silence-monitor.ts header. onBotStart/onBotStop handlers are gone
-        // entirely (hard-safety stub has no VAD awareness).
+        // VAD events drive the AMD classifier only (Case-2 VAD-fallback human
+        // path). Legacy silence-monitor forwards were retired with the UX
+        // state machine (see silence-monitor.ts header). onBotStart/onBotStop
+        // handlers are gone entirely (hard-safety stub has no VAD awareness).
         onSpeechStart: () => {
           getAmdClassifier()?.onSpeechStarted()
         },
         onSpeechStop: () => {
           getAmdClassifier()?.onSpeechStopped()
         },
-        // Plan 04.5-03 / Pitfall 5 / T-4.5-E: pass per-call MCP client to
-        // sideband so the WS-close finalizer can close it (prevents
-        // server-side sessions Map leak).
+        // Pass per-call MCP client to sideband so the WS-close finalizer can
+        // close it (prevents server-side sessions Map leak).
         coreMcp: startOpts.coreMcp,
-        // Plan 05-00 Task 1 (Spike-A): optional per-call event trace.
-        // Undefined in production = no tracing; spike path sets this via
-        // the outbound override envelope in webhook.ts.
+        // Optional per-call Spike-A event trace. Undefined in production =
+        // no tracing; spike path sets this via the outbound override envelope
+        // in webhook.ts.
         traceEventsPath: startOpts.traceEventsPath,
       })
       logs.set(callId, log)
       const slowBrain = fSlow(log, sideband.state)
-      // Plan 05.3-05b D-3 PART 2: per-call hard-safety hangup floor. Pure
-      // wall-clock ceiling — fires hangup after OUTBOUND_CALL_MAX_DURATION_MS
-      // regardless of VAD state. Outbound also has its own durationTimer in
+      // Plan 05.3-05b D-3 invariant: per-call hard-safety hangup floor (pure
+      // wall-clock ceiling). Fires hangup after OUTBOUND_CALL_MAX_DURATION_MS
+      // regardless of VAD state. Outbound has its own durationTimer in
       // outbound-router.ts; this is belt-and-braces for outbound and the sole
-      // ceiling for inbound. Skipped if no hangup callback is wired (tests,
-      // buildApp variants without OpenAI client).
+      // ceiling for inbound. Skipped if no hangup callback is wired (tests).
       const hangupCb = getHangupCallback()
       const hardHangup = hangupCb
         ? armHardHangup(callId, OUTBOUND_CALL_MAX_DURATION_MS, hangupCb, log)
@@ -207,8 +211,8 @@ export function createCallRouter(
           err: e.message,
         })
       })
-      // Plan 03-11 rewrite: outbound-router needs notification when its call
-      // ends so it can mark task done and trigger next queued.
+      // Notify outbound-router when its call ends so it can mark task done
+      // and trigger the next queued task.
       if (factories.onCallEndExtra) {
         try {
           void Promise.resolve(factories.onCallEndExtra(callId, 'normal')).catch(

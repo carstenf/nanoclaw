@@ -1,21 +1,22 @@
 // voice-bridge/src/sideband.ts
-// D-26 / D-43 / DIR-01..DIR-05:
-// Opens a per-call WebSocket to the OpenAI Realtime sideband, tracks the
-// connect SLA, sends instructions-only session.update messages. Graceful
-// degrade on error; hot-path never blocks on this module.
+// Phase 05.3 — Per-call OpenAI Realtime sideband WS client: connect, session.update
+// (instructions-only), event dispatch (VAD, transcript, tool-call, cost, idle-timeout),
+// and graceful teardown. Hot-path never blocks on this module.
 //
-// Plan 04-02 Task 3: response.done → cost accumulator + voice_record_turn_cost
-// fire-and-forget + 80% soft-warn + 100% hard-stop (instructions-only farewell
-// + ws.close after FAREWELL_TTS_HOLD_MS). session.closed → finalize_call_cost
-// + clearCall. Guard flags `warned` / `enforced` are check-and-mark atomic
-// (Pitfall 2 — single-threaded event loop).
+// Owning plans: 04-02 (cost enforcement), 05-00 Spike-A (trace path, §201-redacted),
+// 05.1-01 (session.type discriminator, WS-error observability), 05.2-02/03 (wait-for-
+// speech D-8, bot-audio events), 05.3-05a/04 (native idle_timeout_ms handler).
 //
-// Plan 05-00 Task 1 (Spike-A): optional traceEventsPath. When set, every
-// raw sideband event is appended to the given JSONL file with audio.delta
-// payloads redacted to `{ delta_bytes: <length> }` (§201 StGB compliance —
-// no audio persisted, only frame byte-count for spike latency analysis).
-// Production callers leave this unset; only the Spike-A throwaway script
-// populates it via the outbound override envelope.
+// Load-bearing invariants:
+//   - Plan 05.2-03 D-8 wait-for-speech gate (see armedForFirstSpeech handler below).
+//   - Plan 05.3-05a D-3 idle_timeout_ms observability parity (see input_audio_buffer.
+//     timeout_triggered handler).
+//   - Plan 05.1-01 session.type='realtime' discriminator on every session.update
+//     (GA 2026 requires it; missing → invalid_request_error silently drops persona swap).
+//   - §201 StGB zero-audio-leak: response.audio.delta bytes redacted from trace path;
+//     only delta_bytes length persisted.
+//
+// ASCII-umlaut convention enforced project-wide (see persona/baseline.ts header).
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { Logger } from 'pino'
@@ -42,10 +43,10 @@ import {
 } from './core-mcp-client.js'
 import { sendDiscordAlert as defaultSendDiscordAlert } from './alerts.js'
 
-/** Plan 04-02: farewell hold before ws.close after hard-stop. */
+/** Cost-hard-stop: farewell hold before ws.close. */
 export const FAREWELL_TTS_HOLD_MS = 4000
 
-/** Plan 04-02: hard-stop session.update instructions — instructions-only (AC-04/AC-05). */
+/** Cost-hard-stop session.update instructions — instructions-only (D-26/AC-05). */
 export const FAREWELL_INSTR =
   "Dein Zeitbudget für dieses Gespräch ist aufgebraucht. Verabschiede dich jetzt höflich mit einem einzigen Satz, z.B. 'Vielen Dank, ich melde mich später erneut. Auf Wiederhören.' und sage danach nichts mehr."
 
@@ -55,27 +56,27 @@ export interface SidebandState {
   ws: WSType | null
   openedAt: number
   lastUpdateAt: number
-  /** Plan 04-02: surfaced by router when a call opens — finalize_call_cost uses it. */
+  /** Surfaced by router when a call opens — finalize_call_cost uses it. */
   caseType?: string
-  /** Plan 04-02: ISO string of call start, for finalize_call_cost.started_at. */
+  /** ISO string of call start, for finalize_call_cost.started_at. */
   startedAtIso?: string
   /**
-   * Plan 05.2-03 D-8: outbound wait-for-speech. Set to `true` by webhook.ts
-   * at outbound /accept (Case-1) or post-AMD-verdict (Case-2). On the FIRST
-   * `input_audio_buffer.speech_stopped` after arming, the sideband onmessage
-   * handler fires a single `response.create` (bot's opening turn) and clears
-   * the flag to `false` so subsequent speech_stopped events do not re-fire.
+   * Plan 05.2-03 D-8: outbound wait-for-speech INVARIANT. Set to `true` by
+   * webhook.ts at outbound /accept (Case-1) or post-AMD-verdict (Case-2). On
+   * the FIRST `input_audio_buffer.speech_stopped` after arming, the sideband
+   * onmessage handler fires a single `response.create` (bot's opening turn)
+   * and clears the flag so subsequent speech_stopped events do not re-fire.
    * Inbound paths leave this `false` — inbound self-greet fires
    * requestResponse synchronously at the end of /accept's pre-greet finally
-   * handler (Plan 05.3-05a D-3 removed the legacy 1000ms setTimeout).
+   * handler.
    */
   armedForFirstSpeech: boolean
 }
 
 /**
- * Plan 04-02 Task 3: DI for the per-call cost accumulator. Production
- * callers leave this unset — the accumulator.ts module is used. Tests pass
- * a mock that captures add() / markWarned() / markEnforced() calls.
+ * DI for the per-call cost accumulator. Production callers leave this unset —
+ * the accumulator.ts module is used. Tests pass a mock that captures add() /
+ * markWarned() / markEnforced() calls.
  */
 export interface CostAccumulatorLike {
   add: (
@@ -118,25 +119,25 @@ export interface SidebandOpenOpts {
   wsFactory?: (url: string, headers: Record<string, string>) => WSType
   urlTemplate?: string
   apiKey?: string
-  /** Plan 04-02: accumulator DI (production default → src/cost/accumulator.ts). */
+  /** Accumulator DI (production default → src/cost/accumulator.ts). */
   costAccumulator?: CostAccumulatorLike
-  /** Plan 04-02: Core MCP client DI (production default → src/core-mcp-client.ts callCoreTool). */
+  /** Core MCP client DI (production default → src/core-mcp-client.ts callCoreTool). */
   callCoreTool?: (
     name: string,
     args: unknown,
     opts: { timeoutMs: number },
   ) => Promise<unknown>
-  /** Plan 04-02: Discord alert DI (production default → src/alerts.ts sendDiscordAlert). */
+  /** Discord alert DI (production default → src/alerts.ts sendDiscordAlert). */
   sendDiscordAlert?: (message: string) => Promise<void>
-  /** Plan 04-02: per-call cap (€). Default CAP_PER_CALL_EUR from gate.ts. */
+  /** Per-call cap (€). Default CAP_PER_CALL_EUR from gate.ts. */
   capPerCallEur?: number
-  /** Plan 04-02: soft-warn fraction. Default SOFT_WARN_FRACTION from gate.ts. */
+  /** Soft-warn fraction. Default SOFT_WARN_FRACTION from gate.ts. */
   softWarnFraction?: number
-  /** Plan 04-02: hold time (ms) between farewell response.create and ws.close. */
+  /** Hold time (ms) between farewell response.create and ws.close. */
   farewellTtsHoldMs?: number
-  /** Plan 04-02: case_type for finalize_call_cost. Default 'unknown'. */
+  /** case_type for finalize_call_cost. Default 'unknown'. */
   caseType?: string
-  /** Plan 04-02: test-only override for setTimeout (farewell hold timer). */
+  /** Test-only override for setTimeout (farewell hold timer). */
   setTimeoutFn?: (fn: () => void, ms: number) => unknown
   /**
    * Invoked when the sideband WS closes. This is the authoritative call-end
@@ -147,52 +148,52 @@ export interface SidebandOpenOpts {
    */
   onClose?: (callId: string) => void
   /**
-   * Plan 02-10: Invoked per user-utterance-turn-end, i.e. when an OpenAI
-   * Realtime `conversation.item.input_audio_transcription.completed` event
-   * arrives on the sideband WS. Carries the stable item_id as turnId and the
-   * final transcript text. Callers wire this to `slowBrain.push({...})`.
+   * Invoked per user-utterance-turn-end, i.e. when an OpenAI Realtime
+   * `conversation.item.input_audio_transcription.completed` event arrives on
+   * the sideband WS. Carries the stable item_id as turnId and the final
+   * transcript text. Callers wire this to `slowBrain.push({...})`.
    */
   onTranscriptTurn?: (turnId: string, transcript: string) => void
   /**
-   * Plan 02-11: DI hook for dispatchTool. If provided, used instead of the
-   * real dispatchTool import. Allows tests to mock without side-effects.
+   * DI hook for dispatchTool. If provided, used instead of the real
+   * dispatchTool import. Allows tests to mock without side-effects.
    * Production callers (call-router) leave this unset — the sideband module
    * imports the real dispatchTool lazily via dynamic import to avoid circular
    * dependency at module load time.
    */
   dispatchTool?: DispatchToolFn
   /**
-   * Plan 03-15: VAD speech-segment events. Used by silence-monitor to detect
-   * caller-side silence (no speech_started for >10s after speech_stopped) and
-   * fire forced response.create prompts (REQ-VOICE-08/09).
+   * VAD speech-segment events. Currently wired by call-router.ts solely into
+   * the AMD-classifier (Case-2 VAD-fallback human path). Legacy silence-
+   * monitor forwards retired in Plan 05.3-05b when the UX state machine was
+   * replaced by native turn_detection.idle_timeout_ms + persona SCHWEIGEN ladder.
    */
   onSpeechStart?: () => void
   onSpeechStop?: () => void
   /**
-   * Plan 05.2-02 D-7 / research §4.3: bot-audio events. Used by silence-monitor
-   * to pause the silence countdown while the bot is speaking (prevents
-   * "Bist du noch da" from firing mid-bot-turn, live-defect 2026-04-21).
-   * Events are OpenAI Realtime server-events: `output_audio_buffer.started`
-   * and `output_audio_buffer.stopped`.
+   * Bot-audio events. Currently optional hooks with no production consumers
+   * (silence-monitor retirement removed them). Kept as no-op fire points for
+   * future wiring or buildApp variants. Events are OpenAI Realtime server-
+   * events: `output_audio_buffer.started` and `output_audio_buffer.stopped`.
    */
   onBotStart?: () => void
   onBotStop?: () => void
   /**
-   * Plan 04.5-03 / D-6 / Pitfall 5 (T-4.5-E): per-call MCP session handle.
-   * When provided, the sideband WS-close finalizer will call
-   * `coreMcp.close()` inside a try/catch — prevents server-side sessions
-   * Map leak. Null/undefined in tests and when CORE_MCP_URL is unset.
+   * Per-call MCP session handle. When provided, the sideband WS-close
+   * finalizer will call `coreMcp.close()` inside a try/catch — prevents
+   * server-side sessions Map leak. Null/undefined in tests and when
+   * CORE_MCP_URL is unset.
    */
   coreMcp?: CoreMcpClient
   /**
-   * Plan 05-00 Task 1 (Spike-A): when set, every raw sideband message is
-   * appended (one JSON object per line) to this file. The `response.audio.delta`
-   * event has its `delta` base64 payload stripped and replaced with
+   * Spike-A trace path — when set, every raw sideband message is appended
+   * (one JSON object per line) to this file. The `response.audio.delta` event
+   * has its `delta` base64 payload stripped and replaced with
    * `delta_bytes: <decoded-length>` — no audio is persisted (§201 StGB).
    * Every appended record carries `t_ms_since_open` (elapsed since ws open)
-   * so downstream analysis can measure pickup→verdict latency.
-   * Production callers leave this unset — only Spike-A throwaway script sets
-   * it via the outbound override envelope in webhook.ts.
+   * so downstream analysis can measure pickup→verdict latency. Production
+   * callers leave this unset — only the spike throwaway script sets it via
+   * the outbound override envelope in webhook.ts.
    */
   traceEventsPath?: string
 }
@@ -224,12 +225,12 @@ export function openSidebandSession(
     lastUpdateAt: 0,
     caseType: opts.caseType ?? 'unknown',
     startedAtIso: new Date(t0).toISOString(),
-    // Plan 05.2-03 D-8: default false; webhook.ts flips to true for outbound.
+    // D-8 wait-for-speech: default false; webhook.ts flips to true for outbound /accept.
     armedForFirstSpeech: false,
   }
 
-  // Plan 04-02 Task 3: cost-enforcement DI. Production defaults to the real
-  // accumulator/core-mcp/alerts modules; tests inject mocks to assert calls.
+  // Cost-enforcement DI. Production defaults to the real accumulator/core-mcp/
+  // alerts modules; tests inject mocks to assert calls.
   const accumulator: CostAccumulatorLike =
     opts.costAccumulator ?? (defaultAccumulator as unknown as CostAccumulatorLike)
   const costOfResponseDone =
@@ -277,9 +278,9 @@ export function openSidebandSession(
     })
   })
 
-  // Plan 05-00 Task 1 (Spike-A): optional trace-writer. Idempotent dir-mkdir
-  // on first message; after that, just appendFileSync per event. All errors
-  // swallowed — trace is spike-only and must never crash the hot path.
+  // Optional Spike-A trace-writer. Idempotent dir-mkdir on first message;
+  // after that, just appendFileSync per event. All errors swallowed — trace is
+  // spike-only and must never crash the hot path.
   const traceEventsPath = opts.traceEventsPath
   let traceDirEnsured = false
   function maybeWriteTrace(parsed: Record<string, unknown>): void {
@@ -314,9 +315,9 @@ export function openSidebandSession(
   }
 
   ws.on('message', (raw: unknown) => {
-    // Plan 02-10 + 02-11: parse OpenAI Realtime events.
-    // Any JSON-parse failure or unexpected shape is swallowed with a WARN —
-    // message-loop must never crash the WS (REQ-DIR-02 hot-path-continuity).
+    // Parse OpenAI Realtime server events. Any JSON-parse failure or unexpected
+    // shape is swallowed with a WARN — message-loop must never crash the WS
+    // (hot-path-continuity).
     try {
       const text =
         typeof raw === 'string'
@@ -334,22 +335,20 @@ export function openSidebandSession(
         delta?: unknown
       }
 
-      // Plan 05-00 Task 1 (Spike-A): trace every event if the spike-path
-      // was enabled for this call. No-op when traceEventsPath is undefined.
+      // Trace every event if the spike-path was enabled for this call.
+      // No-op when traceEventsPath is undefined.
       maybeWriteTrace(parsed as Record<string, unknown>)
 
-      // Plan 03-15: VAD speech-segment events for silence-monitor
+      // VAD speech-segment events — currently consumed by AMD-classifier only.
       if (parsed?.type === 'input_audio_buffer.speech_started') {
         opts.onSpeechStart?.()
         return
       }
       if (parsed?.type === 'input_audio_buffer.speech_stopped') {
-        // Plan 05.2-03 D-8: outbound wait-for-speech. If this outbound call
-        // was armed at /accept (or post-AMD verdict in Case-2), the FIRST
-        // speech_stopped fires the bot's opening response.create exactly
-        // once. Subsequent speech_stopped events flow only to the
-        // silence-monitor onSpeechStop handler — preserving existing
-        // turn-taking behavior after the bot's opening line.
+        // Plan 05.2-03 D-8 invariant: outbound wait-for-speech. If this outbound
+        // call was armed at /accept (or post-AMD verdict in Case-2), the FIRST
+        // speech_stopped fires the bot's opening response.create exactly once.
+        // Subsequent speech_stopped events are turn-taking signals only.
         if (state.armedForFirstSpeech) {
           state.armedForFirstSpeech = false
           log.info({
@@ -362,11 +361,10 @@ export function openSidebandSession(
         return
       }
 
-      // Plan 05.2-02 D-7 / research §4.3: bot-audio-aware silence monitor.
+      // Bot-audio events (output_audio_buffer.{started,stopped}). No production
+      // consumers after silence-monitor retirement; fire optional hooks only.
       // `output_audio_buffer.stopped` fires after full response data is sent
       // (response.done) — conservative "bot truly finished speaking" signal.
-      // See OpenAI Realtime Server Events reference:
-      // https://developers.openai.com/api/reference/resources/realtime/server-events
       if (parsed?.type === 'output_audio_buffer.started') {
         opts.onBotStart?.()
         return
@@ -376,14 +374,12 @@ export function openSidebandSession(
         return
       }
 
-      // Plan 05.3-05a D-3 / 05.3-04 D-4: native idle_timeout fired. Server
-      // auto-commits empty audio via input_audio_buffer.committed AND auto-
-      // generates a model response (persona OUTBOUND_SCHWEIGEN /
+      // Plan 05.3-05a D-3 event-driver invariant: native idle_timeout fired.
+      // Server auto-commits empty audio via input_audio_buffer.committed AND
+      // auto-generates a model response (persona OUTBOUND_SCHWEIGEN /
       // INBOUND_SCHWEIGEN ladder steers the nudge text from session
       // instructions). No bridge action required — this log is for metric
-      // parity with legacy silence_round_* events. See
-      // .planning/phases/05.3-refactor-cleanup-timer-removal/idle-timeout-finding.md
-      // §"Impact on sideband.ts event-handler wiring" Handler 1.
+      // parity with legacy silence_round_* events. See idle-timeout-finding.md.
       if (parsed?.type === 'input_audio_buffer.timeout_triggered') {
         const p = parsed as {
           audio_start_ms?: unknown
@@ -402,7 +398,7 @@ export function openSidebandSession(
         return
       }
 
-      // Plan 02-10: user-utterance transcript completed → slow-brain push
+      // User-utterance transcript completed → slow-brain push
       if (
         opts.onTranscriptTurn &&
         parsed?.type === 'conversation.item.input_audio_transcription.completed' &&
@@ -416,7 +412,7 @@ export function openSidebandSession(
         return
       }
 
-      // Plan 02-11: function_call_arguments.done → dispatch tool fire-and-forget
+      // function_call_arguments.done → dispatch tool fire-and-forget
       if (parsed?.type === 'response.function_call_arguments.done') {
         const functionCallId =
           typeof parsed.call_id === 'string' ? parsed.call_id : ''
@@ -456,9 +452,10 @@ export function openSidebandSession(
         return
       }
 
-      // Plan 04-02 Task 3 (COST-01/COST-04 + INFRA-06 live):
       // response.done → accumulate + fire-and-forget voice_record_turn_cost
       // + soft-warn at 80% + hard-stop at 100% (instructions-only farewell).
+      // Single-threaded event loop guarantees check-and-mark atomicity of the
+      // `warned` / `enforced` flags below.
       if (parsed?.type === 'response.done') {
         try {
           const evt = parsed as ResponseDoneEvent
@@ -499,9 +496,7 @@ export function openSidebandSession(
             })
           })
 
-          // Pitfall 2: check-and-mark is atomic within one tick — the
-          // single-threaded event loop guarantees no concurrent response.done
-          // handler can observe the same `enforced(callId)===false` twice.
+          // Check-and-mark is atomic within one tick (single-threaded event loop).
           const perCall = accumulator.totalEur(callId)
           if (perCall >= capPerCallEur && !accumulator.enforced(callId)) {
             accumulator.markEnforced(callId)
@@ -564,8 +559,8 @@ export function openSidebandSession(
         return
       }
 
-      // Plan 04-02 Task 3 (COST-01 teardown): session.closed / terminated
-      // → finalize_call_cost (if not already enforced) + clearCall.
+      // session.closed / session.terminated → finalize_call_cost (if not
+      // already enforced) + clearCall.
       if (
         parsed?.type === 'session.closed' ||
         parsed?.type === 'session.terminated'
@@ -602,12 +597,10 @@ export function openSidebandSession(
         return
       }
 
-      // Plan 05.1-01 (Pitfall 2 observability): explicit OpenAI WS error
-      // handler. Without this, invalid_request_error (e.g. missing
-      // session.type) is swallowed silently and defects like #6 remain
-      // invisible in logs for weeks. Log at ERROR level with full error
-      // envelope so ops can grep session_update_rejected.
-      // See .planning/phases/05.1-amd-persona-handoff-redesign-and-asr-upgrade/05.1-RESEARCH.md §8 Pitfall 2.
+      // Explicit OpenAI WS error handler. Without this, invalid_request_error
+      // (e.g. missing session.type) is swallowed silently and defects remain
+      // invisible. Log at ERROR level with full error envelope so ops can grep
+      // session_update_rejected.
       if (parsed?.type === 'error') {
         const err =
           (parsed as {
@@ -645,11 +638,10 @@ export function openSidebandSession(
     state.ready = false
     clearTimeout(timer)
     log.info({ event: 'sideband_closed', call_id: callId })
-    // Plan 04.5-03 / Pitfall 5 / T-4.5-E: close the per-call MCP session
-    // so the server-side sessions Map doesn't leak one session per call.
-    // Fire-and-forget with try/catch so a close failure logs but doesn't
-    // block other teardown steps. CoreMcpClient.close() is idempotent —
-    // safe to call even if the session was never opened.
+    // Close the per-call MCP session so the server-side sessions Map doesn't
+    // leak one session per call. Fire-and-forget with try/catch so a close
+    // failure logs but doesn't block other teardown steps. CoreMcpClient.close()
+    // is idempotent — safe to call even if the session was never opened.
     const coreClient = opts.coreMcp
     if (coreClient) {
       void coreClient.close().then(
@@ -703,8 +695,8 @@ function _getDispatchTool(): DispatchToolFn {
 }
 
 /**
- * D-26 / AC-05: instructions-only session.update. Any `tools` key in the
- * extra-session payload is stripped and logged BUG-level before send.
+ * Instructions-only session.update (D-26/AC-05 invariant). Any `tools` key in
+ * the extra-session payload is stripped and logged BUG-level before send.
  */
 export function updateInstructions(
   state: SidebandState,
@@ -720,13 +712,11 @@ export function updateInstructions(
     })
     return false
   }
-  // Plan 05.1-01 (defect #6 L1): OpenAI Realtime GA 2026 requires the
-  // session.type discriminator on every session.update. Without it the
-  // server rejects with invalid_request_error(param='session.type') and the
-  // persona swap silently fails. `type` is placed FIRST so extraSession
-  // spread can still override it if a future caller explicitly needs a
-  // 'transcription' session — no production caller currently does.
-  // See .planning/phases/05.1-amd-persona-handoff-redesign-and-asr-upgrade/05.1-RESEARCH.md §2.4.
+  // Plan 05.1-01 invariant: session.type='realtime' discriminator is MANDATORY
+  // on every session.update (OpenAI Realtime GA 2026). Without it the server
+  // rejects with invalid_request_error(param='session.type') and the persona
+  // swap silently fails. `type` is placed FIRST so extraSession spread can
+  // still override it for future 'transcription' callers.
   const session: Record<string, unknown> = { type: 'realtime', ...extraSession, instructions }
   if ('tools' in session) {
     log.error({
@@ -751,11 +741,11 @@ export function updateInstructions(
 }
 
 /**
- * Plan 03-15: actively request a model response. OpenAI Realtime API only
- * generates assistant audio in reaction to events — without an explicit
- * response.create the model stays silent even after session.update. Used by:
- * - Greet-trigger (post-accept proactive greeting)
- * - Silence-monitor forced re-engagement after caller silence
+ * Actively request a model response. OpenAI Realtime API only generates
+ * assistant audio in reaction to events — without an explicit response.create
+ * the model stays silent even after session.update. Used by:
+ * - Greet-trigger (post-accept synchronous greeting, inbound + outbound)
+ * - Case-2 post-AMD-handoff bot-opening turn
  *
  * `instructionsOverride` injects a one-shot instruction for THIS response only,
  * leaving the session-level instructions intact. Without it, the model uses
