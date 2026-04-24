@@ -289,9 +289,15 @@ async function buildContainerArgs(
   // The URL uses host.docker.internal so the container resolves through the
   // Docker bridge to the host's MCP stream server (port 3201, bound 0.0.0.0).
   const mcpStreamBearer = process.env.MCP_STREAM_BEARER ?? '';
+  // Phase 05.4 Bug-2: URL points to the server ROOT, not `/mcp`. The stream
+  // server routes the StreamableHTTP protocol on `/` (see mcp-stream-server
+  // .ts `app.all('/')`); `/health` is the only path-prefixed endpoint. An
+  // earlier `/mcp` default caused Express 404 "Cannot POST /mcp" and the
+  // SDK silently skipped the HTTP MCP server, leaving Andy without voice
+  // tools.
   const nanoclawVoiceMcpUrl =
     process.env.NANOCLAW_VOICE_MCP_URL ??
-    'http://host.docker.internal:3201/mcp';
+    'http://host.docker.internal:3201/';
   if (mcpStreamBearer) {
     args.push('-e', `MCP_STREAM_BEARER=${mcpStreamBearer}`);
     args.push('-e', `NANOCLAW_VOICE_MCP_URL=${nanoclawVoiceMcpUrl}`);
