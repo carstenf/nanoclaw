@@ -1,13 +1,15 @@
 // voice-bridge/src/silence-monitor.ts
-// Plan 05.3-05b D-3 PART 2 — hard-safety-stub (verdict SHRINK-TO-HARD-SAFETY-STUB
-// from idle-timeout-finding.md). UX silence/nudge ladder is retired; OpenAI
-// Realtime native `turn_detection.idle_timeout_ms` (Plan 05.3-05a) drives
+// Phase 05.3 — Hard-safety hangup stub. Pure wall-clock ceiling for
+// catatonic-call / end_call-failed safety. NO VAD awareness, NO round ladder,
+// NO forced response.create pushes. The legacy UX silence/nudge ladder was
+// retired in Plan 05.3-05b D-3 PART 2; OpenAI Realtime native
+// turn_detection.idle_timeout_ms (see config.ts SESSION_CONFIG) drives
 // server-side response.create with persona OUTBOUND_SCHWEIGEN / INBOUND_SCHWEIGEN
-// ladders (baseline.ts:36-58) in scope. No VAD awareness, no round ladder, no
-// forced response.create pushes. Pure wall-clock ceiling for catatonic-call /
-// end_call-failed safety (outbound also has OUTBOUND_CALL_MAX_DURATION_MS in
-// outbound-router.ts; this covers the inbound hard floor + a belt-and-braces
-// second trigger for outbound).
+// ladders (baseline.ts) in scope.
+//
+// Outbound has its own OUTBOUND_CALL_MAX_DURATION_MS timer in outbound-router.ts;
+// this module provides the inbound hard floor + a belt-and-braces second
+// trigger for outbound.
 import type { Logger } from 'pino'
 
 export interface HardHangupHandle {

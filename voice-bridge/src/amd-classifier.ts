@@ -1,45 +1,37 @@
 // voice-bridge/src/amd-classifier.ts
-// Plan 05-03 Task 1: Case-2 AMD (Answering Machine Detection) classifier.
+// Phase 05.3 — Case-2 AMD (Answering Machine Detection) classifier.
 //
-// Design: event-driven hybrid AMD per Spike-A + Spike-C carryforward.
-// - Stage 1: regex match on cumulative ASR transcript (CASE2_MAILBOX_CUE_REGEX_V2)
-// - Stage 2: VAD cadence gate (Timer A: 4000ms uninterrupted speech) + silence gate (Timer B: 6000ms no speech)
-// - amd_result function_call from model: explicit verdict from OpenAI Realtime
+// Event-driven hybrid AMD:
+//   - Stage 1: regex match on cumulative ASR transcript (CASE2_MAILBOX_CUE_REGEX_V2)
+//   - Stage 2: VAD-fallback human path (Plan 05.2-06 invariant — see onTranscript below)
+//   - Stage 3 (fallback): amd_result function_call from model (unreliable for
+//     human verdict with gpt-realtime; retained for voicemail)
+//   - Timer A (cadence gate, CASE2_VAD_CADENCE_MS): uninterrupted speech →
+//     onVoicemail('cadence_cue')
+//   - Timer B (silence gate, CASE2_VAD_SILENCE_MS): no speech_started →
+//     onVoicemail('silence_mailbox')
+//   - All timers cleared on verdict.
 //
-// Critical: zero audio emitted before voicemail verdict (§201 StGB, T-05-03-01).
-// If response.audio.delta arrives before verdict, log warn + set audioLeaked (Test 12).
+// Load-bearing invariants:
+//   - §201 StGB zero-audio-leak: no bot audio before voicemail verdict. If
+//     response.audio.delta arrives before verdict, log warn + set audioLeaked.
+//   - Plan 05.2-06 VAD-fallback human: speech_started + speech_stopped + ≥3
+//     non-whitespace transcript chars → settleHuman() (bypasses unreliable
+//     amd_result=human emit). §201 preserved because settleHuman fires ONLY
+//     after the caller has clearly spoken.
 //
-// Spike-A verdict was 'partial': model can emit amd_result before real audio evidence.
-// Mitigation: Bridge-side VAD gates + transcript-cue regex provide reliable secondary gates.
-//
-// Timer A (cadence gate): armed at construction. Fires at CASE2_VAD_CADENCE_MS after
-//   speech_started if no speech_stopped yet and no verdict. → onVoicemail('cadence_cue').
-// Timer B (silence gate): armed at construction. Fires at CASE2_VAD_SILENCE_MS if
-//   no speech_started observed and no verdict. → onVoicemail('silence_mailbox').
-// Both timers cleared on verdict.
+// ASCII-umlaut convention enforced project-wide (see persona/baseline.ts header).
 
 import { CASE2_VAD_CADENCE_MS, CASE2_VAD_SILENCE_MS } from './config.js'
 import type { Logger } from 'pino'
 
 // ---- Prompt ----
 
-// Plan 05.2-04 D-10 (scope clarification):
-//
 // CASE2_AMD_CLASSIFIER_PROMPT is a LISTEN-ONLY DETECTION prompt — the model
 // is in a non-conversational mode whose only output is the amd_result
 // function-call with verdict ∈ {human, voicemail, silent, noise}. It is
-// structurally distinct from the baseline+overlay conversation-mode
-// persona (voice-bridge/src/persona/baseline.ts).
-//
-// D-10: AMD classifier prompt is NOT consolidated into the new baseline in
-// Phase 05.2. If/when state-machine Phase 5 (full Pipecat-Flows-style) ships,
-// the classifier mode becomes one state ("LISTEN") with baseline+listen-overlay;
-// until then it stays as a separate, self-contained prompt.
-//
-// See:
-//   - .planning/phases/05.2-persona-redesign-and-call-flow-state-machine/05.2-CONTEXT.md D-10
-//   - .planning/research/voice-persona-architecture.md §1.2, §6.4
-//   - voice-bridge/src/persona/baseline.ts (baseline persona used post-AMD-verdict)
+// structurally distinct from the baseline+overlay conversation-mode persona
+// (persona/baseline.ts) used post-AMD-verdict.
 
 /**
  * AMD classifier prompt — verbatim from Plan 05-03 interfaces section.
@@ -239,14 +231,11 @@ export function createAmdClassifier(opts: AmdClassifierOpts): AmdClassifier {
         return
       }
 
-      // Stage 2 (Plan 05.2 follow-up 2026-04-22): VAD-fallback human path.
-      // gpt-realtime does not reliably emit amd_result=human even for clear
-      // human greetings (observed 2026-04-21 + 2026-04-22 live tests). If we
-      // have BOTH speech_started AND speech_stopped AND a non-trivial
-      // non-mailbox transcript (>= 3 non-whitespace chars), default to human.
-      // This makes verdict non-dependent on the unreliable function_call.
-      // §201 is preserved: settleHuman fires ONLY after the caller has clearly
-      // spoken, so there is no bot audio before the verdict regardless.
+      // Plan 05.2-06 VAD-fallback human invariant: gpt-realtime does not reliably
+      // emit amd_result=human even for clear human greetings. With BOTH
+      // speech_started AND speech_stopped AND a non-trivial non-mailbox
+      // transcript (>= 3 non-whitespace chars), default to human. §201 StGB
+      // is preserved because settleHuman fires ONLY after the caller spoke.
       if (
         speechStartedObserved &&
         speechStoppedObserved &&

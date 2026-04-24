@@ -1,29 +1,22 @@
 // voice-bridge/src/persona.ts
-// Phase-2 persona prompt. Hard-coded German (REQ-VOICE-06) + directive
-// tool-first prohibition (AC-06) + readback mandate (persona-side text;
-// DIR-13 validator enforcement lives in src/readback/validator.ts,
-// Plan 02-04) + silence prompts (REQ-VOICE-08) + filler directive
-// (REQ-VOICE-07) + passive disclosure (DISC-01..03, LEGAL-04).
+// Phase 05.3 — Legacy persona module, retained ONLY for:
+//   - OUTBOUND_PERSONA_TEMPLATE + buildOutboundPersona (Case-1 outbound path)
+//   - PHASE2_PERSONA (non-Carsten inbound fallback in webhook.ts)
+//   - buildCase2OutboundPersona (wraps baseline + Case-2 overlay for Case-2 AMD branch)
+//   - Case2OutboundPersonaArgs type + toGermanNumber + timeToGerman utilities
+//     (consumed by persona/overlays/case-2.ts)
 //
-// This constant is the "floor" instructions passed at /accept (D-40..D-42).
-// Slow-Brain may push instructions-only session.update on top of this floor
-// (D-26); the floor persona always governs in fallback scenarios (D-27).
+// CASE6B_PERSONA + CASE2_TOLERANCE_DECISION_BLOCK + CASE2_HOLD_MUSIC_CLARIFYING_BLOCK
+// were removed in Phase 05.2/05.3 — all Case-6b + Case-2 inline text now lives
+// in persona/baseline.ts + persona/overlays/. This file will shrink further as
+// remaining callers migrate to the baseline+overlay pattern.
 //
-// Plan 05.2-04: buildCase2OutboundPersona migrated to baseline+overlay
-// composition (see buildBasePersona / buildCase2Overlay imports below).
-// Legacy CASE2_TOLERANCE_DECISION_BLOCK + CASE2_HOLD_MUSIC_CLARIFYING_BLOCK
-// removed; Case-2 specific text now lives in persona/overlays/case-2.ts.
+// ASCII-umlaut convention enforced project-wide (see persona/baseline.ts header).
 
 import { buildBasePersona } from './persona/baseline.js'
 import { buildCase2Overlay } from './persona/overlays/case-2.js'
 
-// Plan 05.3-03 D-2: CASE6B_PERSONA const DELETED (inbound /accept webhook now
-// composes baseline + buildTaskOverlay('case_6b_inbound_carsten') per
-// Plan 05.2-04 artifact). Grep-verified: no external references remained
-// in voice-bridge/src/ outside tests/persona.test.ts (updated as part of
-// this migration).
-
-// ---- Plan 03-11: Outbound persona (expanded in Task 05) ----
+// ---- Outbound persona (non-Case-2 Case-1 path) ----
 
 export const OUTBOUND_PERSONA_TEMPLATE = [
   'Du bist NanoClaw, ein freundlicher deutscher Sprach-Assistent im Auftrag von Carsten Freek.',
@@ -100,7 +93,7 @@ export function toGermanNumber(n: number): string {
 
 /**
  * Convert HH:MM time string to German spoken form e.g. "19:00" → "neunzehn Uhr".
- * Exported for overlay consumers (Plan 05.2-04).
+ * Exported for overlay consumers (persona/overlays/case-2.ts).
  */
 export function timeToGerman(hhmm: string): string {
   const parts = hhmm.split(':')
@@ -111,11 +104,6 @@ export function timeToGerman(hhmm: string): string {
   if (minute === 30) return `halb ${toGermanNumber(hour + 1)}`
   return `${hourWord} Uhr ${toGermanNumber(minute)}`
 }
-
-// Plan 05.3-01 D-1: CASE2_TOLERANCE_DECISION_BLOCK + CASE2_HOLD_MUSIC_CLARIFYING_BLOCK
-// constants DELETED (0 src refs; migrated into voice-bridge/src/persona/overlays/case-2.ts
-// during Phase 05.2). Grep-verified: no external references remained in voice-bridge/src/
-// outside tests/persona.test.ts (updated as part of this migration).
 
 export interface Case2OutboundPersonaArgs {
   restaurant_name: string

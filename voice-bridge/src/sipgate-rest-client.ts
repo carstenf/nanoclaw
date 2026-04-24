@@ -1,9 +1,8 @@
 // voice-bridge/src/sipgate-rest-client.ts
-// Plan 03-11 pivot 2026-04-19 (briefing 09:23): outbound via Sipgate REST-API
-// instead of FreeSWITCH-Trunk-originate. Sipgate Basic accounts do NOT support
-// trunk outbound — only the paid "sipgate trunking" product does. REST-API
-// (`POST /v2/sessions/calls`) is the officially supported outbound path for
-// all account types.
+// Phase 05.3 — Outbound originate via Sipgate REST-API (POST /v2/sessions/calls).
+// Sipgate Basic accounts do NOT support trunk outbound — only the paid
+// "sipgate trunking" product does. REST-API is the officially supported
+// outbound path for all account types.
 //
 // Loopback model: Sipgate calls both legs (caller-side device + callee PSTN)
 // and bridges server-side. Our FreeSWITCH receives an INBOUND INVITE for the

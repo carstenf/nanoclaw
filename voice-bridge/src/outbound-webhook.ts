@@ -1,6 +1,14 @@
 // voice-bridge/src/outbound-webhook.ts
-// Plan 03-11: POST /outbound — peer-allowlisted, optional Bearer auth, zod-validated.
-// Enqueues an outbound call request via OutboundRouter.
+// Phase 05.3 — POST /outbound trigger endpoint. Peer-IP allowlisted, optional
+// Bearer auth, zod-validated request body. Enqueues an outbound call request
+// via OutboundRouter and returns the task_id + estimated_start_ts + queue_position.
+//
+// Load-bearing invariant:
+//   - Tool-name regex /^[a-zA-Z0-9_]{1,64}$/ on tools_override entries matches
+//     the OpenAI/Anthropic API constraint — rejected at zod boundary so Bridge
+//     never forwards an illegal tool schema to OpenAI Realtime.
+//   - case_payload.idempotency_key (when present) flows unchanged through the
+//     enqueue → webhook → AMD-voicemail-retry chain (non-double-booking contract).
 import type { FastifyInstance } from 'fastify'
 import type { Logger } from 'pino'
 import { z } from 'zod'
@@ -8,14 +16,10 @@ import { QueueFullError, type OutboundRouter } from './outbound-router.js'
 
 // ---- Zod schema (same shape as Core-side schema) ----
 //
-// Plan 05-00 Task 1 / Wave 3 prep: override envelope.
+// Override envelope:
 //   persona_override — verbatim instructions replace buildOutboundPersona(...)
 //   tools_override   — per-call tools REPLACE (not extend) the default allowlist.
-//
-// Tool-name regex `^[a-zA-Z0-9_]{1,64}$` matches the OpenAI/Anthropic API
-// constraint. Rejected at zod boundary so Bridge never forwards an illegal
-// tool schema to OpenAI Realtime. Both fields optional — when absent the
-// pre-existing outbound persona + allowlist path runs unchanged.
+// Both optional — when absent the standard outbound persona + allowlist runs.
 
 const ToolOverrideSpecSchema = z.object({
   name: z
@@ -36,8 +40,7 @@ export const OutboundRequestSchema = z.object({
   report_to_jid: z.string().min(1),
   persona_override: z.string().min(1).max(10_000).optional(),
   tools_override: z.array(ToolOverrideSpecSchema).max(32).optional(),
-  // Plan 05-02 Wave 2: case type routing + per-case payload.
-  // Both optional — existing Case-6b callers that omit them see no behavior change.
+  // Case-type routing + per-case payload (optional — omit for legacy path).
   case_type: z.enum(['case_2', 'case_6b']).optional(),
   case_payload: z.record(z.string(), z.unknown()).optional(),
 })

@@ -1,7 +1,21 @@
-// src/config.ts — environment variable loading for voice-bridge
-// PORT, HOST, WG_PEER_URL, DISCORD_ALERT_WEBHOOK_URL are safe to read at module load.
-// SECRET is validated lazily via getSecret() so vitest can import heartbeat/alerts
-// modules without triggering process.exit when the env var is set per-test beforeEach.
+// voice-bridge/src/config.ts
+// Phase 05.3 — Environment variable loading + SESSION_CONFIG (OpenAI Realtime
+// /accept session body). PORT, HOST, WG_PEER_URL, DISCORD_ALERT_WEBHOOK_URL
+// are safe to read at module load. Secrets (OPENAI_WEBHOOK_SECRET, API keys)
+// are validated lazily via getSecret()/getApiKey() so vitest can import this
+// module without triggering process.exit.
+//
+// Load-bearing invariants inside SESSION_CONFIG (canonical reference — do NOT
+// edit without re-reading D-8 + idle-timeout-finding):
+//   - turn_detection.create_response = false (D-8 wait-for-speech): bot never
+//     auto-speaks on caller speech_stopped; bridge drives response.create via
+//     armedForFirstSpeech (sideband.ts) or synchronous self-greet (webhook.ts).
+//   - turn_detection.idle_timeout_ms = IDLE_TIMEOUT_MS (5000..30000 API bounds,
+//     default 8000): native post-bot-turn silence trigger; independent of
+//     create_response; chains off response.done so it's dormant before the
+//     first bot turn — preserves §201 StGB AMD-gate invariant (no audio leak
+//     pre-verdict).
+// See .planning/phases/05.3-refactor-cleanup-timer-removal/idle-timeout-finding.md
 
 // Port 4402 — 4401 is reserved by NanoClaw Core's Twilio voice-server (src/voice-server.ts)
 export const PORT = Number(process.env.BRIDGE_PORT ?? 4402)
@@ -89,28 +103,17 @@ export const SIDEBAND_WS_URL_TEMPLATE =
   process.env.SIDEBAND_WS_URL_TEMPLATE ??
   'wss://api.openai.com/v1/realtime?call_id={callId}'
 
-// Plan 05.3-05a D-3: legacy greet-trigger-delay constants DELETED (commit
-// history preserves the archaeology; file kept grep-clean per plan acceptance
-// criteria). Server-side UX setTimeouts replaced by native
-// turn_detection.idle_timeout_ms (see SESSION_CONFIG below) + wait-for-speech
-// trigger (sideband.ts D-8).
-// See .planning/phases/05.3-refactor-cleanup-timer-removal/idle-timeout-finding.md
-
-// Plan 05.3-05a D-3: native OpenAI Realtime idle-timeout window (ms).
-// Replaces silence-monitor.ts 10s round timer + bridge-side UX setTimeouts.
-// API bounds: 5000..30000 (server rejects out-of-range values with 400).
-// Env override supported for live PSTN tuning without rebuild; clamped here
-// to API bounds to prevent /accept from failing on typo'd env values.
-// Recommended value from idle-timeout-finding.md: 8000ms (German etiquette
-// slack over baseline.ts OUTBOUND_SCHWEIGEN "etwa 6 Sekunden" copy).
+// Native OpenAI Realtime idle-timeout window (ms). Replaces legacy server-side
+// UX setTimeouts (greet-trigger-delay constants retired). API bounds 5000..30000
+// (server rejects out-of-range with 400); env override clamped here for safety.
+// Default 8000ms gives 2s German-etiquette slack over baseline.ts
+// OUTBOUND_SCHWEIGEN "etwa 6 Sekunden" copy.
 export const IDLE_TIMEOUT_MS = Math.max(
   5000,
   Math.min(30000, Number(process.env.IDLE_TIMEOUT_MS ?? 8000)),
 )
 
-// ----- Plan 03-11 pivot 2026-04-19: Sipgate REST-API outbound -----
-// Sipgate Basic accounts do not support trunk-outbound (paid Trunking product
-// only). REST-API is the officially-supported path for all account types.
+// ----- Sipgate REST-API outbound (Basic accounts don't support trunk-outbound) -----
 // Decision-doc: ~/nanoclaw-state/decisions/2026-04-19-outbound-rest-api-pivot.md
 export const SIPGATE_TOKEN_ID = process.env.SIPGATE_TOKEN_ID ?? ''
 export const SIPGATE_TOKEN = process.env.SIPGATE_TOKEN ?? ''
@@ -273,11 +276,8 @@ export const CASE2_VAD_SILENCE_MS = Number(
 // Passing it as a top-level session field yields a 400 "Unknown parameter:
 // session.turn_detection" at realtime.calls.accept().
 export const SESSION_CONFIG = {
-  // Plan 05.1 live-verification (2026-04-21): upgraded mini → full realtime.
-  // Carsten observed role-discipline failure on mini in Case-1 outbound (bot
-  // hallucinated both caller and counterpart sides of the conversation).
-  // Full gpt-realtime holds persona role more reliably on longer turns; latency
-  // still real-time appropriate for telephony per Carsten's live assessment.
+  // gpt-realtime (full, not mini) — holds persona role on longer turns; mini
+  // exhibited role-hallucination in Case-1 outbound (Carsten 2026-04-21).
   model: 'gpt-realtime' as const,
   audio: {
     input: {
@@ -285,46 +285,24 @@ export const SESSION_CONFIG = {
         type: 'server_vad' as const,
         threshold: 0.55,
         silence_duration_ms: 700,
-        // Plan 05.2-03 D-8 / research §3.1: outbound wait-for-speech. Bot no
-        // longer auto-generates a response on caller speech_stopped; the
-        // bridge pushes an explicit response.create when it WANTS the bot to
-        // speak (first caller speech on outbound per sideband.ts
-        // armedForFirstSpeech flag, or synchronously post-/accept on inbound
-        // per webhook.ts inbound self-greet requestResponse). Closes Carsten's
-        // "bot sollte warten bis sich jemand meldet" requirement.
+        // create_response:false — D-8 wait-for-speech invariant. Bot never
+        // auto-speaks on caller speech_stopped; the bridge drives
+        // response.create via sideband armedForFirstSpeech (outbound) or
+        // synchronous post-/accept self-greet (inbound).
         create_response: false,
-        // Plan 05.3-05a D-3: native idle-timeout replaces server-side setTimeouts.
-        // See .planning/phases/05.3-refactor-cleanup-timer-removal/idle-timeout-finding.md
-        // Q4: idle_timeout and create_response:false are INDEPENDENT trigger
-        // paths — idle_timeout fires regardless (per OpenAI server-events spec).
-        // Chains off response.done → dormant before first bot turn → preserves
-        // §201 StGB AMD-gate invariant (no audio leak pre-verdict).
+        // idle_timeout_ms — native post-bot-turn silence trigger; independent
+        // of create_response; chains off response.done so dormant before first
+        // bot turn (§201 StGB AMD-gate invariant preserved).
         idle_timeout_ms: IDLE_TIMEOUT_MS,
       },
-      // Plan 02-10: enable user-transcription so OpenAI emits
-      // `conversation.item.input_audio_transcription.completed` events on the
-      // sideband WS — required for the Slow-Brain push path.
-      //
-      // Plan 05-03 Task 5 defect: whisper-1 without `language` auto-detects per
-      // utterance; short German phrases ("Hallo Restaurant Bellavista") were
-      // transcribed as English/Swedish, breaking CASE2_MAILBOX_CUE_REGEX_V2 and
-      // feeding the AMD model garbage input. language='de' pinned in 4db252c.
-      //
-      // Plan 05.1 defect #3: whisper-1 at 8kHz telephony is structurally poor
-      // for short German utterances even with language='de' (DEFECTS §3:
-      // "Hallo, hier Restaurant Bellavista" → "Jan-Uwe das war es von
-      // Bellevista"). Upgrade to gpt-4o-mini-transcribe: documented improved
-      // FLEURS WER; drop-in because we only consume `.completed` events (no
-      // `.delta` consumer anywhere in voice-bridge/src — verified by grep at
-      // execute time, RESEARCH §3.5). Fallback candidates if quality still
-      // insufficient: gpt-4o-transcribe (full) first, then add a `prompt`
-      // field with German restaurant-reservation vocabulary (RESEARCH §3.7).
-      //
-      // Pitfall 3 (cost-cap): gpt-4o-mini-transcribe has a higher per-minute
-      // rate than whisper-1. Current CAP_PER_CALL_EUR in src/cost/gate.ts is
-      // €1.00 — verify it accommodates the new rate during 05.1-05 live
-      // verification. If cost caps trip, fallback is to revert to whisper-1
-      // plus prompt-engineering.
+      // User-transcription — emits conversation.item.input_audio_transcription
+      // .completed events on the sideband WS (required for Slow-Brain push and
+      // AMD VAD-fallback human verdict). language='de' pinned to prevent
+      // whisper auto-detect from misrouting German restaurant names.
+      // gpt-4o-mini-transcribe chosen over whisper-1 for FLEURS WER at 8kHz
+      // telephony; we only consume `.completed` events (no `.delta` consumer).
+      // Cost note: higher per-minute rate than whisper-1 — verify
+      // CAP_PER_CALL_EUR still accommodates it during live verification.
       transcription: { model: 'gpt-4o-mini-transcribe' as const, language: 'de' as const },
     },
     output: { voice: 'cedar' as const },

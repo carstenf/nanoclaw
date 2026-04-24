@@ -1,9 +1,18 @@
 // voice-bridge/src/tools/dispatch.ts
-// Plan 02-11: async MCP-forward gate (replaces 02-07 stub).
-// Validates tool-name + args via allowlist, maps to Core MCP tool name
-// (prefix voice.), calls Core, emits function_call_output + response.create.
-// All error paths (timeout, unavailable, invalid, not_implemented) emit a
-// synthetic error payload so the bot can respond gracefully (AC-06).
+// Phase 05.3 — async MCP-forward gate for tool calls. Validates tool-name +
+// args via allowlist, maps to Core MCP tool name (prefix voice.), calls Core,
+// emits function_call_output + response.create. All error paths (timeout,
+// unavailable, invalid, not_implemented) emit a synthetic error payload so
+// the bot can respond gracefully (AC-06).
+//
+// Owning plans: 02-11 (forward gate), 03-13/-15 (bridge-internal hangup
+// callback), 04-02 Task 1 (A12 invokeIdempotent wrapper for mutating tools),
+// 05-03 Task 3 / 05.1-01 Task 3 (Case-2 AMD classifier registration).
+//
+// Load-bearing invariants:
+//   - A12 invokeIdempotent wrapper: mutating tools MUST route through
+//     invokeIdempotent() so the same (call_id, turn_id, tool, args) only hits
+//     Core once per call-lifetime (non-double-booking contract).
 import type { Logger } from 'pino'
 import type { WebSocket as WSType } from 'ws'
 import { appendFileSync, mkdirSync } from 'node:fs'
@@ -28,17 +37,17 @@ import {
 } from '../config.js'
 import type { AmdClassifier } from '../amd-classifier.js'
 
-// Plan 05-03 Task 3: active AMD classifier reference for the current Case-2 call.
-// Set by /accept when case_type='case_2' (Bridge-internal, not in allowlist.ts).
-// Cleared to null when call ends or no Case-2 call is active.
-// T-05-03-03: amd_result on non-Case-2 session (null classifier) → invalid_tool_call.
+// Active AMD classifier reference for the current Case-2 call. Set by
+// /accept when case_type='case_2' (Bridge-internal, not in allowlist.ts).
+// Cleared to null when call ends or no Case-2 call is active. amd_result on
+// non-Case-2 session (null classifier) → invalid_tool_call.
 let _activeClassifier: AmdClassifier | null = null
 export function setAmdClassifier(classifier: AmdClassifier | null): void {
   _activeClassifier = classifier
 }
-// Plan 05.1-01 Task 3: test-only accessor — lets accept.test.ts drive the
-// classifier's onAmdResult('human') synthetic trigger so the onHuman
-// closure's full send-ordering can be asserted end-to-end.
+// Test-accessor — lets accept.test.ts drive the classifier's onAmdResult('human')
+// synthetic trigger so the onHuman closure's full send-ordering can be
+// asserted end-to-end. Also read by call-router to forward VAD/transcript.
 export function getAmdClassifier(): AmdClassifier | null {
   return _activeClassifier
 }
@@ -55,17 +64,17 @@ const TOOL_TO_CORE_MCP: Record<string, string | null> = {
   get_contract: 'voice_get_contract',
   get_practice_profile: 'voice_get_practice_profile',
   schedule_retry: 'voice_schedule_retry',
-  search_competitors: 'voice_search_competitors', // Plan 04-03: wired (returns not_configured until SEARCH_COMPETITORS_PROVIDER set)
-  search_hotels: null, // 03-08 skipped (Phase 6 scope)
-  transfer_call: null, // bridge-internal, 02-12+
-  confirm_action: null, // bridge-internal, 02-04 readback
+  search_competitors: 'voice_search_competitors', // wired (returns not_configured until SEARCH_COMPETITORS_PROVIDER set)
+  search_hotels: null, // skipped (Phase 6 scope)
+  transfer_call: null, // bridge-internal
+  confirm_action: null, // bridge-internal (readback)
   ask_core: 'voice_ask_core',
   get_travel_time: 'voice_get_travel_time',
-  end_call: null, // bridge-internal, 03-13 — handled before MCP forward
+  end_call: null, // bridge-internal — handled before MCP forward
 }
 
-// Plan 03-13: bridge-internal hangup callback. Wired by buildApp at startup
-// with `(callId) => openai.realtime.calls.hangup(callId)`. Tests can override
+// Bridge-internal hangup callback. Wired by buildApp at startup with
+// `(callId) => openai.realtime.calls.hangup(callId)`. Tests can override
 // per-call via DispatchOpts.hangupCall.
 let _hangupCall: ((callId: string) => Promise<void>) | null = null
 export function setHangupCallback(
@@ -74,7 +83,7 @@ export function setHangupCallback(
   _hangupCall = cb
 }
 
-/** Plan 03-15: read the module-level hangup callback (used by silence-monitor). */
+/** Read the module-level hangup callback (used by call-router hard-safety stub). */
 export function getHangupCallback(): ((callId: string) => Promise<void>) | null {
   return _hangupCall
 }
@@ -317,9 +326,9 @@ export async function dispatchTool(
   }
 
   // 4. Call Core MCP with timeout.
-  // Plan 04-02 Task 1 (A12 closure): mutating tools are routed through
-  // invokeIdempotent() so that the same (call_id, turn_id, tool, args)
-  // only hits Core once per call-lifetime. Read-only tools bypass the cache.
+  // Plan 04-02 A12 invariant: mutating tools route through invokeIdempotent()
+  // so the same (call_id, turn_id, tool, args) only hits Core once per
+  // call-lifetime (non-double-booking contract). Read-only tools bypass.
   const t0 = Date.now()
   let mcpStatus: 'ok' | 'err' | 'timeout' | 'not_implemented' = 'ok'
   let resultPayload: unknown

@@ -1,28 +1,33 @@
 // voice-bridge/src/outbound-router.ts
-// Plan 03-11 (rewrite 22:18): outbound execution via FreeSWITCH ESL.
-//
-// Old implementation called openai.realtime.calls.create() which does NOT
-// exist in the OpenAI SDK (only accept/reject/refer/hangup for inbound).
-// REQ-SIP-02 specifies outbound via FreeSWITCH originate; ESL is the standard
-// FS control surface (verified working from Lenovo1 → Hetzner over WireGuard
-// per briefing 22:18, REQ-INFRA-13/14 fulfilled).
+// Phase 05.3 — Outbound execution queue + originate-via-Sipgate-REST router.
+// OpenAI SDK has no outbound call API (only accept/reject/refer/hangup); this
+// module originates via Sipgate REST, then waits for OpenAI to send the
+// realtime.call.incoming webhook to /accept which correlates via getActiveTask().
 //
 // Flow per outbound task:
 //   1. enqueue() puts task in queue, fires triggerExecute if no active call.
-//   2. triggerExecute() picks next queued task, calls eslOriginate() which
-//      issues `originate sofia/gateway/sipgate/<phone> &bridge(sofia/openai/...)`.
-//      FS originates A-leg to sipgate; on answer, bridges to OpenAI SIP.
-//   3. OpenAI receives the bridged INVITE, sends realtime.call.incoming
-//      webhook to /accept. /accept consults outboundRouter.getActiveTask(),
-//      sees an active outbound task with no openai_call_id yet → applies
-//      OUTBOUND_PERSONA(goal,context) and calls bindOpenaiCallId(taskId,
-//      openaiCallId).
+//   2. triggerExecute() picks next queued task and calls deps.outboundOriginator
+//      .originate() (production = SipgateRestClient, tests = mock).
+//   3. OpenAI receives the bridged INVITE, sends realtime.call.incoming webhook
+//      to /accept. /accept consults outboundRouter.getActiveTask(), sees an
+//      active outbound task with no openai_call_id yet → applies persona and
+//      calls bindOpenaiCallId(taskId, openaiCallId).
 //   4. Call proceeds. Sideband close → endCall → outboundRouter.onCallEnd(
 //      taskId,'normal') → reportBack → triggerExecute next queued task.
 //
-// Single-active-outbound concurrency (queue-serialised) is enforced as before
-// — keeps webhook correlation trivial: "the active outbound task IS the one
-// the incoming OpenAI webhook is for."
+// Single-active-outbound concurrency (queue-serialised) is enforced — keeps
+// webhook correlation trivial: "the active outbound task IS the one the
+// incoming OpenAI webhook is for."
+//
+// Owning plans: 03-11 (queue + originate), 05-00/-02/-03 (override envelope,
+// case_type routing, Case-2 per-outcome reportBack), 05.1-03 (AMD voicemail).
+//
+// Load-bearing invariants:
+//   - Idempotency-key contract: case_payload.idempotency_key flows from Core
+//     through enqueue → webhook → AMD voicemail retry handler. Missing key
+//     → log-and-skip (never synthesize).
+//   - DI-opts pattern: deps.outboundOriginator + deps.coreClient + deps.timers
+//     are test-injectable; production wiring is in index.ts buildApp.
 import crypto from 'node:crypto'
 import {
   OUTBOUND_QUEUE_MAX,
@@ -336,7 +341,7 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
     }, maxDurationMs)
     durationTimers.set(next.task_id, durTimer)
 
-    // Plan 03-11 pivot 2026-04-19: outbound via Sipgate REST-API (was ESL).
+    // Submit originate via Sipgate REST-API.
     deps.log?.info(
       {
         event: 'outbound_originate_start',
@@ -361,10 +366,9 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
       )
     } catch (err) {
       next.status = 'failed'
-      // Plan 05-02 Task 4: surface Sipgate error details from Spike-B parser.
-      // SipgateRestError.details.lineBusy → task.error='line_busy' (reserved for future use;
-      // Spike-B verdict: Sipgate does not distinguish busy from no-answer synchronously).
-      // SipgateRestError.details.retryable → generic retryable_failure (Research §4.4).
+      // Surface Sipgate error details. SipgateRestError.details.lineBusy →
+      // task.error='line_busy' (reserved; Sipgate does not distinguish busy
+      // from no-answer synchronously). details.retryable → generic message.
       const errDetails = (err as { details?: { lineBusy?: boolean; retryable?: boolean } })?.details
       if (errDetails?.lineBusy === true) {
         next.error = 'line_busy'
@@ -431,9 +435,8 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
       /* best-effort */
     }
 
-    // Plan 05-03 Task 4: Case-2 per-outcome routing via Core MCP.
-    // Runs after deps.reportBack so the generic path always fires first.
-    // Skipped entirely when coreClient is absent (backward compat).
+    // Case-2 per-outcome routing via Core MCP. Runs after deps.reportBack so
+    // the generic path always fires first. Skipped when coreClient is absent.
     if (task.case_type === 'case_2' && deps.coreClient) {
       try {
         await reportBackCase2(task, deps.coreClient, deps.log)
@@ -461,10 +464,11 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
       report_to_jid: req.report_to_jid,
       created_at: now(),
       status: 'queued',
-      // Plan 05-00 Task 1 / Wave 3 prep: carry override envelope through.
+      // Spike-A override envelope (persona + tools).
       persona_override: req.persona_override,
       tools_override: req.tools_override,
-      // Plan 05-02 Wave 2: carry case_type + case_payload through (undefined = legacy path).
+      // Case-type routing envelope — idempotency_key flows via case_payload
+      // per Plan 05-02 idempotency-key invariant. undefined = legacy path.
       case_type: req.case_type,
       case_payload: req.case_payload,
     }

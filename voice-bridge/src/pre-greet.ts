@@ -1,11 +1,17 @@
 // voice-bridge/src/pre-greet.ts
-// Plan 03-14 / REQ-VOICE-13: inject Slow-Brain-tailored persona via
-// session.update BEFORE the model emits its first utterance, with a strict
-// 2000ms budget. If Slow-Brain does not deliver in time (or returns no
-// instructions), the static persona passed at /accept governs (D-27).
+// Phase 05.3 — Slow-Brain pre-greet injection. Inject Slow-Brain-tailored
+// persona via session.update BEFORE the model emits its first utterance, with
+// a strict 2000ms budget (REQ-VOICE-13). If Slow-Brain does not deliver in
+// time (or returns no instructions), the static persona passed at /accept
+// governs.
 //
 // Fire-and-forget from the /accept handler — must NOT block accept-handler
 // return. Hot-path is unaffected on any failure path.
+//
+// Load-bearing invariant:
+//   - Case-2 AMD branch pre-greet skip (see maybeInjectPreGreet below). Firing
+//     Slow-Brain pre-greet while the classifier prompt is in scope would race
+//     and break AMD.
 import type { Logger } from 'pino'
 
 import type { SidebandHandle } from './sideband.js'
@@ -25,10 +31,10 @@ export interface MaybeInjectPreGreetOpts {
   /** Polling interval while waiting for sideband ready. Default 50ms. */
   pollMs?: number
   /**
-   * Plan 05-03 Task 3: optional outbound router to check case_type.
-   * If the active task has case_type='case_2', pre-greet is skipped entirely
-   * (the AMD classifier branch in /accept handles first-utterance gating instead).
-   * Pitfall 2 fix: no Slow-Brain RPC racing with classifier prompt.
+   * Optional outbound router to check case_type. If the active task has
+   * case_type='case_2', pre-greet is skipped entirely (the AMD classifier
+   * branch in /accept handles first-utterance gating). No Slow-Brain RPC
+   * racing with classifier prompt.
    */
   outboundRouter?: OutboundRouter
 }
@@ -41,9 +47,9 @@ export async function maybeInjectPreGreet(
   const pollMs = opts.pollMs ?? 50
   const t0 = Date.now()
 
-  // Plan 05-03 Task 3: Case-2 AMD branch — skip pre-greet entirely.
-  // The /accept handler has already set CASE2_AMD_CLASSIFIER_PROMPT as instructions;
-  // firing Slow-Brain pre-greet would race with the classifier prompt and break AMD.
+  // Plan 05-03 AMD-handoff invariant: Case-2 branch skips pre-greet entirely.
+  // /accept already set CASE2_AMD_CLASSIFIER_PROMPT as instructions; firing
+  // Slow-Brain pre-greet would race with it and break AMD.
   const activeTask = opts.outboundRouter?.getActiveTask?.() ?? null
   if (activeTask?.case_type === 'case_2') {
     opts.log.info({

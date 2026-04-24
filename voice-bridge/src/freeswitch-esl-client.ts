@@ -1,7 +1,8 @@
 // voice-bridge/src/freeswitch-esl-client.ts
-// Plan 03-11 rewrite: thin FreeSWITCH event-socket client. Single-shot
-// originate command per outbound call — no event subscription, no inbound
-// event stream. Connect → auth → api originate → parse +OK/-ERR → close.
+// Phase 05.3 — Thin FreeSWITCH event-socket client (inactive fallback; see
+// index.ts header). Single-shot originate command per outbound call — no
+// event subscription, no inbound event stream. Connect → auth → api originate
+// → parse +OK/-ERR → close.
 //
 // FreeSWITCH ESL framing: text protocol over TCP. Messages end with \n\n.
 // Auth flow:

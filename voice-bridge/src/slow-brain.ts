@@ -1,12 +1,11 @@
 // voice-bridge/src/slow-brain.ts
-// Plan 02-09: Slow-Brain via NanoClaw-Core-MCP (Retrofit auf Original-
-// Architektur 2026-04-13). voice-bridge enthaelt KEINE LLM-Inference mehr —
-// der Turn-Transcript geht per MCP-Call an Core, wo der Claude-Agent die
-// Entscheidung trifft, ob ein mid-call session.update gepushed werden soll.
+// Phase 05.3 — Slow-Brain via NanoClaw-Core-MCP. voice-bridge contains NO
+// LLM-Inference — the turn-transcript is forwarded via MCP call to Core, where
+// the Claude agent decides whether to push a mid-call session.update.
 //
-// Cadence-Cap (D-25), Back-pressure (D-28), Timeout (D-27) und
-// Graceful-Degrade (REQ-DIR-12) bleiben verhaltensidentisch zu Plan 02-05.
-// Einzige Aenderung: Ort der Inference (Core statt Bridge).
+// Cadence-Cap (D-25), back-pressure (D-28), timeout (D-27) and graceful-degrade
+// (REQ-DIR-12) are preserved from the pre-retrofit design. Only the inference
+// location changed (Core instead of Bridge).
 import type { Logger } from 'pino'
 
 import {

@@ -1,8 +1,12 @@
 // voice-bridge/src/index.ts
-// PER PITFALL NEW-4: addContentTypeParser('application/json', ...)
-// REPLACES the global JSON parser. If Phase 2+ adds a route that needs
-// default JSON behavior without rawBody, switch to fastify-raw-body
-// plugin and per-route config.rawBody=true.
+// Phase 05.3 — Fastify app bootstrap + dependency wiring. Constructs the
+// OpenAI client, Fastify instance, call-router + outbound-router, and
+// registers all HTTP routes (/health, /webhook, /accept, /outbound).
+//
+// addContentTypeParser('application/json', ...) REPLACES the global JSON parser
+// to preserve rawBody for HMAC re-verification in /webhook + /accept. If a
+// future route needs default JSON behavior without rawBody, switch to
+// fastify-raw-body plugin and per-route config.rawBody=true.
 import Fastify from 'fastify'
 import OpenAI from 'openai'
 import { HOST, PORT, getSecret, getApiKey, getWhitelist } from './config.js'
@@ -15,7 +19,7 @@ import { createCallRouter, type CallRouter } from './call-router.js'
 import { createOutboundRouter, type OutboundRouter } from './outbound-router.js'
 import { setHangupCallback } from './tools/dispatch.js'
 import { sipgateRestOriginate } from './sipgate-rest-client.js'
-// ESL client kept as inactive v2 fallback (Plan 03-11 pivot 2026-04-19).
+// ESL client kept as inactive v2 fallback (Sipgate REST API pivot 2026-04-19).
 // Will be re-wired if Sipgate account is upgraded from Basic to Trunking.
 // import { eslOriginate } from './freeswitch-esl-client.js'
 
@@ -66,8 +70,8 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     },
   )
 
-  // Plan 03-13: wire bridge-internal end_call hangup callback. Production uses
-  // the real OpenAI client; tests can override per-call via DispatchOpts.hangupCall.
+  // Wire bridge-internal end_call hangup callback. Production uses the real
+  // OpenAI client; tests can override per-call via DispatchOpts.hangupCall.
   setHangupCallback(async (callId: string) => {
     await (
       openai as unknown as {
@@ -76,9 +80,9 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     ).realtime.calls.hangup(callId)
   })
 
-  // Plan 03-11 rewrite: forward declaration so call-router's onCallEndExtra
-  // can notify outbound-router about call ends. The closure below captures
-  // the variable lazily — outbound-router is constructed right after.
+  // Forward declaration so call-router's onCallEndExtra can notify outbound-
+  // router about call ends. The closure below captures the variable lazily —
+  // outbound-router is constructed right after.
   let outboundRouter: OutboundRouter | undefined
   const router =
     opts.routerOverride ??
@@ -90,8 +94,8 @@ export async function buildApp(opts: BuildAppOptions = {}) {
       },
     })
 
-  // OutboundRouter (Plan 03-11 rewrite): ESL client + hangup callback (shared
-  // with end_call). DI for tests, real instance in production.
+  // OutboundRouter — Sipgate originator + hangup callback (shared with
+  // end_call). DI for tests, real instance in production.
   outboundRouter =
     opts.outboundRouterOverride ??
     createOutboundRouter({

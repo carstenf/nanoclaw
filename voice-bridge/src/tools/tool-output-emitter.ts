@@ -1,8 +1,8 @@
 // voice-bridge/src/tools/tool-output-emitter.ts
-// Plan 02-11: WS-send helpers for emitting function_call_output and
+// Phase 05.3 — WS-send helpers for emitting function_call_output and
 // response.create back to the OpenAI Realtime sideband WebSocket.
-// Both functions are fire-safe: any WS error is caught, logged at WARN,
-// and the function returns false — the sideband message-loop never crashes
+// Both functions are fire-safe: any WS error is caught, logged at WARN, and
+// the function returns false — the sideband message-loop never crashes
 // (REQ-DIR-02 hot-path-continuity).
 import type { Logger } from 'pino'
 import type { WebSocket as WSType } from 'ws'

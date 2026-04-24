@@ -1,8 +1,8 @@
 // voice-bridge/src/tools/filler-inject.ts
-// Plan 02-14: Code-side filler-phrase injection for long-latency tools.
+// Phase 05.3 — Code-side filler-phrase injection for long-latency tools.
 // Sends a synthetic assistant message + response.create so OpenAI TTS speaks
-// the filler while the slow tool (e.g. ask_core) is executing.
-// REQ-C6B-02: filler must be emitted within 1000 ms of delegation-trigger.
+// the filler while the slow tool (e.g. ask_core) is executing. The filler
+// must be emitted within 1000 ms of the delegation-trigger (REQ-C6B-02).
 import type { Logger } from 'pino'
 import type { WebSocket as WSType } from 'ws'
 
