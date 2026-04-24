@@ -283,6 +283,20 @@ async function buildContainerArgs(
     args.push('-e', `DISCORD_BOT_TOKEN=${discordToken}`);
   }
 
+  // Phase 05.4 Bug-2: pass the nanoclaw-voice MCP endpoint URL + bearer into
+  // the container so the agent-runner can connect as an MCP client
+  // (REQ-C6B-03 — Andy reaches voice tools via MCP, not via IPC-make_call).
+  // The URL uses host.docker.internal so the container resolves through the
+  // Docker bridge to the host's MCP stream server (port 3201, bound 0.0.0.0).
+  const mcpStreamBearer = process.env.MCP_STREAM_BEARER ?? '';
+  const nanoclawVoiceMcpUrl =
+    process.env.NANOCLAW_VOICE_MCP_URL ??
+    'http://host.docker.internal:3201/mcp';
+  if (mcpStreamBearer) {
+    args.push('-e', `MCP_STREAM_BEARER=${mcpStreamBearer}`);
+    args.push('-e', `NANOCLAW_VOICE_MCP_URL=${nanoclawVoiceMcpUrl}`);
+  }
+
   // OneCLI gateway handles credential injection — containers never see real secrets.
   // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
   const onecliApplied = await onecli.applyContainerConfig(args, {

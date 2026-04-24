@@ -523,40 +523,13 @@ Use available_groups.json to find the JID for a group. The folder name must be c
   },
 );
 
-server.tool(
-  'make_call',
-  `Dispatches an external voice AI agent to conduct a phone call on Carsten's behalf.
-You are NOT making the call yourself — you are triggering a separate telephony service that handles the entire conversation autonomously.
-Use this tool whenever Carsten wants to reach someone by phone, request a callback, make a reservation, or any other phone-based task.
-If no phone number is in the current message, look for it in the conversation history before asking.
-Strips spaces/dashes from numbers automatically — +49 170 123 is fine.
-
-Voice mode selection:
-- "sipgate" (default): Direct SIP call via Sipgate. Lowest latency, no Twilio costs. Best for most calls.
-- "realtime": Twilio + OpenAI Realtime. Fast, natural conversation. Use when Sipgate has issues.
-- "relay": Twilio + ElevenLabs. Highest voice quality, slightly higher latency. Best for short announcements.`,
-  {
-    to: z.string().describe('Phone number in E.164 format or with spaces/dashes, e.g. +49 170 8036426'),
-    goal: z.string().describe('Clear description of what to achieve, e.g. "Book a dentist appointment for Tuesday 3pm for Carsten Freek"'),
-    voice_mode: z.enum(['sipgate', 'realtime', 'relay']).default('sipgate').describe('Voice mode: "sipgate" (default) direct SIP, "realtime" Twilio/OpenAI, "relay" Twilio/ElevenLabs'),
-  },
-  async (args) => {
-    const to = args.to.replace(/[\s\-]/g, '');
-    const isSipgate = args.voice_mode === 'sipgate';
-    const data = {
-      type: isSipgate ? 'make_sipgate_call' : 'make_call',
-      to,
-      goal: args.goal,
-      ...(isSipgate ? {} : { voice_mode: args.voice_mode }),
-      chatJid,
-    };
-    writeIpcFile(TASKS_DIR, data);
-    const via = isSipgate ? 'Sipgate' : `Twilio (${args.voice_mode})`;
-    return {
-      content: [{ type: 'text' as const, text: `Calling ${to} via ${via}. You will receive a summary when the call ends.` }],
-    };
-  },
-);
+// Phase 05.4 Bug-2: `make_call` removed from the container-side stdio MCP
+// server. Outbound-call tooling moved to the host's nanoclaw-voice MCP
+// stream server (mcp__nanoclaw-voice__voice_request_outbound_call and
+// voice_start_case_2_call) per REQ-C6B-03. The host-side IPC handler in
+// src/ipc.ts (`case 'make_call'`) is now dead code; left intact for one
+// release cycle as a transition guard against any scheduled tasks still
+// writing the legacy IPC type.
 
 // Start the stdio transport
 const transport = new StdioServerTransport();

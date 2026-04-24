@@ -469,6 +469,9 @@ async function runQuery(
         'Skill',
         'NotebookEdit',
         'mcp__nanoclaw__*',
+        // Phase 05.4 Bug-2: voice MCP tools on the host (see mcpServers
+        // block below). Hyphen in server name preserved in the tool prefix.
+        'mcp__nanoclaw-voice__*',
         'mcp__gmail__*',
         'mcp__gcalendar__*',
       ],
@@ -486,6 +489,25 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
+        // Phase 05.4 Bug-2: HTTP MCP client to the host's nanoclaw-voice
+        // stream server (mcp-stream-server.ts, port 3201, bound 0.0.0.0).
+        // Exposes `voice_request_outbound_call` and `voice_start_case_2_call`
+        // (REQ-C6B-03) so Andy can initiate telephone tasks through the
+        // spec-defined MCP surface instead of the legacy `make_call` IPC.
+        // Only registered when both URL and bearer are set in the container
+        // env (plumbed by src/container-runner.ts) — otherwise omitted so
+        // local dev without the host service still boots.
+        ...(process.env.NANOCLAW_VOICE_MCP_URL && process.env.MCP_STREAM_BEARER
+          ? {
+              'nanoclaw-voice': {
+                type: 'http' as const,
+                url: process.env.NANOCLAW_VOICE_MCP_URL,
+                headers: {
+                  Authorization: `Bearer ${process.env.MCP_STREAM_BEARER}`,
+                },
+              },
+            }
+          : {}),
         gmail: {
           command: 'npx',
           args: ['-y', '@gongrzhe/server-gmail-autoauth-mcp'],
