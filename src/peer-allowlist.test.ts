@@ -101,4 +101,67 @@ describe('peerAllowlistMiddleware', () => {
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(403);
   });
+
+  // Phase 05.4 Bug-2 follow-up: CIDR matching for Docker-bridge subnet.
+  describe('CIDR support', () => {
+    const cidrTests: Array<[string, string, boolean]> = [
+      // peer, allowlist entry, expected allow
+      ['172.17.0.3', '172.17.0.0/16', true],
+      ['172.17.255.254', '172.17.0.0/16', true],
+      ['172.18.0.3', '172.17.0.0/16', false],
+      ['10.0.0.3', '10.0.0.0/8', true],
+      ['11.0.0.3', '10.0.0.0/8', false],
+      ['192.168.1.100', '192.168.1.0/24', true],
+      ['192.168.2.1', '192.168.1.0/24', false],
+      ['1.2.3.4', '0.0.0.0/0', true],
+      ['1.2.3.4', '1.2.3.4/32', true],
+      ['1.2.3.5', '1.2.3.4/32', false],
+    ];
+    for (const [peer, entry, expected] of cidrTests) {
+      it(`peer ${peer} vs ${entry} → ${expected ? 'allow' : 'block'}`, () => {
+        const log = { warn: vi.fn() };
+        const mw = peerAllowlistMiddleware([entry], log);
+        const req = makeReq(peer);
+        const res = makeRes();
+        const next = vi.fn();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        mw(req as any, res as any, next);
+        if (expected) {
+          expect(next).toHaveBeenCalled();
+          expect(res.statusCode).toBeUndefined();
+        } else {
+          expect(next).not.toHaveBeenCalled();
+          expect(res.statusCode).toBe(403);
+        }
+      });
+    }
+
+    it('mixed allowlist (exact IP + CIDR) allows both forms', () => {
+      const log = { warn: vi.fn() };
+      const mw = peerAllowlistMiddleware(
+        ['10.0.0.2', '172.17.0.0/16'],
+        log,
+      );
+      for (const peer of ['10.0.0.2', '172.17.0.99']) {
+        const req = makeReq(peer);
+        const res = makeRes();
+        const next = vi.fn();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        mw(req as any, res as any, next);
+        expect(next).toHaveBeenCalled();
+      }
+    });
+
+    it('malformed CIDR (bad bits) rejects, does not crash', () => {
+      const log = { warn: vi.fn() };
+      const mw = peerAllowlistMiddleware(['172.17.0.0/64'], log);
+      const req = makeReq('172.17.0.3');
+      const res = makeRes();
+      const next = vi.fn();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mw(req as any, res as any, next);
+      expect(next).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(403);
+    });
+  });
 });

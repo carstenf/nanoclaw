@@ -91,7 +91,18 @@ import { VoiceCase2ScheduleRetrySchema } from './mcp-tools/voice-case-2-retry.js
 
 // Same allowlist as port 3200 (src/mcp-server.ts DEFAULT_ALLOWLIST).
 // 10.0.0.1 Hetzner, 10.0.0.2 self, 10.0.0.4 iPhone, 10.0.0.5 iPad.
-const DEFAULT_ALLOWLIST = ['10.0.0.1', '10.0.0.2', '10.0.0.4', '10.0.0.5'];
+// Phase 05.4 Bug-2 follow-up: Docker-bridge subnet added so the container-
+// agent (dynamic IP inside 172.17.0.0/16) can reach the MCP stream server via
+// host.docker.internal. Bearer auth (MCP_STREAM_BEARER) remains mandatory at
+// Layer 1 — the CIDR only widens the peer allowlist after bearer validation.
+// UFW rule on Lenovo1 restricts ingress to this CIDR + port 3201 only.
+const DEFAULT_ALLOWLIST = [
+  '10.0.0.1',
+  '10.0.0.2',
+  '10.0.0.4',
+  '10.0.0.5',
+  '172.17.0.0/16',
+];
 
 type StreamLog = Pick<typeof logger, 'info' | 'warn' | 'error' | 'fatal'>;
 
