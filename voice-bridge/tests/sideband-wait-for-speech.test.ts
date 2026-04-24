@@ -12,7 +12,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'node:events'
 import type { Logger } from 'pino'
 import type { WebSocket as WSType } from 'ws'
-import { enableAutoResponseCreate, openSidebandSession } from '../src/sideband.js'
+import {
+  END_CALL_AUDIO_WAIT_MS,
+  enableAutoResponseCreate,
+  openSidebandSession,
+  waitForBotAudioDone,
+} from '../src/sideband.js'
 import { SESSION_CONFIG } from '../src/config.js'
 
 class MockWS extends EventEmitter {
@@ -303,5 +308,189 @@ describe('Phase 05.4 Bug-1 — enableAutoResponseCreate flip after first turn', 
     expect(handle.state.autoResponseEnabled).toBe(false)
 
     handle.close()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Phase 05.4 Bug-3 — end_call hangup deferred until farewell TTS delivered
+// ---------------------------------------------------------------------------
+
+describe('Phase 05.4 Bug-3 — waitForBotAudioDone + end_call dispatch deferral', () => {
+  beforeEach(() => {
+    process.env.OPENAI_SIP_API_KEY = 'sk-test-end-call-audio-wait'
+  })
+  afterEach(() => {
+    delete process.env.OPENAI_SIP_API_KEY
+    vi.useRealTimers()
+  })
+
+  it('output_audio_buffer.{started,stopped} toggles state.botSpeaking', () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const handle = openSidebandSession('rtc-bug3-botspeaking', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+
+    expect(handle.state.botSpeaking).toBe(false)
+
+    ws.simulateMessage({ type: 'output_audio_buffer.started' })
+    expect(handle.state.botSpeaking).toBe(true)
+
+    ws.simulateMessage({ type: 'output_audio_buffer.stopped' })
+    expect(handle.state.botSpeaking).toBe(false)
+
+    handle.close()
+  })
+
+  it('waitForBotAudioDone resolves "already_stopped" when bot is not speaking', async () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const handle = openSidebandSession('rtc-bug3-notspeaking', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+
+    expect(handle.state.botSpeaking).toBe(false)
+    const result = await waitForBotAudioDone(handle.state, log)
+    expect(result).toBe('already_stopped')
+    handle.close()
+  })
+
+  it('waitForBotAudioDone resolves "stopped" when output_audio_buffer.stopped fires mid-wait', async () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const handle = openSidebandSession('rtc-bug3-stopped', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+    ws.simulateMessage({ type: 'output_audio_buffer.started' })
+    expect(handle.state.botSpeaking).toBe(true)
+
+    const pending = waitForBotAudioDone(handle.state, log, 5000)
+    // Simulate TTS completion a moment later.
+    setTimeout(() => {
+      ws.simulateMessage({ type: 'output_audio_buffer.stopped' })
+    }, 10)
+    const result = await pending
+    expect(result).toBe('stopped')
+    expect(handle.state.botSpeaking).toBe(false)
+    expect(handle.state.endCallAudioWaitResolve).toBe(null)
+
+    const infoCalls = (log.info as ReturnType<typeof vi.fn>).mock.calls
+    expect(
+      infoCalls.some((c) => c[0]?.event === 'end_call_audio_wait_resolved'),
+    ).toBe(true)
+    handle.close()
+  })
+
+  it('waitForBotAudioDone resolves "timeout" when stopped never arrives', async () => {
+    vi.useFakeTimers()
+    const ws = new MockWS()
+    const log = mockLog()
+    const handle = openSidebandSession('rtc-bug3-timeout', log, {
+      wsFactory: () => ws as unknown as WSType,
+    })
+    ws.simulateOpen()
+    ws.simulateMessage({ type: 'output_audio_buffer.started' })
+
+    const pending = waitForBotAudioDone(handle.state, log, 4000)
+    await vi.advanceTimersByTimeAsync(4000)
+    const result = await pending
+    expect(result).toBe('timeout')
+    expect(handle.state.endCallAudioWaitResolve).toBe(null)
+
+    const warnCalls = (log.warn as ReturnType<typeof vi.fn>).mock.calls
+    expect(
+      warnCalls.some((c) => c[0]?.event === 'end_call_audio_wait_timeout'),
+    ).toBe(true)
+    handle.close()
+  })
+
+  it('end_call dispatch is deferred until bot audio stopped (vs. non-end_call fires immediately)', async () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const dispatchCalls: Array<{ tool: string; at: number }> = []
+    const mockDispatch = vi.fn(async (_ws, _cid, _tid, _fcid, toolName) => {
+      dispatchCalls.push({ tool: toolName, at: Date.now() })
+    })
+    const handle = openSidebandSession('rtc-bug3-dispatch-gate', log, {
+      wsFactory: () => ws as unknown as WSType,
+      dispatchTool: mockDispatch,
+    })
+    ws.simulateOpen()
+    // Bot is currently speaking the farewell.
+    ws.simulateMessage({ type: 'output_audio_buffer.started' })
+    expect(handle.state.botSpeaking).toBe(true)
+
+    // Model emits end_call BEFORE TTS completes.
+    ws.simulateMessage({
+      type: 'response.function_call_arguments.done',
+      call_id: 'fc_end_call_1',
+      name: 'end_call',
+      arguments: JSON.stringify({ reason: 'farewell' }),
+    })
+
+    // Dispatch MUST NOT have fired yet — waiting for audio done.
+    await new Promise((r) => setTimeout(r, 5))
+    expect(mockDispatch).not.toHaveBeenCalled()
+
+    // Simulate audio completion.
+    ws.simulateMessage({ type: 'output_audio_buffer.stopped' })
+    await new Promise((r) => setTimeout(r, 5))
+
+    // Now dispatch should have fired exactly once for end_call.
+    expect(mockDispatch).toHaveBeenCalledTimes(1)
+    expect(dispatchCalls[0].tool).toBe('end_call')
+
+    // Non-end_call dispatch fires immediately (no gate).
+    mockDispatch.mockClear()
+    ws.simulateMessage({ type: 'output_audio_buffer.started' })
+    ws.simulateMessage({
+      type: 'response.function_call_arguments.done',
+      call_id: 'fc_check_cal',
+      name: 'check_calendar',
+      arguments: JSON.stringify({ date: '2026-04-25' }),
+    })
+    // Give the fire-and-forget a microtask to schedule.
+    await new Promise((r) => setTimeout(r, 5))
+    expect(mockDispatch).toHaveBeenCalledTimes(1)
+    expect(mockDispatch.mock.calls[0][4]).toBe('check_calendar')
+    handle.close()
+  })
+
+  it('end_call dispatch fires immediately when bot is NOT speaking (short-circuit)', async () => {
+    const ws = new MockWS()
+    const log = mockLog()
+    const mockDispatch = vi.fn(async () => undefined)
+    const handle = openSidebandSession('rtc-bug3-short-circuit', log, {
+      wsFactory: () => ws as unknown as WSType,
+      dispatchTool: mockDispatch,
+    })
+    ws.simulateOpen()
+    expect(handle.state.botSpeaking).toBe(false)
+
+    ws.simulateMessage({
+      type: 'response.function_call_arguments.done',
+      call_id: 'fc_end_silent',
+      name: 'end_call',
+      arguments: JSON.stringify({ reason: 'silence' }),
+    })
+    await new Promise((r) => setTimeout(r, 5))
+    expect(mockDispatch).toHaveBeenCalledTimes(1)
+    expect(mockDispatch.mock.calls[0][4]).toBe('end_call')
+
+    const infoCalls = (log.info as ReturnType<typeof vi.fn>).mock.calls
+    expect(
+      infoCalls.some(
+        (c) => c[0]?.event === 'end_call_audio_wait_skip_not_speaking',
+      ),
+    ).toBe(true)
+    handle.close()
+  })
+
+  it('END_CALL_AUDIO_WAIT_MS default sane (1–10 s)', () => {
+    expect(END_CALL_AUDIO_WAIT_MS).toBeGreaterThanOrEqual(1000)
+    expect(END_CALL_AUDIO_WAIT_MS).toBeLessThanOrEqual(10000)
   })
 })

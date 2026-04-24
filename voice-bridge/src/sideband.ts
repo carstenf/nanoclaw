@@ -84,6 +84,21 @@ export interface SidebandState {
    * repeated speech_stopped events.
    */
   autoResponseEnabled: boolean
+  /**
+   * Phase 05.4 Bug-3 fix: `true` while the model is actively rendering audio
+   * to the counterpart leg (between `output_audio_buffer.started` and
+   * `output_audio_buffer.stopped`). Consumed by the `end_call` dispatch path
+   * so the bridge waits for the farewell TTS to reach the caller before
+   * hanging up (prevents silent-hangup observed live on 2026-04-24).
+   */
+  botSpeaking: boolean
+  /**
+   * Phase 05.4 Bug-3 fix: single-slot resolver armed by `waitForBotAudioDone`
+   * when `end_call` is dispatched mid-utterance. Fired by the onmessage
+   * handler on `output_audio_buffer.stopped`, cleared by a timeout fallback.
+   * null when no wait is pending.
+   */
+  endCallAudioWaitResolve: (() => void) | null
 }
 
 /**
@@ -243,6 +258,9 @@ export function openSidebandSession(
     // Phase 05.4 Bug-1 fix: default false; flipped to true by
     // enableAutoResponseCreate() after the first Bridge-driven bot turn.
     autoResponseEnabled: false,
+    // Phase 05.4 Bug-3 fix: tracked via output_audio_buffer.{started,stopped}.
+    botSpeaking: false,
+    endCallAudioWaitResolve: null,
   }
 
   // Cost-enforcement DI. Production defaults to the real accumulator/core-mcp/
@@ -388,15 +406,26 @@ export function openSidebandSession(
         return
       }
 
-      // Bot-audio events (output_audio_buffer.{started,stopped}). No production
-      // consumers after silence-monitor retirement; fire optional hooks only.
-      // `output_audio_buffer.stopped` fires after full response data is sent
-      // (response.done) — conservative "bot truly finished speaking" signal.
+      // Bot-audio events (output_audio_buffer.{started,stopped}). Phase 05.4
+      // Bug-3 fix: also tracked on state.botSpeaking so the end_call dispatch
+      // path can wait for the farewell TTS to reach the caller leg before
+      // calling hangup. `output_audio_buffer.stopped` fires after full
+      // response data is sent (response.done) — conservative "bot truly
+      // finished speaking" signal.
       if (parsed?.type === 'output_audio_buffer.started') {
+        state.botSpeaking = true
         opts.onBotStart?.()
         return
       }
       if (parsed?.type === 'output_audio_buffer.stopped') {
+        state.botSpeaking = false
+        // Resolve any pending end_call wait so hangup can proceed now that the
+        // farewell audio has been fully delivered to the counterpart.
+        if (state.endCallAudioWaitResolve) {
+          const resolve = state.endCallAudioWaitResolve
+          state.endCallAudioWaitResolve = null
+          resolve()
+        }
         opts.onBotStop?.()
         return
       }
@@ -463,19 +492,35 @@ export function openSidebandSession(
           return
         }
 
-        // Fire-and-forget dispatch — handler must not block
+        // Fire-and-forget dispatch — handler must not block.
+        //
+        // Phase 05.4 Bug-3 fix: end_call dispatch is deferred until the
+        // farewell TTS has reached the counterpart leg (or timeout cap). The
+        // OpenAI Realtime model emits `response.function_call_arguments.done`
+        // as soon as the tool_call is fully streamed, which can arrive
+        // BEFORE the bot's text/audio response has finished rendering to the
+        // SIP leg. Calling hangup immediately caused silent-hangup on
+        // "Tschuess" (live 2026-04-24). Waiting on `output_audio_buffer
+        // .stopped` (state.botSpeaking) preserves the farewell audio.
         const dispatch = opts.dispatchTool ?? _getDispatchTool()
-        dispatch(ws, callId, 'fc-turn', functionCallId, toolName, parsedArgs, log).catch(
-          (e: unknown) => {
-            const err = e as Error
-            log.warn({
-              event: 'dispatch_tool_unhandled_error',
-              call_id: callId,
-              function_call_id: functionCallId,
-              err: err.message,
-            })
-          },
-        )
+        const runDispatch = (): void => {
+          dispatch(ws, callId, 'fc-turn', functionCallId, toolName, parsedArgs, log).catch(
+            (e: unknown) => {
+              const err = e as Error
+              log.warn({
+                event: 'dispatch_tool_unhandled_error',
+                call_id: callId,
+                function_call_id: functionCallId,
+                err: err.message,
+              })
+            },
+          )
+        }
+        if (toolName === 'end_call') {
+          void waitForBotAudioDone(state, log).then(runDispatch)
+        } else {
+          runDispatch()
+        }
         return
       }
 
@@ -883,4 +928,63 @@ export function enableAutoResponseCreate(
     })
     return false
   }
+}
+
+/** Phase 05.4 Bug-3: max wait for farewell TTS before end_call hangup. */
+export const END_CALL_AUDIO_WAIT_MS = 4000
+
+/**
+ * Phase 05.4 Bug-3 fix: wait for the model's current TTS response to reach
+ * the counterpart leg before proceeding with hangup. Called by sideband's
+ * onmessage handler on the `end_call` dispatch path.
+ *
+ * Resolve conditions (whichever fires first):
+ *  1. `output_audio_buffer.stopped` — bot audio fully delivered
+ *     (onmessage handler flips `state.botSpeaking = false` and invokes the
+ *     stored resolver).
+ *  2. `timeoutMs` elapsed — defensive cap so a stuck stream never blocks
+ *     hangup indefinitely (log event: `end_call_audio_wait_timeout`).
+ *  3. Bot was NOT speaking when called — resolve immediately (no audio to
+ *     wait for, e.g. model emitted end_call without a text/audio turn).
+ *
+ * Single-slot: only one wait can be armed per SidebandState. A second call
+ * overwrites the resolver — safe because end_call is terminal (second
+ * dispatch is a no-op at the hangup level).
+ */
+export function waitForBotAudioDone(
+  state: SidebandState,
+  log: Logger,
+  timeoutMs: number = END_CALL_AUDIO_WAIT_MS,
+): Promise<'already_stopped' | 'stopped' | 'timeout'> {
+  if (!state.botSpeaking) {
+    log.info({
+      event: 'end_call_audio_wait_skip_not_speaking',
+      call_id: state.callId,
+    })
+    return Promise.resolve('already_stopped')
+  }
+  return new Promise((resolve) => {
+    const t0 = Date.now()
+    const timer = setTimeout(() => {
+      if (state.endCallAudioWaitResolve) {
+        state.endCallAudioWaitResolve = null
+      }
+      log.warn({
+        event: 'end_call_audio_wait_timeout',
+        call_id: state.callId,
+        elapsed_ms: Date.now() - t0,
+        timeout_ms: timeoutMs,
+      })
+      resolve('timeout')
+    }, timeoutMs)
+    state.endCallAudioWaitResolve = () => {
+      clearTimeout(timer)
+      log.info({
+        event: 'end_call_audio_wait_resolved',
+        call_id: state.callId,
+        elapsed_ms: Date.now() - t0,
+      })
+      resolve('stopped')
+    }
+  })
 }
