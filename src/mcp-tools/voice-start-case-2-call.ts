@@ -48,7 +48,25 @@ export const VoiceStartCase2CallSchema = z.object({
 export type VoiceStartCase2CallInput = z.infer<typeof VoiceStartCase2CallSchema>;
 
 export type VoiceStartCase2CallResult =
-  | { ok: true; result: { task_id: string; idempotency_key: string; duplicate: boolean; queue_position: number } }
+  | {
+      ok: true;
+      result: {
+        task_id: string;
+        idempotency_key: string;
+        duplicate: boolean;
+        queue_position: number;
+        /**
+         * Phase 05.4 Block-1 follow-up: REQ-C6B-07 extension clause — when a
+         * tool call's D-7 idempotency key matches an already-registered
+         * attempt, the existing call identifier is returned here instead of
+         * a new call being placed. `null` when `duplicate === false` (fresh
+         * attempt), or when the existing row has no `originating_call_id`
+         * (pre-Phase-05.4 records written before the field was wired
+         * through).
+         */
+        existing_call_id: string | null;
+      };
+    }
   | { ok: false; error: 'already_booked' | 'queue_full' | 'bad_request' | 'internal' };
 
 export interface VoiceStartCase2CallDeps {
@@ -161,12 +179,22 @@ export function makeVoiceStartCase2Call(deps: VoiceStartCase2CallDeps): ToolHand
     }
 
     // Duplicate detection: SELECT from voice_case_2_attempts WHERE idempotency_key=?
-    // If row exists and outcome is NULL (pending) or 'success' → duplicate
-    let existingRow: { outcome: string | null } | undefined;
+    // Phase 05.4 Block-1 follow-up: REQ-C6B-07 extension mandates returning
+    // the existing `call_id` when a duplicate is detected (not just a
+    // `duplicate:true` sentinel). SELECT originating_call_id alongside
+    // outcome so Andy can reference the prior booking in his Carsten-facing
+    // reply ("Schon gebucht, call XYZ").
+    let existingRow:
+      | { outcome: string | null; originating_call_id: string | null }
+      | undefined;
     try {
       existingRow = db
-        .prepare('SELECT outcome FROM voice_case_2_attempts WHERE idempotency_key=? LIMIT 1')
-        .get(idempotency_key) as { outcome: string | null } | undefined;
+        .prepare(
+          'SELECT outcome, originating_call_id FROM voice_case_2_attempts WHERE idempotency_key=? LIMIT 1',
+        )
+        .get(idempotency_key) as
+        | { outcome: string | null; originating_call_id: string | null }
+        | undefined;
     } catch (err) {
       logger.warn({ event: 'voice_start_case_2_db_error', err });
       return { ok: false, error: 'internal' };
@@ -174,7 +202,8 @@ export function makeVoiceStartCase2Call(deps: VoiceStartCase2CallDeps): ToolHand
 
     if (existingRow !== undefined) {
       // Duplicate detected — return ok:true with duplicate:true for Andy UX
-      // (Andy can inform Carsten without treating it as an error)
+      // (Andy can inform Carsten without treating it as an error) + carry
+      // the existing_call_id per REQ-C6B-07 duplicate clause.
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'case_2_start_duplicate',
@@ -183,6 +212,7 @@ export function makeVoiceStartCase2Call(deps: VoiceStartCase2CallDeps): ToolHand
         phone_hash: phoneHash,
         idempotency_key,
         existing_outcome: existingRow.outcome,
+        existing_call_id: existingRow.originating_call_id,
         latency_ms: nowFn() - start,
       });
       return {
@@ -192,6 +222,7 @@ export function makeVoiceStartCase2Call(deps: VoiceStartCase2CallDeps): ToolHand
           idempotency_key,
           duplicate: true,
           queue_position: 0,
+          existing_call_id: existingRow.originating_call_id,
         },
       };
     }
@@ -317,7 +348,13 @@ export function makeVoiceStartCase2Call(deps: VoiceStartCase2CallDeps): ToolHand
 
         return {
           ok: true,
-          result: { task_id, idempotency_key, duplicate: false, queue_position },
+          result: {
+            task_id,
+            idempotency_key,
+            duplicate: false,
+            queue_position,
+            existing_call_id: null,
+          },
         };
       }
 

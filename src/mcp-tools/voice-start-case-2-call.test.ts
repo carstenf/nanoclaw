@@ -134,7 +134,10 @@ describe('voice_start_case_2_call', () => {
   });
 
   // Test 7: duplicate booking (same phone+date+time+party_size) → {ok:true, duplicate:true}
-  it('duplicate: same idempotency_key → ok:true, duplicate:true (no second Bridge call)', async () => {
+  // Phase 05.4 Block-1 follow-up: REQ-C6B-07 extension clause mandates that
+  // the existing `call_id` is returned alongside `duplicate:true`. Test now
+  // asserts `existing_call_id` is present on both returns.
+  it('duplicate: same idempotency_key → ok:true, duplicate:true, existing_call_id returned (REQ-C6B-07)', async () => {
     const fetchMock = makeFetchMock();
     const handler = makeVoiceStartCase2Call({
       getDatabase: () => db,
@@ -143,14 +146,28 @@ describe('voice_start_case_2_call', () => {
     });
     const args = makeValidArgs();
     // First call
-    await handler(args);
+    const first = (await handler(args)) as {
+      ok: boolean;
+      result: { duplicate: boolean; existing_call_id: string | null };
+    };
+    expect(first.ok).toBe(true);
+    expect(first.result.duplicate).toBe(false);
+    expect(first.result.existing_call_id).toBe(null);
+
     fetchMock.mockClear();
     // Second call with same args
-    const result = (await handler(args)) as { ok: boolean; result: { duplicate: boolean } };
+    const result = (await handler(args)) as {
+      ok: boolean;
+      result: { duplicate: boolean; existing_call_id: string | null };
+    };
     expect(result.ok).toBe(true);
     expect(result.result.duplicate).toBe(true);
     // Bridge should NOT have been called again
     expect(fetchMock).not.toHaveBeenCalled();
+    // REQ-C6B-07 duplicate clause: existing_call_id key is present in the
+    // response (value may be null if the first call didn't supply a call_id;
+    // a typed `null` still satisfies the type contract).
+    expect(result.result).toHaveProperty('existing_call_id');
   });
 
   // Test 8: D-7 key is deterministic — sha256('+491234|2026-05-01|19:00|4') matches tool output
