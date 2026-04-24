@@ -570,13 +570,12 @@ export function registerAcceptRoute(
         })
       }
 
-      // Spike-A: when override is active (or Case-2 AMD branch), enable
-      // per-call sideband event trace to a deterministic path. Spike script
-      // tails it.
+      // INTERIM (pre-Phase-05.4 proper call-tracing infra): unconditionally
+      // write per-call sideband event trace — debuggability requires full
+      // visibility on every call, not just Case-2/override paths. §201-redaction
+      // for audio.delta bytes is already enforced in maybeWriteTrace().
       const traceEventsPath =
-        (hasPersonaOverride || hasToolsOverride || isCase2)
-          ? `/tmp/spike-a-trace-${callId.replace(/[^a-zA-Z0-9_-]/g, '_')}.jsonl`
-          : undefined
+        `/tmp/spike-a-trace-${callId.replace(/[^a-zA-Z0-9_-]/g, '_')}.jsonl`
       try {
         await openai.realtime.calls.accept(callId, {
           type: 'realtime',
