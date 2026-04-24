@@ -7,8 +7,6 @@ import {
   DATA_DIR,
   IPC_POLL_INTERVAL,
   TIMEZONE,
-  BRIDGE_OUTBOUND_URL,
-  BRIDGE_OUTBOUND_AUTH_TOKEN,
 } from './config.js';
 import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
@@ -512,75 +510,12 @@ export async function processTaskIpc(
       }
       break;
 
-    case 'make_call':
-    case 'make_sipgate_call': {
-      if (!data.to || !data.goal || !data.chatJid) {
-        logger.warn({ data }, 'make_call missing required fields');
-        break;
-      }
-      const voiceMode =
-        data.type === 'make_sipgate_call'
-          ? 'sipgate'
-          : data.voice_mode || 'sipgate';
-      if (voiceMode === 'freeswitch' || voiceMode === 'sipgate') {
-        // Plan 03-11 rewrite: outbound goes through voice-bridge ESL path.
-        // Old makeFreeswitchCall is a deprecated stub; route via Bridge POST
-        // /outbound which enqueues + originates through FreeSWITCH on Hetzner.
-        try {
-          const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-          };
-          if (BRIDGE_OUTBOUND_AUTH_TOKEN) {
-            headers['Authorization'] = `Bearer ${BRIDGE_OUTBOUND_AUTH_TOKEN}`;
-          }
-          const res = await fetch(`${BRIDGE_OUTBOUND_URL}/outbound`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              target_phone: data.to,
-              goal: data.goal,
-              context: data.context ?? '',
-              report_to_jid: data.chatJid,
-            }),
-          });
-          let body: unknown = null;
-          try {
-            body = await res.json();
-          } catch {
-            /* ignore */
-          }
-          if (res.ok) {
-            logger.info(
-              {
-                to: data.to,
-                voiceMode,
-                sourceGroup,
-                outbound_task_id: (body as { outbound_task_id?: string })
-                  ?.outbound_task_id,
-              },
-              'Outbound call enqueued via voice-bridge',
-            );
-          } else {
-            logger.warn(
-              { status: res.status, body, to: data.to, voiceMode, sourceGroup },
-              'voice-bridge /outbound rejected request',
-            );
-          }
-        } catch (err) {
-          logger.warn(
-            { err, to: data.to, voiceMode, sourceGroup },
-            'voice-bridge /outbound POST failed',
-          );
-        }
-      } else {
-        logger.info(
-          { to: data.to, goal: data.goal, voiceMode, sourceGroup },
-          'Initiating Twilio call via IPC',
-        );
-        await deps.makeCall(data.to, data.goal, data.chatJid, voiceMode);
-      }
-      break;
-    }
+// Phase 05.4 Block-6: `make_call` / `make_sipgate_call` IPC handler deleted.
+    // Outbound-call dispatch moved fully to the nanoclaw-voice MCP stream server
+    // (`voice_request_outbound_call`, `voice_start_case_2_call`) per REQ-C6B-03.
+    // Grep verification on 2026-04-24 confirmed zero remaining writers of these
+    // IPC types (no cron, no active scheduled_tasks — only historical
+    // data/ipc/errors/* files).
 
     default:
       logger.warn({ type: data.type }, 'Unknown IPC task type');
