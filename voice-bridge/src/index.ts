@@ -9,7 +9,17 @@
 // fastify-raw-body plugin and per-route config.rawBody=true.
 import Fastify from 'fastify'
 import OpenAI from 'openai'
-import { HOST, PORT, getSecret, getApiKey, getWhitelist } from './config.js'
+import {
+  HOST,
+  PORT,
+  getSecret,
+  getApiKey,
+  getWhitelist,
+  REASONING_MODE,
+  NANOCLAW_VOICE_MCP_URL,
+  NANOCLAW_VOICE_MCP_TOKEN,
+  NANOCLAW_VOICE_MCP_TIMEOUT_MS,
+} from './config.js'
 import { buildLogger } from './logger.js'
 import { registerHealthRoute } from './health.js'
 import { registerWebhookRoute, registerAcceptRoute } from './webhook.js'
@@ -19,6 +29,7 @@ import { createCallRouter, type CallRouter } from './call-router.js'
 import { createOutboundRouter, type OutboundRouter } from './outbound-router.js'
 import { setHangupCallback } from './tools/dispatch.js'
 import { sipgateRestOriginate } from './sipgate-rest-client.js'
+import { NanoclawMcpClient } from './nanoclaw-mcp-client.js'
 // ESL client kept as inactive v2 fallback (Sipgate REST API pivot 2026-04-19).
 // Will be re-wired if Sipgate account is upgraded from Basic to Trunking.
 // import { eslOriginate } from './freeswitch-esl-client.js'
@@ -38,6 +49,12 @@ export interface BuildAppOptions {
   outboundAuthToken?: string
   /** Override peer IP for /outbound tests (bypasses real IP extraction). */
   peerIpOverride?: string
+  /**
+   * Phase 05.5 — optional NanoclawMcpClient injection for branch-coverage
+   * tests. Production wiring constructs the client only when
+   * REASONING_MODE='container-agent' AND NANOCLAW_VOICE_MCP_URL is set.
+   */
+  nanoclawMcpOverride?: NanoclawMcpClient
 }
 
 /**
@@ -123,9 +140,32 @@ export async function buildApp(opts: BuildAppOptions = {}) {
       timers: { setTimeout, clearTimeout },
     })
 
+  // Phase 05.5 — per-process NanoclawMcpClient. Constructed only when the
+  // REASONING_MODE flag is flipped AND the URL is configured (D-3, D-21).
+  // Default 'slow-brain' mode leaves this undefined so no MCP connection is
+  // attempted and Phase-5 paths stay byte-identical.
+  const nanoclawMcp =
+    opts.nanoclawMcpOverride ??
+    (REASONING_MODE === 'container-agent' && NANOCLAW_VOICE_MCP_URL
+      ? new NanoclawMcpClient({
+          url: NANOCLAW_VOICE_MCP_URL,
+          bearer: NANOCLAW_VOICE_MCP_TOKEN,
+          timeoutMs: NANOCLAW_VOICE_MCP_TIMEOUT_MS,
+        })
+      : undefined)
+
   registerHealthRoute(app)
   registerWebhookRoute(app, openai, log, secret)
-  registerAcceptRoute(app, openai, log, secret, whitelist, router, outboundRouter)
+  registerAcceptRoute(
+    app,
+    openai,
+    log,
+    secret,
+    whitelist,
+    router,
+    outboundRouter,
+    nanoclawMcp,
+  )
   registerOutboundRoute(app, log, outboundRouter, {
     authToken: opts.outboundAuthToken,
     peerIpOverride: opts.peerIpOverride,

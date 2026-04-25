@@ -22,7 +22,13 @@
 import type { FastifyInstance } from 'fastify'
 import OpenAI from 'openai'
 import type { Logger } from 'pino'
-import { CARSTEN_CLI_NUMBER, SESSION_CONFIG, buildTracePath } from './config.js'
+import {
+  CARSTEN_CLI_NUMBER,
+  SESSION_CONFIG,
+  buildTracePath,
+  REASONING_MODE,
+  FALLBACK_PERSONA,
+} from './config.js'
 import { PHASE2_PERSONA, buildCase2OutboundPersona } from './persona.js'
 import { buildBasePersona } from './persona/baseline.js'
 import { buildTaskOverlay } from './persona/overlays/index.js'
@@ -32,6 +38,7 @@ import type { OutboundRouter } from './outbound-router.js'
 import { maybeInjectPreGreet } from './pre-greet.js'
 import { CoreMcpClient } from './core-mcp-client.js'
 import { CORE_MCP_URL, CORE_MCP_TOKEN } from './config.js'
+import type { NanoclawMcpClient } from './nanoclaw-mcp-client.js'
 import type { CoreClientLike } from './slow-brain.js'
 import { enableAutoResponseCreate, requestResponse, updateInstructions } from './sideband.js'
 import {
@@ -258,6 +265,7 @@ export function registerAcceptRoute(
   whitelist: Set<string>,
   router: CallRouter,
   outboundRouter?: OutboundRouter,
+  nanoclawMcp?: NanoclawMcpClient,
 ): void {
   app.post('/accept', async (request, reply) => {
     const t0 = Date.now()
@@ -377,7 +385,75 @@ export function registerAcceptRoute(
       // Declared at outbound-block scope so the onHuman closure can capture it.
       let ctxRef: { sideband: { state: Parameters<typeof updateInstructions>[0] } } | null = null
 
-      if (isCase2) {
+      // Phase 05.5 Splice A — outbound /accept REASONING_MODE branch.
+      // When the flag is 'container-agent', synchronously call nanoclawMcp.init
+      // (REQ-DIR-19) and use the returned fully-rendered persona. On
+      // timeout/error fall back to FALLBACK_PERSONA per REQ-VOICE-13 fallback
+      // exception. The legacy baseline+overlay composition stays in the else
+      // branch — Phase-5 default behaviour is byte-identical.
+      //
+      // Critical guard: if the flag is on but `nanoclawMcp` was not wired
+      // (config error — index.ts skipped construction), log fatal and use
+      // FALLBACK_PERSONA. Silently regressing to legacy code would mask the
+      // misconfiguration.
+      //
+      // Case-2 AMD-classifier requires CASE2_AMD_CLASSIFIER_PROMPT as the
+      // initial /accept instructions so the model stays in detection-mode
+      // pre-verdict (§201 StGB AMD-gate, Plan 05-03 T-05-03-01). The
+      // container-agent persona is therefore swapped in via the post-AMD-
+      // verdict onHuman closure path (existing updateInstructions wiring) —
+      // not at /accept time. Hence this Splice A applies to NON-Case-2
+      // outbound paths (Case-1 + override envelopes); Case-2 keeps its
+      // classifier-prompt instructions and the persona/overlay swap inside
+      // onHuman remains the legacy Phase-5 path until Plan 05.6 cleanup.
+      const useContainerAgent =
+        REASONING_MODE === 'container-agent' && !isCase2
+      if (useContainerAgent) {
+        if (!nanoclawMcp) {
+          log.error({
+            event: 'container_agent_mode_but_client_missing',
+            call_id: callId,
+          })
+          outboundInstructions = FALLBACK_PERSONA
+        } else {
+          try {
+            const r = await nanoclawMcp.init({
+              call_id: callId,
+              case_type: 'case_2',
+              call_direction: 'outbound',
+              counterpart_label: String(
+                activeOutbound.case_payload?.restaurant_name ?? 'Counterpart',
+              ),
+            })
+            outboundInstructions = r.instructions
+          } catch (err) {
+            log.warn({
+              event: 'container_agent_init_failed',
+              call_id: callId,
+              err: (err as Error)?.message,
+            })
+            outboundInstructions = FALLBACK_PERSONA
+          }
+        }
+        // Default tools allowlist — container-agent doesn't override tools at
+        // /accept (REQ-DIR-11: no tools mid-call; tools fixed at /accept).
+        toolsPayloadOut = getAllowlist().map((e: ToolEntry) => {
+          const desc = (e.schema as { description?: unknown }).description
+          return {
+            type: 'function' as const,
+            name: e.name,
+            ...(typeof desc === 'string' && desc.length > 0
+              ? { description: desc }
+              : {}),
+            parameters: e.schema,
+          }
+        })
+        log.info({
+          event: 'container_agent_outbound_active',
+          call_id: callId,
+          task_id: activeOutbound.task_id,
+        })
+      } else if (isCase2) {
         // Case-2: AMD classifier prompt as initial instructions.
         // The classifier fires amd_result which swaps to CASE2_OUTBOUND_PERSONA.
         outboundInstructions = CASE2_AMD_CLASSIFIER_PROMPT
@@ -613,7 +689,13 @@ export function registerAcceptRoute(
           tools: toolsPayloadOut,
           audio: audioForAccept,
         } as unknown as Parameters<typeof openai.realtime.calls.accept>[1])
-        const ctx = router.startCall(callId, log, { traceEventsPath })
+        const ctx = router.startCall(callId, log, {
+          traceEventsPath,
+          // Phase 05.5: pass per-call NanoclawMcpClient so onTranscriptTurn
+          // (call-router.ts) can fire the transcript trigger under
+          // REASONING_MODE='container-agent'. Stays undefined under default.
+          nanoclawMcp,
+        })
         log.info({
           event: 'call_accepted',
           call_id: callId,
@@ -699,8 +781,52 @@ export function registerAcceptRoute(
 
     const personaLabel =
       callerNumber === CARSTEN_CLI_NUMBER ? 'case6b' : 'phase2'
-    const instructions =
-      callerNumber === CARSTEN_CLI_NUMBER ? carstenInstructions : PHASE2_PERSONA
+
+    // Phase 05.5 Splice B — inbound /accept REASONING_MODE branch (REQ-DIR-19).
+    // When the flag is 'container-agent', synchronously call nanoclawMcp.init
+    // and use the returned fully-rendered Case-6b persona. On timeout/error
+    // fall back to FALLBACK_PERSONA (REQ-VOICE-13 inbound best-effort + REQ-
+    // DIR-18 fallback exception). The legacy carstenInstructions / PHASE2_PERSONA
+    // composition stays in the else branch — Phase-5 default unchanged.
+    //
+    // Inbound branch only runs the container-agent path for the Carsten case
+    // (case_6b). Non-Carsten callers reaching /accept after whitelist would
+    // fall back to PHASE2_PERSONA via the legacy path; in v1 of Phase 05.5,
+    // case_6a is not in the schema enum yet, so we keep the legacy path for
+    // those.
+    let instructions: string
+    if (
+      REASONING_MODE === 'container-agent' &&
+      callerNumber === CARSTEN_CLI_NUMBER
+    ) {
+      if (!nanoclawMcp) {
+        log.error({
+          event: 'container_agent_mode_but_client_missing',
+          call_id: callId,
+        })
+        instructions = FALLBACK_PERSONA
+      } else {
+        try {
+          const r = await nanoclawMcp.init({
+            call_id: callId,
+            case_type: 'case_6b',
+            call_direction: 'inbound',
+            counterpart_label: 'Carsten',
+          })
+          instructions = r.instructions
+        } catch (err) {
+          log.warn({
+            event: 'container_agent_init_failed',
+            call_id: callId,
+            err: (err as Error)?.message,
+          })
+          instructions = FALLBACK_PERSONA
+        }
+      }
+    } else {
+      instructions =
+        callerNumber === CARSTEN_CLI_NUMBER ? carstenInstructions : PHASE2_PERSONA
+    }
 
     const allowlist = getAllowlist()
     const toolsPayload = allowlist.map((e: ToolEntry) => {
@@ -733,6 +859,10 @@ export function registerAcceptRoute(
       // commit d6bf803 now that the path is production-grade.
       const ctx = router.startCall(callId, log, {
         coreMcp,
+        // Phase 05.5: pass per-call NanoclawMcpClient so onTranscriptTurn
+        // (call-router.ts) can fire the transcript trigger under
+        // REASONING_MODE='container-agent'. Stays undefined under default.
+        nanoclawMcp,
         traceEventsPath: buildTracePath(callId),
       })
       log.info({
