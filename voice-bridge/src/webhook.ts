@@ -39,7 +39,7 @@ import { maybeInjectPreGreet } from './pre-greet.js'
 import { CoreMcpClient } from './core-mcp-client.js'
 import { CORE_MCP_URL, CORE_MCP_TOKEN } from './config.js'
 import type { NanoclawMcpClient } from './nanoclaw-mcp-client.js'
-import type { CoreClientLike } from './slow-brain.js'
+import type { CoreClientLike } from './pre-greet.js'
 import { enableAutoResponseCreate, requestResponse, updateInstructions } from './sideband.js'
 import {
   checkCostCaps,

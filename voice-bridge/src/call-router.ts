@@ -14,11 +14,9 @@
 //   - Hard-safety hangup floor: pure wall-clock ceiling, no VAD awareness.
 import type { Logger } from 'pino'
 import type { SidebandHandle } from './sideband.js'
-import type { SlowBrainWorker } from './slow-brain.js'
 import type { TurnLog } from './turn-timing.js'
 import { openTurnLog } from './turn-timing.js'
 import { openSidebandSession, updateInstructions } from './sideband.js'
-import { startSlowBrain } from './slow-brain.js'
 import { startTeardown } from './teardown.js'
 import { runGhostScan } from './ghost-scan.js'
 import { clearCall as clearIdempotencyCache } from './idempotency.js'
@@ -26,7 +24,17 @@ import { armHardHangup, type HardHangupHandle } from './silence-monitor.js'
 import { getHangupCallback, getAmdClassifier } from './tools/dispatch.js'
 import type { CoreMcpClient } from './core-mcp-client.js'
 import type { NanoclawMcpClient } from './nanoclaw-mcp-client.js'
-import { OUTBOUND_CALL_MAX_DURATION_MS, REASONING_MODE } from './config.js'
+import { OUTBOUND_CALL_MAX_DURATION_MS } from './config.js'
+
+// Phase 05.6 cleanup: legacy SlowBrainWorker interface inlined here as a
+// no-op stub. The slow-brain transcript-push pipeline was removed in favor
+// of nanoclawMcp.transcript fire-and-forget — but the .push/.stop call sites
+// in sideband transcript wiring + endCall finalizer stay so the callsites
+// don't churn. Field is kept in CallContext for ABI compat with existing tests.
+export interface SlowBrainWorker {
+  push: (delta: { turnId: string; transcript: string }) => void
+  stop: () => Promise<void>
+}
 
 /**
  * Phase 05.5 D-16 turn-history record. Counterpart turns are appended in the
@@ -113,7 +121,6 @@ export interface CallRouter {
 export interface CallRouterFactories {
   openTurnLog?: (callId: string) => TurnLog
   openSidebandSession?: typeof openSidebandSession
-  startSlowBrain?: typeof startSlowBrain
   runGhostScan?: typeof runGhostScan
   clearIdempotencyCache?: (callId: string) => void
   /** Notify outbound-router when an outbound call ends (task mark-done + next-queued). */
@@ -125,7 +132,6 @@ export function createCallRouter(
 ): CallRouter {
   const fTurn = factories.openTurnLog ?? openTurnLog
   const fSide = factories.openSidebandSession ?? openSidebandSession
-  const fSlow = factories.startSlowBrain ?? startSlowBrain
   const fScan = factories.runGhostScan ?? runGhostScan
   const fClear = factories.clearIdempotencyCache ?? clearIdempotencyCache
   const map = new Map<string, CallContext>()
@@ -181,37 +187,33 @@ export function createCallRouter(
             text: transcript,
             started_at: new Date().toISOString(),
           })
-          if (REASONING_MODE === 'container-agent') {
-            // D-12: fire-and-forget. Hot-Path never blocks. On timeout / error
-            // the Bridge keeps last-known instructions (REQ-DIR-12). Errors
-            // surface as `transcript_trigger_failed` warn-log only.
-            const turnIdNum = Number(turnId.replace(/^\D+/, '')) || 0
-            void existing.nanoclawMcp
-              ?.transcript({
+          // D-12: fire-and-forget. Hot-Path never blocks. On timeout / error
+          // the Bridge keeps last-known instructions (REQ-DIR-12). Errors
+          // surface as `transcript_trigger_failed` warn-log only.
+          const turnIdNum = Number(turnId.replace(/^\D+/, '')) || 0
+          void existing.nanoclawMcp
+            ?.transcript({
+              call_id: callId,
+              turn_id: turnIdNum,
+              transcript: { turns: existing.turnHistory },
+              fast_brain_state: {},
+            })
+            .then((res) => {
+              if (res?.instructions_update) {
+                updateInstructions(
+                  existing.sideband.state,
+                  res.instructions_update,
+                  log,
+                )
+              }
+            })
+            .catch((err: unknown) => {
+              log.warn({
+                event: 'transcript_trigger_failed',
                 call_id: callId,
-                turn_id: turnIdNum,
-                transcript: { turns: existing.turnHistory },
-                fast_brain_state: {},
+                err: (err as Error)?.message,
               })
-              .then((res) => {
-                if (res?.instructions_update) {
-                  updateInstructions(
-                    existing.sideband.state,
-                    res.instructions_update,
-                    log,
-                  )
-                }
-              })
-              .catch((err: unknown) => {
-                log.warn({
-                  event: 'transcript_trigger_failed',
-                  call_id: callId,
-                  err: (err as Error)?.message,
-                })
-              })
-          } else {
-            existing.slowBrain.push({ turnId, transcript })
-          }
+            })
         },
         // VAD events drive the AMD classifier only (Case-2 VAD-fallback human
         // path). Legacy silence-monitor forwards were retired with the UX
@@ -232,16 +234,10 @@ export function createCallRouter(
         traceEventsPath: startOpts.traceEventsPath,
       })
       logs.set(callId, log)
-      // Phase 05.5: under REASONING_MODE='container-agent', the slow-brain
-      // worker is replaced with a no-op handle so the legacy push/stop call
-      // sites (sideband transcript wiring + endCall finalizer) stay
-      // structurally identical without firing the legacy reasoning path.
-      // Default 'slow-brain' invokes the existing factory verbatim — Phase-5
-      // behaviour is byte-identical.
-      const slowBrain =
-        REASONING_MODE === 'container-agent'
-          ? makeNoopSlowBrain()
-          : fSlow(log, sideband.state)
+      // Phase 05.6 cleanup: legacy slow-brain worker removed entirely. The
+      // .push call site below stays as a no-op so existing test fixtures
+      // that read ctx.slowBrain see a structurally-identical handle.
+      const slowBrain = makeNoopSlowBrain()
       // Plan 05.3-05b D-3 invariant: per-call hard-safety hangup floor (pure
       // wall-clock ceiling). Fires hangup after OUTBOUND_CALL_MAX_DURATION_MS
       // regardless of VAD state. Outbound has its own durationTimer in

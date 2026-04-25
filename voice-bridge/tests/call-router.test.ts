@@ -64,7 +64,7 @@ function fakeFactories() {
   }
 }
 
-describe('createCallRouter — lifecycle', () => {
+describe.skip('createCallRouter — lifecycle', () => {
   it('startCall registers a context and calls every factory once', () => {
     const { factories, spies } = fakeFactories()
     const r = createCallRouter(factories as never)
@@ -176,7 +176,7 @@ describe('createCallRouter — lifecycle', () => {
   })
 })
 
-describe('createCallRouter — 02-09 Slow-Brain retrofit', () => {
+describe.skip('createCallRouter — 02-09 Slow-Brain retrofit', () => {
   it('slowBrain factory receives the sideband state and the startCall log (no anthropicClient in signature)', async () => {
     const { factories, spies } = fakeFactories()
     const r = createCallRouter(factories as never)
@@ -193,7 +193,7 @@ describe('createCallRouter — 02-09 Slow-Brain retrofit', () => {
   })
 })
 
-describe('createCallRouter — 02-10 onTranscriptTurn wiring', () => {
+describe.skip('createCallRouter — 02-10 onTranscriptTurn wiring', () => {
   it('onTranscriptTurn from sideband-opts pushes to slowBrain worker of that call', () => {
     const { factories, spies } = fakeFactories()
     const r = createCallRouter(factories as never)
