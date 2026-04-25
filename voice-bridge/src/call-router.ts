@@ -17,7 +17,7 @@ import type { SidebandHandle } from './sideband.js'
 import type { SlowBrainWorker } from './slow-brain.js'
 import type { TurnLog } from './turn-timing.js'
 import { openTurnLog } from './turn-timing.js'
-import { openSidebandSession } from './sideband.js'
+import { openSidebandSession, updateInstructions } from './sideband.js'
 import { startSlowBrain } from './slow-brain.js'
 import { startTeardown } from './teardown.js'
 import { runGhostScan } from './ghost-scan.js'
@@ -25,7 +25,21 @@ import { clearCall as clearIdempotencyCache } from './idempotency.js'
 import { armHardHangup, type HardHangupHandle } from './silence-monitor.js'
 import { getHangupCallback, getAmdClassifier } from './tools/dispatch.js'
 import type { CoreMcpClient } from './core-mcp-client.js'
-import { OUTBOUND_CALL_MAX_DURATION_MS } from './config.js'
+import type { NanoclawMcpClient } from './nanoclaw-mcp-client.js'
+import { OUTBOUND_CALL_MAX_DURATION_MS, REASONING_MODE } from './config.js'
+
+/**
+ * Phase 05.5 D-16 turn-history record. Counterpart turns are appended in the
+ * onTranscriptTurn callback (sideband transcription completed event); assistant
+ * turns are reconstructable from session state, so v1 ships counterpart-only
+ * (Plan 05.5-04 documented simplification — REQ-DIR-16 "full history" is
+ * satisfied because the agent receives every counterpart utterance verbatim).
+ */
+export interface TurnHistoryEntry {
+  role: 'counterpart' | 'assistant'
+  text: string
+  started_at: string
+}
 
 export interface CallContext {
   callId: string
@@ -49,6 +63,20 @@ export interface CallContext {
    * fixtures that don't need MCP plumbing.
    */
   coreMcp?: CoreMcpClient
+  /**
+   * Phase 05.5 — per-call NanoclawMcpClient (REASONING_MODE='container-agent').
+   * Constructed at /accept (webhook.ts) when REASONING_MODE flag is flipped;
+   * stays undefined under default 'slow-brain' so legacy paths see no change.
+   * The endCall() finalizer closes it idempotently (REQ-DIR-19 lifecycle).
+   */
+  nanoclawMcp?: NanoclawMcpClient
+  /**
+   * Phase 05.5 D-16 — per-call turn history accumulated for the container-agent
+   * transcript trigger. v1 ships counterpart-only; assistant turns are
+   * reconstructable from session state. Always initialized to [] so the
+   * onTranscriptTurn callback can push without null checks.
+   */
+  turnHistory: TurnHistoryEntry[]
 }
 
 /**
@@ -61,6 +89,12 @@ export interface CallContext {
  */
 export interface StartCallOpts {
   coreMcp?: CoreMcpClient
+  /**
+   * Phase 05.5 — optional NanoclawMcpClient for the container-agent reasoning
+   * path. webhook.ts /accept passes this when REASONING_MODE='container-agent';
+   * tests inject a mock. Slow-brain default leaves this undefined.
+   */
+  nanoclawMcp?: NanoclawMcpClient
   traceEventsPath?: string
 }
 
@@ -120,9 +154,11 @@ export function createCallRouter(
           const closeLog = logs.get(id) ?? log
           router.endCall(id, closeLog)
         },
-        // Wire Sideband user-transcript-completed events into the Slow-Brain
-        // worker. Lookup via router.getCall so the closure doesn't capture a
-        // stale ctx before it's been registered in `map`.
+        // Wire Sideband user-transcript-completed events. Phase 05.5: branch on
+        // REASONING_MODE — slow-brain pushes to legacy worker; container-agent
+        // fires nanoclawMcp.transcript() fire-and-forget per D-12 (Hot-Path
+        // never blocks). Lookup via router.getCall so the closure doesn't
+        // capture a stale ctx before it's been registered in `map`.
         onTranscriptTurn: (turnId, transcript) => {
           const existing = router.getCall(callId)
           if (!existing) {
@@ -133,11 +169,49 @@ export function createCallRouter(
             })
             return
           }
-          existing.slowBrain.push({ turnId, transcript })
           // Plan 05.2-06 AMD VAD-fallback invariant: forward transcript to
           // classifier; classifier.onTranscript checks mailbox regex + settles
           // verdict=human if non-mailbox after a speech cycle (Case-2 human path).
+          // MUST stay wired in BOTH modes — no branch above this line.
           getAmdClassifier()?.onTranscript(transcript)
+          // Phase 05.5 D-16: append counterpart turn to per-call history BEFORE
+          // the branch so nanoclawMcp.transcript sees up-to-date turns.
+          existing.turnHistory.push({
+            role: 'counterpart',
+            text: transcript,
+            started_at: new Date().toISOString(),
+          })
+          if (REASONING_MODE === 'container-agent') {
+            // D-12: fire-and-forget. Hot-Path never blocks. On timeout / error
+            // the Bridge keeps last-known instructions (REQ-DIR-12). Errors
+            // surface as `transcript_trigger_failed` warn-log only.
+            const turnIdNum = Number(turnId.replace(/^\D+/, '')) || 0
+            void existing.nanoclawMcp
+              ?.transcript({
+                call_id: callId,
+                turn_id: turnIdNum,
+                transcript: { turns: existing.turnHistory },
+                fast_brain_state: {},
+              })
+              .then((res) => {
+                if (res?.instructions_update) {
+                  updateInstructions(
+                    existing.sideband.state,
+                    res.instructions_update,
+                    log,
+                  )
+                }
+              })
+              .catch((err: unknown) => {
+                log.warn({
+                  event: 'transcript_trigger_failed',
+                  call_id: callId,
+                  err: (err as Error)?.message,
+                })
+              })
+          } else {
+            existing.slowBrain.push({ turnId, transcript })
+          }
         },
         // VAD events drive the AMD classifier only (Case-2 VAD-fallback human
         // path). Legacy silence-monitor forwards were retired with the UX
@@ -158,7 +232,16 @@ export function createCallRouter(
         traceEventsPath: startOpts.traceEventsPath,
       })
       logs.set(callId, log)
-      const slowBrain = fSlow(log, sideband.state)
+      // Phase 05.5: under REASONING_MODE='container-agent', the slow-brain
+      // worker is replaced with a no-op handle so the legacy push/stop call
+      // sites (sideband transcript wiring + endCall finalizer) stay
+      // structurally identical without firing the legacy reasoning path.
+      // Default 'slow-brain' invokes the existing factory verbatim — Phase-5
+      // behaviour is byte-identical.
+      const slowBrain =
+        REASONING_MODE === 'container-agent'
+          ? makeNoopSlowBrain()
+          : fSlow(log, sideband.state)
       // Plan 05.3-05b D-3 invariant: per-call hard-safety hangup floor (pure
       // wall-clock ceiling). Fires hangup after OUTBOUND_CALL_MAX_DURATION_MS
       // regardless of VAD state. Outbound has its own durationTimer in
@@ -177,6 +260,8 @@ export function createCallRouter(
         slowBrain,
         hardHangup,
         coreMcp: startOpts.coreMcp,
+        nanoclawMcp: startOpts.nanoclawMcp,
+        turnHistory: [],
       }
       map.set(callId, ctx)
       return ctx
@@ -200,6 +285,17 @@ export function createCallRouter(
       ctx.slowBrain.stop().catch((e: Error) => {
         log.warn({
           event: 'slow_brain_stop_failed',
+          call_id: callId,
+          err: e.message,
+        })
+      })
+      // Phase 05.5: idempotent close of per-call NanoclawMcpClient. No-op when
+      // the field is undefined (slow-brain default) — close() itself is also
+      // idempotent (mirrors core-mcp-client.close() pattern). Errors logged
+      // only; never thrown — call-end teardown must always proceed.
+      ctx.nanoclawMcp?.close().catch((e: Error) => {
+        log.warn({
+          event: 'nanoclaw_mcp_close_failed',
           call_id: callId,
           err: e.message,
         })
@@ -243,4 +339,21 @@ export function createCallRouter(
     },
   }
   return router
+}
+
+/**
+ * Phase 05.5 — no-op SlowBrainWorker handle used when REASONING_MODE is
+ * 'container-agent'. The legacy push/stop call-sites (sideband transcript
+ * wiring + endCall finalizer) stay structurally identical without firing the
+ * legacy reasoning path. Not exported — internal scaffold only.
+ */
+function makeNoopSlowBrain(): SlowBrainWorker {
+  return {
+    push: () => {
+      /* noop — container-agent path uses nanoclawMcp.transcript instead */
+    },
+    stop: async () => {
+      /* noop */
+    },
+  }
 }
