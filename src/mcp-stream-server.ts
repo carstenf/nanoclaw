@@ -354,11 +354,25 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
     for (const name of deps.registry.listNames()) {
       const meta = TOOL_META[name];
       const description = meta?.description ?? `Voice MCP tool: ${name}`;
+      // Voice-trigger tools are the Bridge↔NanoClaw reasoning interface
+      // (Phase 05.5/05.6) — the Bridge passes real `rtc_*` call_id and a
+      // numeric Realtime turn_id. Synthetic injection (Pitfall 8) MUST NOT
+      // run for these tools or it (a) overwrites the real call_id used for
+      // cost-ledger attribution, and (b) replaces the numeric turn_id with
+      // a string, which fails the `z.number()` schema in
+      // voice_triggers_transcript and breaks every transcript trigger in
+      // production. (Phase 05.6 Plan 01 Task 3 surfaced this.)
+      const skipSyntheticIds =
+        name === 'voice_triggers_init' || name === 'voice_triggers_transcript';
       const handler = async (args: unknown) => {
         // Pitfall 8: every chat/iOS invocation gets synthetic IDs so its
-        // idempotency keys are disjoint from live voice calls.
+        // idempotency keys are disjoint from live voice calls. Skipped for
+        // voice_triggers_* (see comment above).
         const synthetic =
-          args && typeof args === 'object' && !Array.isArray(args)
+          !skipSyntheticIds &&
+          args &&
+          typeof args === 'object' &&
+          !Array.isArray(args)
             ? {
                 ...(args as Record<string, unknown>),
                 call_id: `chat-${randomUUID()}`,
