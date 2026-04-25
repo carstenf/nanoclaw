@@ -153,20 +153,29 @@ Plans:
 **UI hint**: no
 **Scope note**: All `carsten_bot` scope but GATED ON PHASE 0 legal completion. First real external call = first §201 exposure. Must not ship before lawyer opinion lands.
 
-### Phase 05.5: Slow-Brain Removal & Container-Agent Reasoning Layer (INSERTED)
+### Phase 05.6: Container-Agent Integration & Cutover (INSERTED)
 
-**Goal:** Remove the in-bridge Slow-Brain worker entirely. The NanoClaw container-agent (same agent serving WhatsApp/Discord) becomes the per-turn reasoning layer, invoked via a standard MCP connection. The Bridge becomes a zero-reasoning transport. A new `voice-personas` skill in NanoClaw owns baseline + case-overlays; the Bridge keeps only a minimal generic fallback string. Strengthens CONOPS MOS-4 ("Voice ist dünner Channel-Adapter; alle Brain-Funktionen bleiben im NanoClaw-Core"). Source: `~/nanoclaw-state/voice-channel-spec/decisions/2026-04-24-slow-brain-removal-phase-6.md` + REQUIREMENTS.md Extension 2026-04-24 (REQ-DIR-06/11/12/14/15/16/17/18/19 + REQ-VOICE-13 + REQ-COST-06).
-**Requirements**: REQ-DIR-06 (Phase 6), REQ-DIR-11 (Phase 6), REQ-DIR-12 (Phase 6), REQ-DIR-14, REQ-DIR-15, REQ-DIR-16, REQ-DIR-17, REQ-DIR-18, REQ-DIR-19, REQ-VOICE-13 (Phase 6), REQ-COST-06
+**Goal:** Wire `defaultInvokeAgent` (in voice_triggers_init/transcript handlers, shipped as no-op in Phase 05.5) to a real `src/container-runner.ts` spawn + voice-personas skill-load + placeholder substitution, so the NanoClaw container-agent actually serves as the per-turn reasoning layer (Phase-Goal of 05.5+05.6 combined). Then run live PSTN cutover (synthetic + inbound + outbound) under `REASONING_MODE=container-agent`, flip the default at app-start, and execute D-22 hard cleanup (delete `slow-brain.ts`, `core-mcp-client.ts`, `voice-bridge/src/persona/*`, `REASONING_MODE` flag, legacy `CORE_MCP_*` ENV vars). After Phase 05.6 lands, the Bridge truly is a zero-reasoning transport per CONOPS MOS-4. Phase-split rationale: Phase 05.5 ships the transport+skill+flag scaffold without touching the live reasoning path; Phase 05.6 lands the real integration + cutover. This isolates the riskier work (first-time container-runner-from-voice-side wiring + hard delete of live code) into its own phase with explicit Carsten gate.
+**Requirements**: REQ-DIR-06 (Phase 6 — final activation), REQ-DIR-11 (Phase 6 — final activation), REQ-DIR-12 (Phase 6 — final activation), REQ-DIR-14 (real spawn semantics), REQ-DIR-16 (real turn-history wiring), REQ-DIR-17 (real mid-call read-only enforcement), REQ-VOICE-13 (Phase 6 — live verification)
+**Depends on:** Phase 05.5 (transport + skill + flag must exist before integration can wire to them)
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 05.6 to break down)
+
+### Phase 05.5: Slow-Brain Removal Transport Layer & Persona Skill (INSERTED)
+
+**Goal:** Land the architectural scaffold for slow-brain removal WITHOUT cutting over yet. Add the two new MCP-tools (`voice.triggers.init` + `voice.triggers.transcript`) on Port 3201 with FIFO queue + cost-ledger plumbing; create the `voice-personas` skill (baseline + case-2/case-6b overlays) in NanoClaw container; ship the Bridge `nanoclaw-mcp-client.ts` + `REASONING_MODE` feature-flag (default `slow-brain`) + `FALLBACK_PERSONA` constant; wire the /accept + onTranscriptTurn branches behind the flag. The default flag value keeps Phase 5 / 05.4 live unchanged: `slow-brain.ts` + `core-mcp-client.ts` + `voice-bridge/src/persona/*` stay alive and serve every call exactly as today. The new code paths are dormant until Phase 05.6 wires `defaultInvokeAgent` to the real container-runner and flips the default. **Phase-split rationale:** The plan-checker for 05.5 (2026-04-25) found that wiring the transport layer without the real reasoning integration is the safe scope; combining both into one phase risks shipping a hard-cleanup commit before the new reasoning path is proven. Sources: `~/nanoclaw-state/voice-channel-spec/decisions/2026-04-24-slow-brain-removal-phase-6.md` + REQUIREMENTS.md Extension 2026-04-24 (REQ-DIR-06/11/12/14/15/16/17/18/19/20 + REQ-VOICE-13 + REQ-INFRA-16 + REQ-COST-06).
+**Requirements**: REQ-DIR-14 (handler stateless lifecycle scaffolded), REQ-DIR-15 (FIFO queue impl), REQ-DIR-17 (read-only sentinel gate), REQ-DIR-18 (voice-personas skill + FALLBACK_PERSONA), REQ-DIR-19 (sync /accept invocation path scaffolded behind flag), REQ-DIR-20 (5000ms sync MCP timeout), REQ-INFRA-16 (queue gc + container-lifetime invariant), REQ-COST-06 (cost-ledger trigger_type plumbing). REQ-DIR-06/11/12 (Phase 6) + REQ-VOICE-13 (Phase 6) + REQ-DIR-16 are scaffolded behind the flag and become authoritative when Phase 05.6 flips the default — listed in 05.6.
 **Depends on:** Phase 05.4 (Phase-5 closure before handover)
-**Plans:** 6 plans
+**Plans:** 5 plans
 
 Plans:
 - [ ] 05.5-01-PLAN.md — Wave 1: VoiceTriggerQueue + voice_triggers_init/transcript MCP-tools + gc hook (REQ-DIR-14/15/17, INFRA-16)
-- [ ] 05.5-02-PLAN.md — Wave 1: voice-personas skill (SKILL.md + baseline.md + case-2/case-6b overlays) (REQ-DIR-18)
-- [ ] 05.5-03-PLAN.md — Wave 2: NanoclawMcpClient + REASONING_MODE flag + FALLBACK_PERSONA (REQ-DIR-16/18/20)
-- [ ] 05.5-04-PLAN.md — Wave 3: Bridge wiring at /accept + onTranscriptTurn branch + branch tests (REQ-DIR-06/11/12/19, VOICE-13)
+- [ ] 05.5-02-PLAN.md — Wave 1: voice-personas skill (SKILL.md + baseline.md + case-2/case-6b overlays + Du/Sie derivation rule) (REQ-DIR-18)
+- [ ] 05.5-03-PLAN.md — Wave 2: NanoclawMcpClient + REASONING_MODE flag (default slow-brain) + FALLBACK_PERSONA (REQ-DIR-18/20)
+- [ ] 05.5-04-PLAN.md — Wave 3: Bridge wiring at /accept + onTranscriptTurn branch + branch tests (REQ-DIR-19, dormant scaffold for REQ-DIR-06/11/12/VOICE-13)
 - [ ] 05.5-05-PLAN.md — Wave 3: Cost-ledger trigger_type + per-trigger recording (REQ-COST-06)
-- [ ] 05.5-06-PLAN.md — Wave 4: Live PSTN tests (synth + inbound + outbound) + hard cleanup commit (autonomous: false, Carsten-gate) (REQ-VOICE-13)
 
 ### Phase 05.4: voice-bridge-outbound-fixes-and-call-tracing (INSERTED)
 

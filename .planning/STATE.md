@@ -77,6 +77,7 @@ Progress: [█████████░] 94%
 
 - Phase 05.1 inserted after Phase 05: AMD persona handoff redesign and ASR upgrade (URGENT) — blocks Phase 05 Plan 05-03 Task 5 live verification (Defects #4, #5, #6)
 - Phase 05.4 inserted after Phase 5: voice-bridge-outbound-fixes-and-call-tracing (URGENT) — 2 live-confirmed BUGs block Case-2 end-to-end: (1) generic-outbound one-shot-bot (`create_response:false` + only-once requestResponse), (2) container-agent selects `voice_request_outbound_call` instead of `voice_start_case_2_call`. Plus: proper call-tracing infra (replaces interim chore d6bf803).
+- Phase 05.5 inserted after Phase 05.4: Slow-Brain Removal & Container-Agent Reasoning Layer (URGENT, architectural) — per decision doc `~/nanoclaw-state/voice-channel-spec/decisions/2026-04-24-slow-brain-removal-phase-6.md`. Bridge Slow-Brain worker removed; NanoClaw container-agent becomes per-turn reasoning layer via standard MCP (structurally identical to discord-mcp/tradeblocks-mcp). New voice-personas skill in NanoClaw; Bridge keeps only minimal FALLBACK_PERSONA. Strengthens CONOPS MOS-4. Activation contingent on Phase-5 closure + Carsten go-ahead.
 
 ### Decisions
 
