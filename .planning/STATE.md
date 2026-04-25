@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Completed 03-11-PLAN.md — Case-6b end-to-end ready, awaiting Carsten PSTN test
-last_updated: "2026-04-24T12:13:04.787Z"
-last_activity: 2026-04-24
+last_updated: "2026-04-25T09:08:41.484Z"
+last_activity: 2026-04-25 -- Phase 05.6 planning complete
 progress:
-  total_phases: 12
+  total_phases: 15
   completed_phases: 4
-  total_plans: 64
+  total_plans: 72
   completed_plans: 59
-  percent: 92
+  percent: 82
 ---
 
 # Project State
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-04-16)
 
 Phase: 6
 Plan: Not started
-Status: Executing Phase 05.3
-Last activity: 2026-04-24
+Status: Ready to execute
+Last activity: 2026-04-25 -- Phase 05.6 planning complete
 
 Progress: [█████████░] 94%
 
@@ -77,7 +77,8 @@ Progress: [█████████░] 94%
 
 - Phase 05.1 inserted after Phase 05: AMD persona handoff redesign and ASR upgrade (URGENT) — blocks Phase 05 Plan 05-03 Task 5 live verification (Defects #4, #5, #6)
 - Phase 05.4 inserted after Phase 5: voice-bridge-outbound-fixes-and-call-tracing (URGENT) — 2 live-confirmed BUGs block Case-2 end-to-end: (1) generic-outbound one-shot-bot (`create_response:false` + only-once requestResponse), (2) container-agent selects `voice_request_outbound_call` instead of `voice_start_case_2_call`. Plus: proper call-tracing infra (replaces interim chore d6bf803).
-- Phase 05.5 inserted after Phase 05.4: Slow-Brain Removal & Container-Agent Reasoning Layer (URGENT, architectural) — per decision doc `~/nanoclaw-state/voice-channel-spec/decisions/2026-04-24-slow-brain-removal-phase-6.md`. Bridge Slow-Brain worker removed; NanoClaw container-agent becomes per-turn reasoning layer via standard MCP (structurally identical to discord-mcp/tradeblocks-mcp). New voice-personas skill in NanoClaw; Bridge keeps only minimal FALLBACK_PERSONA. Strengthens CONOPS MOS-4. Activation contingent on Phase-5 closure + Carsten go-ahead.
+- Phase 05.5 inserted after Phase 05.4: Slow-Brain Removal & Container-Agent Reasoning Layer (URGENT, architectural) — per decision doc `~/nanoclaw-state/voice-channel-spec/decisions/2026-04-24-slow-brain-removal-phase-6.md`. Bridge Slow-Brain worker removed; NanoClaw container-agent becomes per-turn reasoning layer via standard MCP (structurally identical to discord-mcp/tradeblocks-mcp). New voice-personas skill in NanoClaw; Bridge keeps only minimal FALLBACK_PERSONA. Strengthens CONOPS MOS-4. Activation contingent on Phase-5 closure + Carsten go-ahead. **Narrowed 2026-04-25:** Phase 05.5 scope reduced to transport+skill+flag (5 plans); integration+cutover moved to Phase 05.6 per plan-checker BLOCKER finding (combining transport scaffold with hard-cleanup risked shipping cleanup before reasoning path proven).
+- Phase 05.6 inserted after Phase 05.5: Container-Agent Integration & Cutover (URGENT, architectural-cutover) — wires `defaultInvokeAgent` to real `src/container-runner.ts`; live PSTN cutover under REASONING_MODE=container-agent (synthetic + Carsten inbound + Case-2 outbound, with strict D-29 case-specific behaviour acceptance); flips REASONING_MODE default; D-22/D-30 single-atomic hard cleanup commit. After 05.6 lands, Bridge is single-path container-agent only — CONOPS MOS-4 fully satisfied. 3 plans, 2 waves; Wave 2 autonomous:false (Carsten checkpoints at each cutover step).
 
 ### Decisions
 
