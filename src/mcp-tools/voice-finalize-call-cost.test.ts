@@ -228,4 +228,28 @@ describe('makeVoiceFinalizeCallCost (INFRA-06)', () => {
     })) as { ok: true };
     expect(result.ok).toBe(true);
   });
+
+  // Phase 05.6 Plan 01 Task 4 (REQ-DIR-17): finalize handler deregisters
+  // the call_id from the active-call set. Mirror to voice_triggers_init's
+  // registerActiveCall hook (Test 7 in voice-triggers-init.test.ts).
+  it('Test 8: REQ-DIR-17 — handler deregisters call_id from active-call set', async () => {
+    const { registerActiveCall, isCallActive, _resetActiveSet } = await import(
+      '../voice-mid-call-gateway.js'
+    );
+    _resetActiveSet();
+    registerActiveCall('finalize-r17-call');
+    expect(isCallActive('finalize-r17-call')).toBe(true);
+
+    const deps = makeDeps();
+    const handler = makeVoiceFinalizeCallCost(deps);
+    await handler({
+      call_id: 'finalize-r17-call',
+      case_type: 'case_6a',
+      started_at: '2026-04-19T11:59:00Z',
+      ended_at: '2026-04-19T12:01:30Z',
+      terminated_by: 'counterpart_bye',
+    });
+    expect(isCallActive('finalize-r17-call')).toBe(false);
+    _resetActiveSet();
+  });
 });

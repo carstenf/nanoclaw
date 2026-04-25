@@ -14,6 +14,10 @@ import type { VoiceCallCostRow } from '../cost-ledger.js';
 
 import { BadRequestError } from './voice-on-transcript-turn.js';
 import type { ToolHandler } from './index.js';
+// Phase 05.6 Plan 01 Task 4: deregister the active call from the mid-call
+// mutation gateway when the call ends. Mirrors the registerActiveCall hook
+// in voice-triggers-init.ts. Idempotent — safe to call multiple times.
+import { deregisterActiveCall } from '../voice-mid-call-gateway.js';
 
 const TERMINATED_BY = [
   'counterpart_bye',
@@ -77,6 +81,16 @@ export function makeVoiceFinalizeCallCost(
     }
 
     const d = parseResult.data;
+
+    // Phase 05.6 Plan 01 Task 4 (REQ-DIR-17): deregister the active call
+    // from the mid-call mutation gateway. Done early so subsequent
+    // post-call mutations (cost ledger writes, suspend flag, queue gc) are
+    // ALLOWED — finalize itself is part of the post-call execution path.
+    // Idempotent — no-op if the call_id was never registered or already
+    // deregistered (e.g. by a Phase-05.5 end_call hook). Failure cannot
+    // happen — deregisterActiveCall does not throw.
+    deregisterActiveCall(d.call_id);
+
     const { sum_eur, count } = deps.sumTurnCosts(d.call_id);
 
     const row: VoiceCallCostRow = {

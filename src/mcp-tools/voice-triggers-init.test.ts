@@ -27,6 +27,11 @@ import {
 } from '../voice-agent-invoker.js';
 import type { ContainerOutput } from '../container-runner.js';
 import type { RegisteredGroup } from '../types.js';
+// Phase 05.6 Plan 01 Task 4: REQ-DIR-17 active-call set assertion.
+import {
+  isCallActive,
+  _resetActiveSet,
+} from '../voice-mid-call-gateway.js';
 
 function tmpJsonl(): string {
   return path.join(os.tmpdir(), `voice-triggers-init-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
@@ -329,6 +334,29 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
     expect(result.ok).toBe(false);
     expect(result.error).toBe('agent_unavailable');
     expect(runContainer).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 7 — REQ-DIR-17: handler registers the call_id in the active-call set
+  // BEFORE invoking the agent. Asserts via the gateway's isCallActive helper.
+  // -------------------------------------------------------------------------
+  it('Test 7: REQ-DIR-17 — handler registers call_id in active-call set on entry', async () => {
+    _resetActiveSet();
+    const runContainer = makeRunContainerSuccess(fenced('A persona body.'));
+    const invokerDeps: VoiceAgentInvokerDeps = {
+      runContainer,
+      loadMainGroup: () => makeMainGroup(),
+    };
+    const handler = makeVoiceTriggersInit({
+      invokeAgent: (input) => defaultInvokeAgent(input, invokerDeps),
+      jsonlPath: tmpJsonl(),
+    });
+    expect(isCallActive('call-r17-test')).toBe(false);
+    await handler(makeValidArgs({ call_id: 'call-r17-test' }));
+    // After handler completes, the call_id is still active (matching
+    // deregister lives in voice_finalize_call_cost — Test 8 in that file).
+    expect(isCallActive('call-r17-test')).toBe(true);
+    _resetActiveSet();
   });
 
   // -------------------------------------------------------------------------

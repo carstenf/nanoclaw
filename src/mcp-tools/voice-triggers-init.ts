@@ -44,6 +44,11 @@ import type { ToolHandler } from './index.js';
 // real container-runner integration without any AGENT-NOT-WIRED fallback.
 import { defaultInvokeAgent as realDefaultInvokeAgent } from '../voice-agent-invoker.js';
 export const defaultInvokeAgent = realDefaultInvokeAgent;
+// Phase 05.6 Plan 01 Task 4: register the active call before invoking the
+// agent. The matching deregister lives in voice-finalize-call-cost.ts.
+// Registration happens after schema validation so we never register a call_id
+// that failed Zod parsing.
+import { registerActiveCall } from '../voice-mid-call-gateway.js';
 
 // Tool-name regex compliance validated at module load.
 export const TOOL_NAME = 'voice_triggers_init' as const;
@@ -121,6 +126,13 @@ export function makeVoiceTriggersInit(deps: VoiceTriggersInitDeps): ToolHandler 
         issue?.message ?? 'invalid',
       );
     }
+
+    // Phase 05.6 Plan 01 Task 4 (REQ-DIR-17): mark this call_id active for
+    // the dispatch-path mid-call mutation gateway. The matching deregister
+    // lives in voice_finalize_call_cost. Idempotent — safe to call again on
+    // accept-retry. Registered BEFORE the agent invocation so any concurrent
+    // mutating tool attempt during persona rendering is already blocked.
+    registerActiveCall(parsed.data.call_id);
 
     try {
       const r = await deps.invokeAgent(parsed.data);

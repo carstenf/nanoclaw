@@ -70,6 +70,11 @@ import {
   sumCostCurrentMonth,
   insertPriceSnapshot,
 } from '../cost-ledger.js';
+// Phase 05.6 Plan 01 Task 4 — REQ-DIR-17 dispatch-path gateway.
+import {
+  checkMidCallMutation,
+  type ToolMeta,
+} from '../voice-mid-call-gateway.js';
 import {
   SKILLS_DIR,
   ASK_CORE_CLAUDE_TIMEOUT_MS,
@@ -111,11 +116,27 @@ export class UnknownToolError extends Error {
   }
 }
 
-export class ToolRegistry {
-  private readonly tools = new Map<string, ToolHandler>();
+/**
+ * Per-tool registration entry. The optional `meta.mutating` flag drives the
+ * REQ-DIR-17 dispatch-path gateway (Phase 05.6 Plan 01 Task 4): mutating
+ * tools invoked while a call is active are rejected with
+ * `{ ok: false, error: 'mid_call_mutation_forbidden' }` BEFORE the handler runs.
+ */
+export interface ToolRegistration {
+  handler: ToolHandler;
+  meta: ToolMeta;
+}
 
-  register(name: string, handler: ToolHandler): void {
-    this.tools.set(name, handler);
+export class ToolRegistry {
+  private readonly tools = new Map<string, ToolRegistration>();
+
+  /**
+   * Backward-compat additive signature. Existing callers that omit `meta`
+   * implicitly register the tool as non-mutating (the safe default —
+   * read-only tools always pass the gateway).
+   */
+  register(name: string, handler: ToolHandler, meta: ToolMeta = {}): void {
+    this.tools.set(name, { handler, meta });
   }
 
   has(name: string): boolean {
@@ -123,9 +144,22 @@ export class ToolRegistry {
   }
 
   async invoke(name: string, args: unknown): Promise<unknown> {
-    const h = this.tools.get(name);
-    if (!h) throw new UnknownToolError(name);
-    return h(args);
+    const reg = this.tools.get(name);
+    if (!reg) throw new UnknownToolError(name);
+
+    // REQ-DIR-17 dispatch-path gateway (Phase 05.6 Plan 01 Task 4).
+    // Read call_id off the args object if present; absent or non-string
+    // call_id → null → gateway treats as no-call-correlation → ALLOWED.
+    const callId =
+      args && typeof args === 'object' && 'call_id' in args
+        ? (args as { call_id: unknown }).call_id
+        : null;
+    const callIdStr = typeof callId === 'string' ? callId : null;
+    const decision = checkMidCallMutation(callIdStr, name, reg.meta);
+    if (!decision.allowed) {
+      return { ok: false, error: decision.reason };
+    }
+    return reg.handler(args);
   }
 
   listNames(): string[] {
@@ -233,6 +267,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
         ? `${deps.dataDir}/voice-calendar.jsonl`
         : undefined,
     }),
+    { mutating: true },
   );
 
   registry.register(
@@ -243,6 +278,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
         ? `${deps.dataDir}/voice-calendar.jsonl`
         : undefined,
     }),
+    { mutating: true },
   );
 
   registry.register(
@@ -253,6 +289,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
         ? `${deps.dataDir}/voice-calendar.jsonl`
         : undefined,
     }),
+    { mutating: true },
   );
 
   // voice_send_discord_message — only register when callback is provided AND allowlist is non-empty
@@ -276,6 +313,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
           : undefined,
         timeoutMs: VOICE_DISCORD_TIMEOUT_MS,
       }),
+      { mutating: true },
     );
   } else {
     const log = deps.log ?? logger;
@@ -348,6 +386,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
         ? `${deps.dataDir}/voice-scheduler.jsonl`
         : undefined,
     }),
+    { mutating: true },
   );
 
   // Resolve Andy's Discord channel: use explicit ANDY_VOICE_DISCORD_CHANNEL if set,
@@ -393,6 +432,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
         ? `${deps.dataDir}/voice-outbound.jsonl`
         : undefined,
     }),
+    { mutating: true },
   );
 
   // Phase 4 (INFRA-06): Bridge-internal cost housekeeping tools.
@@ -446,6 +486,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       setRouterState,
       jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-cost.jsonl` : undefined,
     }),
+    { mutating: true },
   );
 
   // Phase 4 Plan 04-04 (INFRA-07): voice_insert_price_snapshot — written by
@@ -458,6 +499,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       insertPriceSnapshot: (row) => insertPriceSnapshot(getDatabase(), row),
       jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-cost.jsonl` : undefined,
     }),
+    { mutating: true },
   );
 
   // Phase 4 Plan 04-03 (TOOLS-05): voice_search_competitors.
@@ -485,6 +527,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       bridgeAuthToken: BRIDGE_OUTBOUND_AUTH_TOKEN || undefined,
       jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-case-2-start.jsonl` : undefined,
     }),
+    { mutating: true },
   );
 
   // Phase 05.5 Plan 01 Task 4 (D-8, D-24): voice_triggers_init + voice_triggers_transcript.
@@ -553,6 +596,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       scheduleRetry: (args) => registry.invoke('voice_schedule_retry', args),
       jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-case-2-retry.jsonl` : undefined,
     }),
+    { mutating: true },
   );
 
   // Phase 5 Plan 05-01 (SEED-001) / Plan 05-02 Task 5: voice_notify_user — channel-agnostic routing.
@@ -563,6 +607,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   const activeSessionTracker = deps.activeSessionTracker ?? createActiveSessionTracker();
   registry.register(
     VOICE_NOTIFY_USER_TOOL_NAME,
+    // mutating: true — sends a Discord/WhatsApp message; mid-call mutation gate.
     makeVoiceNotifyUser({
       getActiveChannel: (jid, now) => activeSessionTracker.getActiveChannelFor(jid, now),
       sendWhatsappMessage: (jid, text) => {
@@ -590,6 +635,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       isWhatsappConnected: () => false, // Wave 2 wires this
       jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-notify.jsonl` : undefined,
     }),
+    { mutating: true },
   );
 
   return registry;
