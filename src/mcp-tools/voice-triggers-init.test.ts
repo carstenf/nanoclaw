@@ -24,9 +24,8 @@ import {
   INSTRUCTIONS_FENCE_START,
   INSTRUCTIONS_FENCE_END,
   type VoiceAgentInvokerDeps,
+  type VoicePersonaSkillFiles,
 } from '../voice-agent-invoker.js';
-import type { ContainerOutput } from '../container-runner.js';
-import type { RegisteredGroup } from '../types.js';
 // Phase 05.6 Plan 01 Task 4: REQ-DIR-17 active-call set assertion.
 import {
   isCallActive,
@@ -232,36 +231,21 @@ describe('voice_triggers_init', () => {
 // from the production code path.
 // ---------------------------------------------------------------------------
 
-function makeMainGroup(): RegisteredGroup & { jid: string } {
-  return {
-    name: 'main',
-    folder: 'main',
-    trigger: '',
-    added_at: '2026-04-25T00:00:00Z',
-    isMain: true,
-    jid: 'main@nanoclaw',
-  };
-}
-
 function fenced(body: string): string {
   return `chatter\n${INSTRUCTIONS_FENCE_START}\n${body}\n${INSTRUCTIONS_FENCE_END}\n`;
 }
 
-function makeRunContainerSuccess(resultBody: string) {
-  // Signature must match `typeof runContainerAgent` (RegisteredGroup, no jid).
-  return vi.fn(
-    async (
-      _group: RegisteredGroup,
-      _input: unknown,
-      _onProcess: (proc: never, name: string) => void,
-      onOutput?: (chunk: ContainerOutput) => Promise<void>,
-    ): Promise<ContainerOutput> => {
-      if (onOutput) {
-        await onOutput({ status: 'success', result: resultBody });
-      }
-      return { status: 'success', result: null };
-    },
-  );
+function fakeSkill(caseType: string): VoicePersonaSkillFiles {
+  return {
+    skill: '# SKILL\nRender persona between fences.',
+    baseline: '# BASELINE\nGoal: {{goal}}\nAnrede: {{anrede_form}}',
+    overlay: caseType === 'case_6b' ? 'Inbound von Carsten — Du-Form.' : 'Outbound — Sie-Form.',
+    overlayPath: `overlays/${caseType}.md`,
+  };
+}
+
+function makeRenderApiSuccess(resultBody: string) {
+  return vi.fn().mockResolvedValue(resultBody);
 }
 
 describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.6 Plan 01 Task 2)', () => {
@@ -269,12 +253,12 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
   // Test 1: Du-form rendering for case_6b (Carsten inbound)
   // -------------------------------------------------------------------------
   it('Test 1: case_6b → handler returns instructions containing "Du" via real defaultInvokeAgent', async () => {
-    const runContainer = makeRunContainerSuccess(
+    const renderApi = makeRenderApiSuccess(
       fenced('Hallo Carsten, Du kannst Dir das so vorstellen.'),
     );
     const invokerDeps: VoiceAgentInvokerDeps = {
-      runContainer,
-      loadMainGroup: () => makeMainGroup(),
+      renderApi,
+      loadSkillFiles: fakeSkill,
     };
     const handler = makeVoiceTriggersInit({
       invokeAgent: (input) => defaultInvokeAgent(input, invokerDeps),
@@ -295,12 +279,12 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
   // Test 2: Sie-form rendering for case_2 (outbound)
   // -------------------------------------------------------------------------
   it('Test 2: case_2 → handler returns instructions containing "Sie" (Du/Sie axis exercised)', async () => {
-    const runContainer = makeRunContainerSuccess(
+    const renderApi = makeRenderApiSuccess(
       fenced('Guten Tag, ich rufe wegen einer Reservierung an. Koennen Sie mir helfen?'),
     );
     const invokerDeps: VoiceAgentInvokerDeps = {
-      runContainer,
-      loadMainGroup: () => makeMainGroup(),
+      renderApi,
+      loadSkillFiles: fakeSkill,
     };
     const handler = makeVoiceTriggersInit({
       invokeAgent: (input) => defaultInvokeAgent(input, invokerDeps),
@@ -317,11 +301,13 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
   // -------------------------------------------------------------------------
   // Test 3: real-default — no main group → agent_unavailable
   // -------------------------------------------------------------------------
-  it('Test 3: no main group → handler returns ok:false / agent_unavailable (no uncaught exception)', async () => {
-    const runContainer = vi.fn();
+  it('Test 3: skill load failure → handler returns ok:false / agent_unavailable (no uncaught exception)', async () => {
+    const renderApi = vi.fn();
     const invokerDeps: VoiceAgentInvokerDeps = {
-      runContainer: runContainer as unknown as VoiceAgentInvokerDeps['runContainer'],
-      loadMainGroup: () => null,
+      renderApi,
+      loadSkillFiles: () => {
+        throw new Error('ENOENT: skill files missing');
+      },
     };
     const handler = makeVoiceTriggersInit({
       invokeAgent: (input) => defaultInvokeAgent(input, invokerDeps),
@@ -333,7 +319,7 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
     };
     expect(result.ok).toBe(false);
     expect(result.error).toBe('agent_unavailable');
-    expect(runContainer).not.toHaveBeenCalled();
+    expect(renderApi).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
@@ -342,10 +328,10 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
   // -------------------------------------------------------------------------
   it('Test 7: REQ-DIR-17 — handler registers call_id in active-call set on entry', async () => {
     _resetActiveSet();
-    const runContainer = makeRunContainerSuccess(fenced('A persona body.'));
+    const renderApi = makeRenderApiSuccess(fenced('A persona body.'));
     const invokerDeps: VoiceAgentInvokerDeps = {
-      runContainer,
-      loadMainGroup: () => makeMainGroup(),
+      renderApi,
+      loadSkillFiles: fakeSkill,
     };
     const handler = makeVoiceTriggersInit({
       invokeAgent: (input) => defaultInvokeAgent(input, invokerDeps),
@@ -364,10 +350,10 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
   // (Plan-checker BLOCKER #1 lock-in).
   // -------------------------------------------------------------------------
   it('regression: no AGENT_NOT_WIRED string survives in production code-path', async () => {
-    const runContainer = makeRunContainerSuccess(fenced('A real persona body.'));
+    const renderApi = makeRenderApiSuccess(fenced('A real persona body.'));
     const invokerDeps: VoiceAgentInvokerDeps = {
-      runContainer,
-      loadMainGroup: () => makeMainGroup(),
+      renderApi,
+      loadSkillFiles: fakeSkill,
     };
     const handler = makeVoiceTriggersInit({
       invokeAgent: (input) => defaultInvokeAgent(input, invokerDeps),

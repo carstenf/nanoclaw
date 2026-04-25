@@ -23,9 +23,8 @@ import {
   INSTRUCTIONS_FENCE_END,
   NULL_SENTINEL,
   type VoiceAgentInvokerDeps,
+  type VoicePersonaSkillFiles,
 } from '../voice-agent-invoker.js';
-import type { ContainerOutput } from '../container-runner.js';
-import type { RegisteredGroup } from '../types.js';
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -283,36 +282,21 @@ describe('voice_triggers_transcript', () => {
 // returns fenced agent output.
 // ---------------------------------------------------------------------------
 
-function makeMainGroup(): RegisteredGroup & { jid: string } {
-  return {
-    name: 'main',
-    folder: 'main',
-    trigger: '',
-    added_at: '2026-04-25T00:00:00Z',
-    isMain: true,
-    jid: 'main@nanoclaw',
-  };
-}
-
 function fenced(body: string): string {
   return `chatter\n${INSTRUCTIONS_FENCE_START}\n${body}\n${INSTRUCTIONS_FENCE_END}\n`;
 }
 
-function makeRunContainerSuccess(resultBody: string) {
-  // Signature must match `typeof runContainerAgent` (RegisteredGroup, no jid).
-  return vi.fn(
-    async (
-      _group: RegisteredGroup,
-      _input: unknown,
-      _onProcess: (proc: never, name: string) => void,
-      onOutput?: (chunk: ContainerOutput) => Promise<void>,
-    ): Promise<ContainerOutput> => {
-      if (onOutput) {
-        await onOutput({ status: 'success', result: resultBody });
-      }
-      return { status: 'success', result: null };
-    },
-  );
+function fakeSkill(): VoicePersonaSkillFiles {
+  return {
+    skill: '# SKILL\nRender persona between fences.',
+    baseline: '# BASELINE\nGoal: {{goal}}',
+    overlay: '',
+    overlayPath: null,
+  };
+}
+
+function makeRenderApiSuccess(resultBody: string) {
+  return vi.fn().mockResolvedValue(resultBody);
 }
 
 describe('voice_triggers_transcript — real defaultInvokeAgentTurn integration (Phase 05.6 Plan 01 Task 2)', () => {
@@ -321,10 +305,10 @@ describe('voice_triggers_transcript — real defaultInvokeAgentTurn integration 
   // -------------------------------------------------------------------------
   it('Test 4: NULL_NO_UPDATE sentinel → handler returns ok:true with instructions_update:null', async () => {
     const queue = new VoiceTriggerQueue();
-    const runContainer = makeRunContainerSuccess(fenced(NULL_SENTINEL));
+    const renderApi = makeRenderApiSuccess(fenced(NULL_SENTINEL));
     const invokerDeps: VoiceAgentInvokerDeps = {
-      runContainer,
-      loadMainGroup: () => makeMainGroup(),
+      renderApi,
+      loadSkillFiles: fakeSkill,
     };
     const handler = makeVoiceTriggersTranscript({
       queue,
@@ -343,12 +327,12 @@ describe('voice_triggers_transcript — real defaultInvokeAgentTurn integration 
   // -------------------------------------------------------------------------
   it('Test 5: fenced persona body → handler returns instructions_update equal to body', async () => {
     const queue = new VoiceTriggerQueue();
-    const runContainer = makeRunContainerSuccess(
+    const renderApi = makeRenderApiSuccess(
       fenced('Updated persona — focus on Reservierung Bestaetigung.'),
     );
     const invokerDeps: VoiceAgentInvokerDeps = {
-      runContainer,
-      loadMainGroup: () => makeMainGroup(),
+      renderApi,
+      loadSkillFiles: fakeSkill,
     };
     const handler = makeVoiceTriggersTranscript({
       queue,
@@ -369,10 +353,10 @@ describe('voice_triggers_transcript — real defaultInvokeAgentTurn integration 
   // -------------------------------------------------------------------------
   it('Test 6: REQ-DIR-16 — 5-turn transcript → all 5 turns appear in the agent prompt in order', async () => {
     const queue = new VoiceTriggerQueue();
-    const runContainer = makeRunContainerSuccess(fenced(NULL_SENTINEL));
+    const renderApi = makeRenderApiSuccess(fenced(NULL_SENTINEL));
     const invokerDeps: VoiceAgentInvokerDeps = {
-      runContainer,
-      loadMainGroup: () => makeMainGroup(),
+      renderApi,
+      loadSkillFiles: fakeSkill,
     };
     const handler = makeVoiceTriggersTranscript({
       queue,
@@ -394,15 +378,15 @@ describe('voice_triggers_transcript — real defaultInvokeAgentTurn integration 
       }),
     );
 
-    expect(runContainer).toHaveBeenCalledOnce();
-    const containerInput = runContainer.mock.calls[0][1] as { prompt: string };
+    expect(renderApi).toHaveBeenCalledOnce();
+    const userMessage = renderApi.mock.calls[0][1] as string;
     for (const t of turns) {
-      expect(containerInput.prompt).toContain(t.text);
+      expect(userMessage).toContain(t.text);
     }
-    // Order: each turn appears after the previous in prompt.
+    // Order: each turn appears after the previous in user message.
     let lastIdx = -1;
     for (const t of turns) {
-      const idx = containerInput.prompt.indexOf(t.text);
+      const idx = userMessage.indexOf(t.text);
       expect(idx).toBeGreaterThan(lastIdx);
       lastIdx = idx;
     }

@@ -1,10 +1,9 @@
 // src/voice-agent-invoker.test.ts
 //
-// Phase 05.6 Plan 01 Task 1 — vitest unit tests for the real
-// defaultInvokeAgent / defaultInvokeAgentTurn implementations.
+// Phase 05.6 Plan 02 — vitest unit tests for the direct-API render path.
 //
-// All container interactions are stubbed via the DI seam; no real container
-// spawn, no real DB.
+// All Anthropic API calls are stubbed via the renderApi DI seam; no real
+// network, no real skill-files reads (loadSkillFiles is also stubbed).
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -13,63 +12,32 @@ import {
   defaultInvokeAgentTurn,
   buildPersonaRenderPrompt,
   buildPersonaTurnPrompt,
+  buildSystemPrompt,
   extractRenderedString,
   INSTRUCTIONS_FENCE_START,
   INSTRUCTIONS_FENCE_END,
   NULL_SENTINEL,
-  type VoiceAgentInvokerDeps,
+  type VoicePersonaSkillFiles,
 } from './voice-agent-invoker.js';
 import type { VoiceTriggersInitInput } from './mcp-tools/voice-triggers-init.js';
 import type { VoiceTriggersTranscriptInput } from './mcp-tools/voice-triggers-transcript.js';
-import type { ContainerOutput } from './container-runner.js';
-import type { RegisteredGroup } from './types.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeMainGroup(): RegisteredGroup & { jid: string } {
-  return {
-    name: 'main',
-    folder: 'main',
-    trigger: '',
-    added_at: '2026-04-25T00:00:00Z',
-    isMain: true,
-    jid: 'main@nanoclaw',
-  };
-}
 
 function fenced(body: string): string {
-  return `ignored agent chatter\n${INSTRUCTIONS_FENCE_START}\n${body}\n${INSTRUCTIONS_FENCE_END}\nmore chatter`;
+  return `ignored chatter\n${INSTRUCTIONS_FENCE_START}\n${body}\n${INSTRUCTIONS_FENCE_END}\nmore`;
 }
 
-function makeRunContainerSuccess(resultBody: string) {
-  // Signature must match `typeof runContainerAgent` exactly (RegisteredGroup,
-  // not RegisteredGroup & {jid}, since the prod typedef does not require jid).
-  return vi.fn(
-    async (
-      _group: RegisteredGroup,
-      _input: unknown,
-      _onProcess: (proc: never, name: string) => void,
-      onOutput?: (chunk: ContainerOutput) => Promise<void>,
-    ): Promise<ContainerOutput> => {
-      // Stream the result through onOutput like the real container-runner.
-      if (onOutput) {
-        await onOutput({ status: 'success', result: resultBody });
-      }
-      return { status: 'success', result: null };
-    },
-  );
-}
-
-function makeRunContainerError(errorStr: string) {
-  return vi.fn(
-    async (): Promise<ContainerOutput> => ({
-      status: 'error',
-      result: null,
-      error: errorStr,
-    }),
-  );
+function fakeSkill(caseType: string): VoicePersonaSkillFiles {
+  const overlayMap: Record<string, string> = {
+    case_6b: '## TASK\nInbound von Carsten — Du-Form.',
+    case_2: '## TASK\nOutbound zur Restaurant-Reservierung — Sie-Form.',
+  };
+  return {
+    skill: '# SKILL\nRender persona between fences.',
+    baseline:
+      '# BASELINE\nGoal: {{goal}}\nCounterpart: {{counterpart_label}}\nAnrede: {{anrede_form}}',
+    overlay: overlayMap[caseType] ?? '',
+    overlayPath: overlayMap[caseType] ? `overlays/${caseType}.md` : null,
+  };
 }
 
 function makeInitInput(
@@ -105,287 +73,238 @@ function makeTranscriptInput(
 }
 
 // ---------------------------------------------------------------------------
-// Test 1 — init happy path (case_6b inbound, Carsten, Du-form prompt content)
-// ---------------------------------------------------------------------------
-
-describe('defaultInvokeAgent — init', () => {
-  it('Test 1: happy path — calls runContainer with isMain:true and prompt naming voice-personas, case_6b, Carsten, inbound, Du-rule', async () => {
-    const runContainer = makeRunContainerSuccess(
-      fenced('Hallo Carsten — Du kannst Dir das so vorstellen.'),
-    );
-    const deps: VoiceAgentInvokerDeps = {
-      runContainer,
-      loadMainGroup: () => makeMainGroup(),
-    };
-
-    const result = await defaultInvokeAgent(makeInitInput(), deps);
-
-    expect(result.instructions).toContain('Du');
-    expect(result.instructions).toContain('Carsten');
-
-    expect(runContainer).toHaveBeenCalledOnce();
-    const call = runContainer.mock.calls[0];
-    const containerInput = call[1] as { prompt: string; isMain: boolean };
-    expect(containerInput.isMain).toBe(true);
-    // Prompt content checks (REQ-DIR-16/REQ-DIR-17/D-25/D-27).
-    expect(containerInput.prompt).toContain('voice-personas');
-    expect(containerInput.prompt).toContain('case_6b');
-    expect(containerInput.prompt).toContain('Carsten');
-    expect(containerInput.prompt).toContain('inbound');
-    // Du/Sie rule visible: literal 'Du' OR 'anrede_form' (D-25 defense-in-depth).
-    expect(
-      containerInput.prompt.includes('anrede_form') ||
-        / Du\b/.test(containerInput.prompt),
-    ).toBe(true);
-  });
-
-  // -------------------------------------------------------------------------
-  // Test 2 — init container error
-  // -------------------------------------------------------------------------
-  it('Test 2: container error → throws with code/message identifiable as agent_unavailable', async () => {
-    const runContainer = makeRunContainerError('spawn_failed');
-    const deps: VoiceAgentInvokerDeps = {
-      runContainer,
-      loadMainGroup: () => makeMainGroup(),
-    };
-
-    let thrown: unknown = null;
-    try {
-      await defaultInvokeAgent(makeInitInput(), deps);
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).message).toContain('agent_unavailable');
-    expect(((thrown as Error) as { code?: string }).code).toBe('agent_unavailable');
-  });
-
-  // -------------------------------------------------------------------------
-  // Test 3 — init no main group
-  // -------------------------------------------------------------------------
-  it('Test 3: no main group → throws agent_unavailable', async () => {
-    const runContainer = vi.fn();
-    const deps: VoiceAgentInvokerDeps = {
-      runContainer: runContainer as unknown as VoiceAgentInvokerDeps['runContainer'],
-      loadMainGroup: () => null,
-    };
-
-    let thrown: unknown = null;
-    try {
-      await defaultInvokeAgent(makeInitInput(), deps);
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).message).toContain('agent_unavailable');
-    expect(runContainer).not.toHaveBeenCalled();
-  });
-
-  // -------------------------------------------------------------------------
-  // Test 10 — timeout
-  // -------------------------------------------------------------------------
-  it('Test 10: container hangs past timeoutMs → throws timeout error (default 4500ms — overridden to 30ms here)', async () => {
-    // Stub never calls onOutput and never resolves the run.
-    const runContainer = vi.fn(
-      () =>
-        new Promise<ContainerOutput>(() => {
-          /* never resolve */
-        }),
-    );
-    const deps: VoiceAgentInvokerDeps = {
-      runContainer: runContainer as unknown as VoiceAgentInvokerDeps['runContainer'],
-      loadMainGroup: () => makeMainGroup(),
-      timeoutMs: 30,
-    };
-
-    let thrown: unknown = null;
-    try {
-      await defaultInvokeAgent(makeInitInput(), deps);
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).message).toContain('timeout');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Tests 4 + 5 + 6 — extractRenderedString
+// extractRenderedString
 // ---------------------------------------------------------------------------
 
 describe('extractRenderedString', () => {
-  it('Test 4: returns ONLY the body between fences, trimmed, multi-line preserved', async () => {
-    const body = 'line one\nline two\n  with indent  ';
-    const wrapped = `chatter before\n${INSTRUCTIONS_FENCE_START}\n${body}\n${INSTRUCTIONS_FENCE_END}\nchatter after`;
-    const r = extractRenderedString(wrapped);
+  it('extracts body between fence markers', () => {
+    const r = extractRenderedString(fenced('Hallo Carsten, Du-Form.'));
     expect(r.fenced).toBe(true);
-    // body trim() — leading/trailing whitespace + lines preserved.
-    expect(r.instructions).toBe('line one\nline two\n  with indent');
+    expect(r.instructions).toBe('Hallo Carsten, Du-Form.');
+    expect(r.placeholderLeak).toBe(false);
   });
 
-  it('Test 5: no fence markers → returns trimmed full string AND fenced=false (caller logs)', async () => {
-    const r = extractRenderedString('  some agent chatter without fences  ');
+  it('falls back to trimmed full text without fences', () => {
+    const r = extractRenderedString('   plain output without markers   ');
     expect(r.fenced).toBe(false);
-    expect(r.instructions).toBe('some agent chatter without fences');
+    expect(r.instructions).toBe('plain output without markers');
   });
 
-  it('Test 6: detects placeholderLeak when {{...}} survives in body', async () => {
-    const wrapped = `${INSTRUCTIONS_FENCE_START}\nHallo {{anrede_form}}\n${INSTRUCTIONS_FENCE_END}`;
-    const r = extractRenderedString(wrapped);
+  it('detects unsubstituted placeholder leak', () => {
+    const r = extractRenderedString(fenced('Hallo {{counterpart_label}}'));
     expect(r.placeholderLeak).toBe(true);
   });
-});
 
-// ---------------------------------------------------------------------------
-// Test 5 (warn-log no_fence) and Test 6 (warn-log placeholder_leak) at the
-// invoker level — verify defaultInvokeAgent logs the warn events but still
-// returns the string (does NOT throw on graceful fallback paths).
-// ---------------------------------------------------------------------------
-
-describe('defaultInvokeAgent — warn-log paths', () => {
-  it('Test 5 (invoker): no fence in result → emits voice_agent_invoker_no_fence warn and still returns a string', async () => {
-    const runContainer = makeRunContainerSuccess(
-      'just plain text without any fence markers at all',
-    );
-    const deps: VoiceAgentInvokerDeps = {
-      runContainer,
-      loadMainGroup: () => makeMainGroup(),
-    };
-    // Spy on logger.warn to confirm event name.
-    const loggerMod = await import('./logger.js');
-    const warnSpy = vi.spyOn(loggerMod.logger, 'warn');
-    try {
-      const result = await defaultInvokeAgent(makeInitInput(), deps);
-      expect(result.instructions).toContain('plain text');
-      const events = warnSpy.mock.calls.map(
-        (c) => (c[0] as { event?: string })?.event,
-      );
-      expect(events).toContain('voice_agent_invoker_no_fence');
-    } finally {
-      warnSpy.mockRestore();
-    }
-  });
-
-  it('Test 6 (invoker): placeholder leak → emits voice_agent_invoker_placeholder_leak warn but still returns the string', async () => {
-    const runContainer = makeRunContainerSuccess(
-      fenced('Hallo {{anrede_form}}'),
-    );
-    const deps: VoiceAgentInvokerDeps = {
-      runContainer,
-      loadMainGroup: () => makeMainGroup(),
-    };
-    const loggerMod = await import('./logger.js');
-    const warnSpy = vi.spyOn(loggerMod.logger, 'warn');
-    try {
-      const result = await defaultInvokeAgent(makeInitInput(), deps);
-      expect(result.instructions).toContain('{{anrede_form}}');
-      const events = warnSpy.mock.calls.map(
-        (c) => (c[0] as { event?: string })?.event,
-      );
-      expect(events).toContain('voice_agent_invoker_placeholder_leak');
-    } finally {
-      warnSpy.mockRestore();
-    }
+  it('returns empty body on null input', () => {
+    expect(extractRenderedString(null).instructions).toBe('');
   });
 });
 
 // ---------------------------------------------------------------------------
-// Test 7 — transcript happy path
+// buildPersonaRenderPrompt / buildPersonaTurnPrompt
 // ---------------------------------------------------------------------------
 
-describe('defaultInvokeAgentTurn — transcript', () => {
-  it('Test 7: happy path — prompt contains turn 1 marker, counterpart text "Hallo", voice-personas, read-only guidance', async () => {
-    const runContainer = makeRunContainerSuccess(
-      fenced('updated persona body'),
+describe('buildPersonaRenderPrompt', () => {
+  it('includes call_id, case_type, call_direction, counterpart_label', () => {
+    const p = buildPersonaRenderPrompt(makeInitInput());
+    expect(p).toContain('rtc_unit_init');
+    expect(p).toContain('case_6b');
+    expect(p).toContain('inbound');
+    expect(p).toContain('Carsten');
+  });
+
+  it('declares Du-form derivation guidance for case_6b', () => {
+    const p = buildPersonaRenderPrompt(makeInitInput({ case_type: 'case_6b' }));
+    expect(p).toContain('Du');
+  });
+
+  it('declares Sie-form derivation guidance for case_2', () => {
+    const p = buildPersonaRenderPrompt(makeInitInput({ case_type: 'case_2' }));
+    expect(p).toContain('Sie');
+  });
+});
+
+describe('buildPersonaTurnPrompt', () => {
+  it('forwards full turn-history (REQ-DIR-16)', () => {
+    const p = buildPersonaTurnPrompt(
+      makeTranscriptInput({
+        transcript: {
+          turns: [
+            { role: 'counterpart', text: 'turn-1', started_at: '2026-04-25T10:00:00Z' },
+            { role: 'assistant', text: 'turn-2', started_at: '2026-04-25T10:00:05Z' },
+            { role: 'counterpart', text: 'turn-3', started_at: '2026-04-25T10:00:10Z' },
+          ],
+        },
+      }),
     );
-    const deps: VoiceAgentInvokerDeps = {
-      runContainer,
-      loadMainGroup: () => makeMainGroup(),
-    };
-    const result = await defaultInvokeAgentTurn(makeTranscriptInput(), deps);
-    expect(result.instructions_update).toBe('updated persona body');
-
-    const call = runContainer.mock.calls[0];
-    const prompt = (call[1] as { prompt: string }).prompt;
-    expect(prompt).toContain('turn 1');
-    expect(prompt).toContain('Hallo');
-    expect(prompt).toContain('voice-personas');
-    // Read-only-tool guidance literal — REQ-DIR-17 defense layer 1.
-    expect(
-      prompt.includes('read-only') ||
-        prompt.includes('Mutating tools FORBIDDEN') ||
-        prompt.includes('NICHT mutierend'),
-    ).toBe(true);
+    expect(p).toContain('turn-1');
+    expect(p).toContain('turn-2');
+    expect(p).toContain('turn-3');
   });
 
-  // -------------------------------------------------------------------------
-  // Test 8 — transcript null sentinel
-  // -------------------------------------------------------------------------
-  it('Test 8: NULL_NO_UPDATE sentinel → returns instructions_update:null', async () => {
-    const runContainer = makeRunContainerSuccess(fenced(NULL_SENTINEL));
-    const deps: VoiceAgentInvokerDeps = {
-      runContainer,
-      loadMainGroup: () => makeMainGroup(),
-    };
-    const result = await defaultInvokeAgentTurn(makeTranscriptInput(), deps);
-    expect(result.instructions_update).toBeNull();
+  it('mentions NULL_NO_UPDATE sentinel for no-op decision', () => {
+    const p = buildPersonaTurnPrompt(makeTranscriptInput());
+    expect(p).toContain(NULL_SENTINEL);
+  });
+});
+
+describe('buildSystemPrompt', () => {
+  it('inlines SKILL.md, baseline.md, and overlay', () => {
+    const p = buildSystemPrompt(fakeSkill('case_6b'));
+    expect(p).toContain('Render persona between fences');
+    expect(p).toContain('Goal: {{goal}}');
+    expect(p).toContain('Inbound von Carsten');
   });
 
-  // -------------------------------------------------------------------------
-  // Test 9 — turn-history forwarded (REQ-DIR-16)
-  // -------------------------------------------------------------------------
-  it('Test 9: REQ-DIR-16 — full turn-history (5 turns mixed) is in the prompt in order', async () => {
-    const runContainer = makeRunContainerSuccess(fenced(NULL_SENTINEL));
-    const deps: VoiceAgentInvokerDeps = {
-      runContainer,
-      loadMainGroup: () => makeMainGroup(),
-    };
-    const turns: VoiceTriggersTranscriptInput['transcript']['turns'] = [
-      { role: 'counterpart', text: 'Hallo dort', started_at: '1' },
-      { role: 'assistant', text: 'Guten Tag, hier ist NanoClaw', started_at: '2' },
-      { role: 'counterpart', text: 'Trag mir morgen 14 Uhr Zahnarzt ein', started_at: '3' },
-      { role: 'assistant', text: 'Verstanden, morgen vierzehn Uhr Zahnarzt', started_at: '4' },
-      { role: 'counterpart', text: 'Genau, danke', started_at: '5' },
-    ];
+  it('emits a no-overlay note when case_type has no mapped overlay', () => {
+    const p = buildSystemPrompt(fakeSkill('unknown_case'));
+    expect(p).toContain('No overlay mapped');
+  });
+
+  it('mandates fence markers in OUTPUT FORMAT section', () => {
+    const p = buildSystemPrompt(fakeSkill('case_6b'));
+    expect(p).toContain(INSTRUCTIONS_FENCE_START);
+    expect(p).toContain(INSTRUCTIONS_FENCE_END);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// defaultInvokeAgent — voice_triggers_init render path
+// ---------------------------------------------------------------------------
+
+describe('defaultInvokeAgent', () => {
+  it('returns rendered persona on happy path (case_6b Du-form)', async () => {
+    const renderApi = vi
+      .fn()
+      .mockResolvedValue(fenced('Hallo Carsten, schoen dass Du anrufst.'));
+    const r = await defaultInvokeAgent(makeInitInput(), {
+      renderApi,
+      loadSkillFiles: fakeSkill,
+    });
+    expect(r.instructions).toContain('Du anrufst');
+    expect(renderApi).toHaveBeenCalledTimes(1);
+    const [systemPrompt, userMessage] = renderApi.mock.calls[0];
+    expect(systemPrompt).toContain('Render persona between fences');
+    expect(userMessage).toContain('case_6b');
+    expect(userMessage).toContain('inbound');
+  });
+
+  it('passes the case_2 overlay through buildSystemPrompt for case_2 input', async () => {
+    const renderApi = vi.fn().mockResolvedValue(fenced('Guten Tag, hier ist Andy.'));
+    await defaultInvokeAgent(makeInitInput({ case_type: 'case_2' }), {
+      renderApi,
+      loadSkillFiles: fakeSkill,
+    });
+    const [systemPrompt] = renderApi.mock.calls[0];
+    expect(systemPrompt).toContain('Outbound zur Restaurant-Reservierung');
+  });
+
+  it('throws agent_unavailable on render API error', async () => {
+    const renderApi = vi.fn().mockRejectedValue(new Error('Claude API error: HTTP 500'));
+    await expect(
+      defaultInvokeAgent(makeInitInput(), { renderApi, loadSkillFiles: fakeSkill }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('agent_unavailable'),
+      code: 'agent_unavailable',
+    });
+  });
+
+  it('throws timeout-coded error on AbortError from API', async () => {
+    const renderApi = vi
+      .fn()
+      .mockRejectedValue(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    await expect(
+      defaultInvokeAgent(makeInitInput(), { renderApi, loadSkillFiles: fakeSkill }),
+    ).rejects.toMatchObject({ code: 'timeout' });
+  });
+
+  it('throws agent_unavailable on skill load failure', async () => {
+    const loadSkillFiles = vi.fn().mockImplementation(() => {
+      throw new Error('ENOENT: skill missing');
+    });
+    const renderApi = vi.fn();
+    await expect(
+      defaultInvokeAgent(makeInitInput(), { renderApi, loadSkillFiles }),
+    ).rejects.toMatchObject({ code: 'agent_unavailable' });
+    expect(renderApi).not.toHaveBeenCalled();
+  });
+
+  it('extracts fenceless output and flags it (no exception)', async () => {
+    const renderApi = vi.fn().mockResolvedValue('plain output without markers');
+    const r = await defaultInvokeAgent(makeInitInput(), {
+      renderApi,
+      loadSkillFiles: fakeSkill,
+    });
+    expect(r.instructions).toBe('plain output without markers');
+  });
+
+  it('passes timeoutMs/maxTokens/model deps through to renderApi', async () => {
+    const renderApi = vi.fn().mockResolvedValue(fenced('ok'));
+    await defaultInvokeAgent(makeInitInput(), {
+      renderApi,
+      loadSkillFiles: fakeSkill,
+      timeoutMs: 1234,
+      maxTokens: 2222,
+      model: 'claude-haiku-4-5',
+    });
+    const [, , opts] = renderApi.mock.calls[0];
+    expect(opts).toMatchObject({ timeoutMs: 1234, maxTokens: 2222, model: 'claude-haiku-4-5' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// defaultInvokeAgentTurn — voice_triggers_transcript render path
+// ---------------------------------------------------------------------------
+
+describe('defaultInvokeAgentTurn', () => {
+  it('returns null instructions_update when LLM emits NULL_NO_UPDATE', async () => {
+    const renderApi = vi.fn().mockResolvedValue(fenced(NULL_SENTINEL));
+    const r = await defaultInvokeAgentTurn(makeTranscriptInput(), {
+      renderApi,
+      loadSkillFiles: fakeSkill,
+    });
+    expect(r.instructions_update).toBeNull();
+  });
+
+  it('returns the rendered string when LLM emits a fresh persona', async () => {
+    const renderApi = vi
+      .fn()
+      .mockResolvedValue(fenced('Updated persona — re-affirm Reservierungs-Confirmation.'));
+    const r = await defaultInvokeAgentTurn(makeTranscriptInput(), {
+      renderApi,
+      loadSkillFiles: fakeSkill,
+    });
+    expect(r.instructions_update).toContain('Reservierungs-Confirmation');
+  });
+
+  it('forwards full turn-history into the user message (REQ-DIR-16)', async () => {
+    const renderApi = vi.fn().mockResolvedValue(fenced(NULL_SENTINEL));
     await defaultInvokeAgentTurn(
-      makeTranscriptInput({ turn_id: 5, transcript: { turns } }),
-      deps,
+      makeTranscriptInput({
+        transcript: {
+          turns: [
+            { role: 'counterpart', text: 't1', started_at: '2026-04-25T10:00:00Z' },
+            { role: 'assistant', text: 't2', started_at: '2026-04-25T10:00:05Z' },
+            { role: 'counterpart', text: 't3', started_at: '2026-04-25T10:00:10Z' },
+            { role: 'assistant', text: 't4', started_at: '2026-04-25T10:00:15Z' },
+            { role: 'counterpart', text: 't5', started_at: '2026-04-25T10:00:20Z' },
+          ],
+        },
+      }),
+      { renderApi, loadSkillFiles: fakeSkill },
     );
-    const call = runContainer.mock.calls[0];
-    const prompt = (call[1] as { prompt: string }).prompt;
-    for (const t of turns) {
-      expect(prompt).toContain(t.text);
-    }
-    // Order: position of turn[0] < turn[2] < turn[4] in prompt.
-    const idx0 = prompt.indexOf('Hallo dort');
-    const idx2 = prompt.indexOf('Trag mir morgen 14 Uhr Zahnarzt ein');
-    const idx4 = prompt.indexOf('Genau, danke');
-    expect(idx0).toBeGreaterThan(-1);
-    expect(idx2).toBeGreaterThan(idx0);
-    expect(idx4).toBeGreaterThan(idx2);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Prompt-builder direct contract checks (test file regression marker for the
-// acceptance grep — INSTRUCTIONS_START literal, Carsten, case_6b, agent_unavailable,
-// placeholder, timeout, NULL_NO_UPDATE, turn 1, turn-history).
-// ---------------------------------------------------------------------------
-
-describe('prompt builders — contract', () => {
-  it('buildPersonaRenderPrompt contains INSTRUCTIONS_START fence + ASCII Du literal + voice-personas', async () => {
-    const prompt = buildPersonaRenderPrompt(makeInitInput());
-    expect(prompt).toContain('INSTRUCTIONS_START');
-    expect(prompt).toContain('voice-personas');
-    expect(prompt).toContain('Du');
+    const [, userMessage] = renderApi.mock.calls[0];
+    expect(userMessage).toContain('t1');
+    expect(userMessage).toContain('t5');
   });
 
-  it('buildPersonaTurnPrompt mentions NULL_NO_UPDATE sentinel + turn-history header + read-only', async () => {
-    const prompt = buildPersonaTurnPrompt(makeTranscriptInput());
-    expect(prompt).toContain('NULL_NO_UPDATE');
-    // Turn history header (regression marker for REQ-DIR-16) — accept either
-    // 'turn history' (current prose) or 'turn-history' (slug form).
-    expect(/turn[ -]history/i.test(prompt)).toBe(true);
-    expect(prompt).toContain('Mutating tools FORBIDDEN');
+  it('throws agent_unavailable on render API error', async () => {
+    const renderApi = vi.fn().mockRejectedValue(new Error('boom'));
+    await expect(
+      defaultInvokeAgentTurn(makeTranscriptInput(), {
+        renderApi,
+        loadSkillFiles: fakeSkill,
+      }),
+    ).rejects.toMatchObject({ code: 'agent_unavailable' });
   });
 });
