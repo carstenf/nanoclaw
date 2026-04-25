@@ -170,11 +170,11 @@ Plans:
 **Goal:** Land the architectural scaffold for slow-brain removal WITHOUT cutting over yet. Add the two new MCP-tools (`voice.triggers.init` + `voice.triggers.transcript`) on Port 3201 with FIFO queue + cost-ledger plumbing; create the `voice-personas` skill (baseline + case-2/case-6b overlays) in NanoClaw container; ship the Bridge `nanoclaw-mcp-client.ts` + `REASONING_MODE` feature-flag (default `slow-brain`) + `FALLBACK_PERSONA` constant; wire the /accept + onTranscriptTurn branches behind the flag. The default flag value keeps Phase 5 / 05.4 live unchanged: `slow-brain.ts` + `core-mcp-client.ts` + `voice-bridge/src/persona/*` stay alive and serve every call exactly as today. The new code paths are dormant until Phase 05.6 wires `defaultInvokeAgent` to the real container-runner and flips the default. **Phase-split rationale:** The plan-checker for 05.5 (2026-04-25) found that wiring the transport layer without the real reasoning integration is the safe scope; combining both into one phase risks shipping a hard-cleanup commit before the new reasoning path is proven. Sources: `~/nanoclaw-state/voice-channel-spec/decisions/2026-04-24-slow-brain-removal-phase-6.md` + REQUIREMENTS.md Extension 2026-04-24 (REQ-DIR-06/11/12/14/15/16/17/18/19/20 + REQ-VOICE-13 + REQ-INFRA-16 + REQ-COST-06).
 **Requirements**: REQ-DIR-14 (handler stateless lifecycle scaffolded), REQ-DIR-15 (FIFO queue impl), REQ-DIR-17 (read-only sentinel gate), REQ-DIR-18 (voice-personas skill + FALLBACK_PERSONA), REQ-DIR-19 (sync /accept invocation path scaffolded behind flag), REQ-DIR-20 (5000ms sync MCP timeout), REQ-INFRA-16 (queue gc + container-lifetime invariant), REQ-COST-06 (cost-ledger trigger_type plumbing). REQ-DIR-06/11/12 (Phase 6) + REQ-VOICE-13 (Phase 6) + REQ-DIR-16 are scaffolded behind the flag and become authoritative when Phase 05.6 flips the default — listed in 05.6.
 **Depends on:** Phase 05.4 (Phase-5 closure before handover)
-**Plans:** 5 plans
+**Plans:** 2/5 plans executed
 
 Plans:
-- [ ] 05.5-01-PLAN.md — Wave 1: VoiceTriggerQueue + voice_triggers_init/transcript MCP-tools + gc hook (REQ-DIR-14/15/17, INFRA-16)
-- [ ] 05.5-02-PLAN.md — Wave 1: voice-personas skill (SKILL.md + baseline.md + case-2/case-6b overlays + Du/Sie derivation rule) (REQ-DIR-18)
+- [x] 05.5-01-PLAN.md — Wave 1: VoiceTriggerQueue + voice_triggers_init/transcript MCP-tools + gc hook (REQ-DIR-14/15/17, INFRA-16)
+- [x] 05.5-02-PLAN.md — Wave 1: voice-personas skill (SKILL.md + baseline.md + case-2/case-6b overlays + Du/Sie derivation rule) (REQ-DIR-18)
 - [ ] 05.5-03-PLAN.md — Wave 2: NanoclawMcpClient + REASONING_MODE flag (default slow-brain) + FALLBACK_PERSONA (REQ-DIR-18/20)
 - [ ] 05.5-04-PLAN.md — Wave 3: Bridge wiring at /accept + onTranscriptTurn branch + branch tests (REQ-DIR-19, dormant scaffold for REQ-DIR-06/11/12/VOICE-13)
 - [ ] 05.5-05-PLAN.md — Wave 3: Cost-ledger trigger_type + per-trigger recording (REQ-COST-06)

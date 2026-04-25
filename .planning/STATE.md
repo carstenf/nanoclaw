@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-11-PLAN.md — Case-6b end-to-end ready, awaiting Carsten PSTN test
-last_updated: "2026-04-25T09:08:41.484Z"
+stopped_at: Completed 05.5-02-PLAN.md — voice-personas skill ready
+last_updated: "2026-04-25T09:41:13.301Z"
 last_activity: 2026-04-25 -- Phase 05.6 planning complete
 progress:
   total_phases: 15
   completed_phases: 4
   total_plans: 72
-  completed_plans: 59
-  percent: 82
+  completed_plans: 61
+  percent: 85
 ---
 
 # Project State
@@ -70,6 +70,7 @@ Progress: [█████████░] 94%
 | Phase 03-voice-mcp-endpoint P10 | 75 | 5 tasks | 7 files |
 | Phase 02-director-bridge-v0-hotpath-safety P14 | 20 | 4 tasks | 9 files |
 | Phase 03-voice-mcp-endpoint P11 | 72 | 6 tasks | 16 files |
+| Phase 05.5 P02 | 4 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,8 @@ Recent decisions affecting current work:
 - [Phase 04-core-tool-integration]: MCP SDK per-request Server+Transport pattern — singleton `connect()` breaks on second client with -32600; stateless mode (`sessionIdGenerator: undefined`) is the canonical fix
 - [Phase 04-core-tool-integration]: audit-audio.sh dev-artefact exclusions — `*/node_modules/*`, `*/_archive*/*`, `*/spike/*`, `*/voice-stack/runs/*`, `*/site-packages/*`, `-not -name silence.wav`; production call recordings never land in those roots
 - [Phase 04-core-tool-integration]: Hetzner Caddy route `/nanoclaw-voice/*` uses forward_auth + `header_up Authorization "Bearer ..."` rewrite — OAuth at edge, static bearer internal, no app-code change for consistency with existing /hetzner /discord /lenovo1 pattern
+- [Phase 05.5]: Plan 05.5-02: SCHWEIGEN ladder shipped as TWO HTML-comment-delimited inline blocks in baseline.md (call_direction=inbound + outbound). Container-agent picks the matching block during {{SCHWEIGEN_LADDER}} substitution.
+- [Phase 05.5]: Plan 05.5-02: Du/Sie derivation rule (D-25) landed in SKILL.md ## Du/Sie derivation. anrede_form derived from case_type by skill, NOT passed in init schema. Plan-checker Blocker-2 fix complete.
 
 ### Pending Todos
 
@@ -156,6 +159,6 @@ Items explicitly carried forward (per PRD § Out of Scope) — not roadmap phase
 
 ## Session Continuity
 
-Last session: 2026-04-18T19:53:33.032Z
-Stopped at: Completed 03-11-PLAN.md — Case-6b end-to-end ready, awaiting Carsten PSTN test
+Last session: 2026-04-25T09:40:59.738Z
+Stopped at: Completed 05.5-02-PLAN.md — voice-personas skill ready
 Resume file: None
