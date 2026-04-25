@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { makeVoiceAskCore } from './voice-ask-core.js';
 import { BadRequestError } from './voice-on-transcript-turn.js';
+import {
+  VoiceRespondManager,
+  VoiceRespondTimeoutError,
+} from '../voice-respond-manager.js';
 
 // Helper: build deps with sensible defaults
 function makeDeps(
@@ -141,8 +145,165 @@ describe('voice_ask_core', () => {
     expect(result.error).toBe('claude_timeout');
   });
 
-  // topic='andy' tests entfernt — sie testeten den runAndyForVoice cold-spawn
-  // Pfad, der mit Phase 05.6-04 entfernt wurde. Neue Tests für den
-  // tryInjectVoiceRequest + VoiceRespondManager Pfad kommen in der
-  // tests-first Session (siehe nanoclaw-state/open_points.md).
+  // --- topic='andy' integration tests (Phase 05.6-04 wiring) ---
+  // The handler routes via tryInjectVoiceRequest (IPC into existing main
+  // container) + VoiceRespondManager (correlate voice_respond callback).
+  // No --rm fallback exists — every failure path returns a graceful message.
+
+  it('topic=andy happy path: register → inject → resolve → returns voice_short', async () => {
+    const manager = new VoiceRespondManager();
+    const tryInjectVoiceRequest = vi.fn(
+      (callId: string, _prompt: string): boolean => {
+        // Simulate Andy answering nearly immediately after inject.
+        setTimeout(
+          () =>
+            manager.resolve(callId, {
+              voice_short: 'Mailand 18 Grad und sonnig.',
+              discord_long: null,
+            }),
+          0,
+        );
+        return true;
+      },
+    );
+
+    const handler = makeVoiceAskCore({
+      ...makeDeps(),
+      voiceRespondManager: manager,
+      tryInjectVoiceRequest,
+      voiceRequestTimeoutMs: 5000,
+    });
+
+    const result = (await handler({
+      call_id: 'rtc_test_happy',
+      topic: 'andy',
+      request: 'Wetter Mailand',
+    })) as { ok: true; result: { answer: string; topic: string } };
+
+    expect(result.ok).toBe(true);
+    expect(result.result.answer).toBe('Mailand 18 Grad und sonnig.');
+    expect(result.result.topic).toBe('andy');
+    expect(tryInjectVoiceRequest).toHaveBeenCalledWith(
+      'rtc_test_happy',
+      'Wetter Mailand',
+    );
+  });
+
+  it('topic=andy register-before-inject: prevents race when Andy resolves sub-millisecond', async () => {
+    const manager = new VoiceRespondManager();
+    const order: string[] = [];
+
+    // Wrap manager.register to record call order.
+    const realRegister = manager.register.bind(manager);
+    manager.register = (callId: string, timeoutMs: number) => {
+      order.push('register');
+      return realRegister(callId, timeoutMs);
+    };
+
+    // Inject simulates a synchronous resolve (worst-case race).
+    const tryInjectVoiceRequest = vi.fn(
+      (callId: string, _prompt: string): boolean => {
+        order.push('inject');
+        manager.resolve(callId, { voice_short: 'sub-ms', discord_long: null });
+        return true;
+      },
+    );
+
+    const handler = makeVoiceAskCore({
+      ...makeDeps(),
+      voiceRespondManager: manager,
+      tryInjectVoiceRequest,
+      voiceRequestTimeoutMs: 5000,
+    });
+
+    await handler({
+      call_id: 'rtc_test_race',
+      topic: 'andy',
+      request: 'race?',
+    });
+
+    expect(order).toEqual(['register', 'inject']);
+  });
+
+  it('topic=andy missing call_id: returns "nicht erreichbar" graceful', async () => {
+    const manager = new VoiceRespondManager();
+    const tryInjectVoiceRequest = vi.fn(() => true);
+    const handler = makeVoiceAskCore({
+      ...makeDeps(),
+      voiceRespondManager: manager,
+      tryInjectVoiceRequest,
+    });
+
+    const result = (await handler({ topic: 'andy', request: 'no call_id' })) as {
+      ok: true;
+      result: { answer: string };
+    };
+
+    expect(result.result.answer).toContain('nicht erreichbar');
+    expect(tryInjectVoiceRequest).not.toHaveBeenCalled();
+  });
+
+  it('topic=andy not wired (no manager/injector): returns "nicht erreichbar"', async () => {
+    const handler = makeVoiceAskCore(makeDeps());
+    const result = (await handler({
+      call_id: 'rtc_test_unwired',
+      topic: 'andy',
+      request: 'test',
+    })) as { ok: true; result: { answer: string } };
+    expect(result.result.answer).toContain('nicht erreichbar');
+  });
+
+  it('topic=andy inject returns false (no active container): graceful skip, no leaked pending', async () => {
+    const manager = new VoiceRespondManager();
+    const tryInjectVoiceRequest = vi.fn(() => false);
+    const handler = makeVoiceAskCore({
+      ...makeDeps(),
+      voiceRespondManager: manager,
+      tryInjectVoiceRequest,
+      voiceRequestTimeoutMs: 100,
+    });
+
+    const result = (await handler({
+      call_id: 'rtc_test_no_container',
+      topic: 'andy',
+      request: 'test',
+    })) as { ok: true; result: { answer: string } };
+
+    expect(result.result.answer).toContain('nicht erreichbar');
+    expect(tryInjectVoiceRequest).toHaveBeenCalled();
+    // Pending entry was registered, but caller does not await it — it will
+    // time out on its own. size() may be 0 or 1 here depending on timing,
+    // but it MUST drop to 0 once the timeout fires.
+    await new Promise((r) => setTimeout(r, 150));
+    expect(manager.size()).toBe(0);
+  });
+
+  it('topic=andy manager timeout: returns "braucht laenger" graceful', async () => {
+    const manager = new VoiceRespondManager();
+    // Inject succeeds but no one calls resolve → timeout fires.
+    const tryInjectVoiceRequest = vi.fn(() => true);
+    const handler = makeVoiceAskCore({
+      ...makeDeps(),
+      voiceRespondManager: manager,
+      tryInjectVoiceRequest,
+      voiceRequestTimeoutMs: 50,
+    });
+
+    const result = (await handler({
+      call_id: 'rtc_test_timeout',
+      topic: 'andy',
+      request: 'test',
+    })) as { ok: true; result: { answer: string } };
+
+    expect(result.result.answer).toContain('braucht laenger');
+    expect(manager.size()).toBe(0);
+  });
+
+  it('topic=andy: VoiceRespondTimeoutError class is the rejection type', async () => {
+    // Defensive smoke check: ensure handler imports the same error type as
+    // the manager rejects with — guards against duplicate-symbol drift.
+    const manager = new VoiceRespondManager();
+    const promise = manager.register('rtc_smoke', 10);
+    await expect(promise).rejects.toBeInstanceOf(VoiceRespondTimeoutError);
+  });
 });
