@@ -98,7 +98,16 @@ import { VoiceTriggersTranscriptSchema } from './mcp-tools/voice-triggers-transc
 // host.docker.internal. Bearer auth (MCP_STREAM_BEARER) remains mandatory at
 // Layer 1 — the CIDR only widens the peer allowlist after bearer validation.
 // UFW rule on Lenovo1 restricts ingress to this CIDR + port 3201 only.
+//
+// Phase 05.6 Plan 02 follow-up: 127.0.0.1 / ::1 added so the voice-bridge
+// (co-located on Lenovo1, per /opt/server-docs/MASTER.md + project memory
+// `project_nanoclaw_infra`) can reach this server via local loopback —
+// the documented Bridge → NanoClaw transport address is http://127.0.0.1:3201/.
+// Loopback is intra-host only (kernel never routes 127.0.0.0/8 off-box) so
+// adding it does not widen the external attack surface.
 const DEFAULT_ALLOWLIST = [
+  '127.0.0.1',
+  '::1',
   '10.0.0.1',
   '10.0.0.2',
   '10.0.0.4',
