@@ -194,14 +194,18 @@ export const CORE_MCP_TOKEN = process.env.CORE_MCP_TOKEN
 // after live-PSTN PASS (D-22). The CORE_MCP_* + SLOW_BRAIN_* constants
 // above are intentionally retained — Phase 05.6 cleanup deletes them.
 
-// D-21: feature flag. 'slow-brain' (legacy) | 'container-agent' (new).
-// Default 'slow-brain' until rollout flips per D-22 (after live-test PASS).
-// Any value other than 'container-agent' falls back to 'slow-brain' so a
-// typo in the env can never accidentally activate the new path.
+// Phase 05.6 D-22 cutover: default flipped to 'container-agent' after live PSTN
+// PASS recorded in 06-02-cutover-log.md (Step 2 PASS, Step 3 deferred but
+// architecture verified live 2026-04-25).
+//
+// Step 1 commit (this commit) flips the default; Step 2 commit (cleanup)
+// removes the flag entirely. Runtime ENV REASONING_MODE=slow-brain still works
+// during the brief window between Step 1 and Step 2 commits — emergency revert
+// path. After Step 2 lands the flag is gone from code and the runtime-ENV
+// revert no longer functions; emergency revert becomes `git revert <Step-2-SHA>`
+// per D-30.
 export const REASONING_MODE: 'slow-brain' | 'container-agent' =
-  process.env.REASONING_MODE === 'container-agent'
-    ? 'container-agent'
-    : 'slow-brain'
+  process.env.REASONING_MODE === 'slow-brain' ? 'slow-brain' : 'container-agent'
 
 // D-3: Nanoclaw-Voice MCP endpoint (Bridge → nanoclaw-voice MCP server on
 // Port 3201). Distinct from the legacy CORE_MCP_URL above — that targets
