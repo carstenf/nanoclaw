@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05.5-03-PLAN.md — NanoclawMcpClient + REASONING_MODE flag ready for Plan 04 wiring
-last_updated: "2026-04-25T09:48:20.201Z"
+stopped_at: Completed 05.5-04-PLAN.md
+last_updated: "2026-04-25T09:58:43.720Z"
 last_activity: 2026-04-25 -- Phase 05.6 planning complete
 progress:
   total_phases: 15
   completed_phases: 4
   total_plans: 72
-  completed_plans: 62
-  percent: 86
+  completed_plans: 63
+  percent: 88
 ---
 
 # Project State
@@ -72,6 +72,7 @@ Progress: [█████████░] 94%
 | Phase 03-voice-mcp-endpoint P11 | 72 | 6 tasks | 16 files |
 | Phase 05.5 P02 | 4 | 2 tasks | 4 files |
 | Phase 05.5 P03 | 3min | 2 tasks | 3 files |
+| Phase 05.5 P04 | 16min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,8 @@ Recent decisions affecting current work:
 - [Phase 05.5]: Plan 05.5-02: SCHWEIGEN ladder shipped as TWO HTML-comment-delimited inline blocks in baseline.md (call_direction=inbound + outbound). Container-agent picks the matching block during {{SCHWEIGEN_LADDER}} substitution.
 - [Phase 05.5]: Plan 05.5-02: Du/Sie derivation rule (D-25) landed in SKILL.md ## Du/Sie derivation. anrede_form derived from case_type by skill, NOT passed in init schema. Plan-checker Blocker-2 fix complete.
 - [Phase 05.5]: Plan 03: REASONING_MODE flag + NanoclawMcpClient (StreamableHTTP, 5000ms, init+transcript helpers) + FALLBACK_PERSONA — all dormant by default; Phase-5 runtime unchanged
+- [Phase 05.5]: Plan 04: Splice A scope narrowed to non-Case-2 outbound — Case-2 keeps CASE2_AMD_CLASSIFIER_PROMPT at /accept (§201 StGB AMD-gate); container-agent persona swap for Case-2 deferred to Plan 05.6 onHuman path.
+- [Phase 05.5]: Plan 04: counterpart-only turnHistory in v1 (sideband.ts onAssistantTurn deferred). Plan-spec accepted as non-violation of REQ-DIR-16 — agent receives every counterpart utterance verbatim; assistant turns reconstructable from session state.
 
 ### Pending Todos
 
@@ -161,6 +164,6 @@ Items explicitly carried forward (per PRD § Out of Scope) — not roadmap phase
 
 ## Session Continuity
 
-Last session: 2026-04-25T09:48:20.196Z
-Stopped at: Completed 05.5-03-PLAN.md — NanoclawMcpClient + REASONING_MODE flag ready for Plan 04 wiring
+Last session: 2026-04-25T09:58:34.415Z
+Stopped at: Completed 05.5-04-PLAN.md
 Resume file: None
