@@ -1,0 +1,4 @@
+**/__pycache__
+**/*.pyc
+app/ai/deepgram_agent.py
+app/ai/gemini_live.py
