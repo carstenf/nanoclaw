@@ -44,11 +44,13 @@ function fenced(body: string): string {
 }
 
 function makeRunContainerSuccess(resultBody: string) {
+  // Signature must match `typeof runContainerAgent` exactly (RegisteredGroup,
+  // not RegisteredGroup & {jid}, since the prod typedef does not require jid).
   return vi.fn(
     async (
-      _group: RegisteredGroup & { jid: string },
-      _input: { prompt: string },
-      _onProcess: (proc: unknown, name: string) => void,
+      _group: RegisteredGroup,
+      _input: unknown,
+      _onProcess: (proc: never, name: string) => void,
       onOutput?: (chunk: ContainerOutput) => Promise<void>,
     ): Promise<ContainerOutput> => {
       // Stream the result through onOutput like the real container-runner.

@@ -46,6 +46,12 @@ import { logger } from '../logger.js';
 import { BadRequestError } from './voice-on-transcript-turn.js';
 import type { ToolHandler } from './index.js';
 import { VoiceTriggerQueue } from '../voice-trigger-queue.js';
+// Phase 05.6 Plan 01 Task 2: re-export the real defaultInvokeAgentTurn so
+// callers (mcp-tools/index.ts + Wave-1 live-cutover synth test) get the real
+// container-runner integration. The handler's __MUTATION_ATTEMPT__ sentinel
+// gate at the boundary below remains untouched (REQ-DIR-17 defense layer 3).
+import { defaultInvokeAgentTurn as realDefaultInvokeAgentTurn } from '../voice-agent-invoker.js';
+export const defaultInvokeAgentTurn = realDefaultInvokeAgentTurn;
 
 // Tool-name regex compliance validated at module load.
 export const TOOL_NAME = 'voice_triggers_transcript' as const;

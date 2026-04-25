@@ -15,10 +15,12 @@
 //        | throws BadRequestError                         on schema failure
 //
 // D-24 (Phase 05.5 / 05.6 boundary): handler accepts a DI-injectable
-// `invokeAgent` callback. Phase 05.5 ships a no-op default in
-// `mcp-tools/index.ts` returning `{ instructions: 'AGENT_NOT_WIRED' }`;
-// Phase 05.6 replaces the default with a real `src/container-runner.ts`
-// integration. This file only owns the schema + handler contract.
+// `invokeAgent` callback. Phase 05.5 shipped a no-op AGENT-NOT-WIRED stub
+// in `mcp-tools/index.ts`. Phase 05.6 Plan 01 (this file) replaced the
+// default with the real `src/voice-agent-invoker.ts` →
+// `src/container-runner.ts` integration. The DI seam is unchanged — tests
+// that pass an explicit `invokeAgent` override continue to work; only the
+// default behavior changed.
 //
 // REQ-COST-06 (Plan 05.5-05): optional `recordCost` DI captures per-trigger
 // cost in the same voice_record_turn_cost ledger as Realtime turns. The
@@ -37,6 +39,11 @@ import { logger } from '../logger.js';
 
 import { BadRequestError } from './voice-on-transcript-turn.js';
 import type { ToolHandler } from './index.js';
+// Phase 05.6 Plan 01 Task 2: re-export the real defaultInvokeAgent so callers
+// (incl. mcp-tools/index.ts and the Wave-1 live-cutover synth test) get the
+// real container-runner integration without any AGENT-NOT-WIRED fallback.
+import { defaultInvokeAgent as realDefaultInvokeAgent } from '../voice-agent-invoker.js';
+export const defaultInvokeAgent = realDefaultInvokeAgent;
 
 // Tool-name regex compliance validated at module load.
 export const TOOL_NAME = 'voice_triggers_init' as const;

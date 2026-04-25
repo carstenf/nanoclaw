@@ -1,6 +1,12 @@
 // src/mcp-tools/voice-triggers-transcript.test.ts
 // Phase 05.5 Plan 01 Task 3 — vitest in-process unit tests for the transcript handler.
 // Uses a real VoiceTriggerQueue (not mocked) so FIFO behaviour is end-to-end-asserted.
+//
+// Phase 05.6 Plan 01 Task 2 — adds the `real defaultInvokeAgentTurn integration`
+// describe block that exercises the actual `src/voice-agent-invoker.ts` code
+// path with stubbed runContainer / loadMainGroup. Proves null-update path,
+// non-null update path, and that the full turn-history is forwarded
+// (REQ-DIR-16 integration-level proof).
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -9,8 +15,17 @@ import {
   makeVoiceTriggersTranscript,
   VoiceTriggersTranscriptSchema,
   type VoiceTriggersTranscriptInput,
+  defaultInvokeAgentTurn,
 } from './voice-triggers-transcript.js';
 import { VoiceTriggerQueue } from '../voice-trigger-queue.js';
+import {
+  INSTRUCTIONS_FENCE_START,
+  INSTRUCTIONS_FENCE_END,
+  NULL_SENTINEL,
+  type VoiceAgentInvokerDeps,
+} from '../voice-agent-invoker.js';
+import type { ContainerOutput } from '../container-runner.js';
+import type { RegisteredGroup } from '../types.js';
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -257,5 +272,139 @@ describe('voice_triggers_transcript', () => {
     const result = (await handler(makeValidArgs())) as { ok: true };
     expect(result.ok).toBe(true);
     expect(recordCost).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 05.6 Plan 01 Task 2 — real defaultInvokeAgentTurn integration tests.
+//
+// Drives the handler with NO explicit `invokeAgentTurn` override (uses the
+// real default from voice-agent-invoker.ts) plus a stubbed runContainer that
+// returns fenced agent output.
+// ---------------------------------------------------------------------------
+
+function makeMainGroup(): RegisteredGroup & { jid: string } {
+  return {
+    name: 'main',
+    folder: 'main',
+    trigger: '',
+    added_at: '2026-04-25T00:00:00Z',
+    isMain: true,
+    jid: 'main@nanoclaw',
+  };
+}
+
+function fenced(body: string): string {
+  return `chatter\n${INSTRUCTIONS_FENCE_START}\n${body}\n${INSTRUCTIONS_FENCE_END}\n`;
+}
+
+function makeRunContainerSuccess(resultBody: string) {
+  // Signature must match `typeof runContainerAgent` (RegisteredGroup, no jid).
+  return vi.fn(
+    async (
+      _group: RegisteredGroup,
+      _input: unknown,
+      _onProcess: (proc: never, name: string) => void,
+      onOutput?: (chunk: ContainerOutput) => Promise<void>,
+    ): Promise<ContainerOutput> => {
+      if (onOutput) {
+        await onOutput({ status: 'success', result: resultBody });
+      }
+      return { status: 'success', result: null };
+    },
+  );
+}
+
+describe('voice_triggers_transcript — real defaultInvokeAgentTurn integration (Phase 05.6 Plan 01 Task 2)', () => {
+  // -------------------------------------------------------------------------
+  // Test 4: real-default — null update pass-through
+  // -------------------------------------------------------------------------
+  it('Test 4: NULL_NO_UPDATE sentinel → handler returns ok:true with instructions_update:null', async () => {
+    const queue = new VoiceTriggerQueue();
+    const runContainer = makeRunContainerSuccess(fenced(NULL_SENTINEL));
+    const invokerDeps: VoiceAgentInvokerDeps = {
+      runContainer,
+      loadMainGroup: () => makeMainGroup(),
+    };
+    const handler = makeVoiceTriggersTranscript({
+      queue,
+      invokeAgentTurn: (input) => defaultInvokeAgentTurn(input, invokerDeps),
+    });
+    const result = (await handler(makeValidArgs())) as {
+      ok: true;
+      result: { instructions_update: string | null };
+    };
+    expect(result.ok).toBe(true);
+    expect(result.result.instructions_update).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 5: real-default — non-null update path
+  // -------------------------------------------------------------------------
+  it('Test 5: fenced persona body → handler returns instructions_update equal to body', async () => {
+    const queue = new VoiceTriggerQueue();
+    const runContainer = makeRunContainerSuccess(
+      fenced('Updated persona — focus on Reservierung Bestaetigung.'),
+    );
+    const invokerDeps: VoiceAgentInvokerDeps = {
+      runContainer,
+      loadMainGroup: () => makeMainGroup(),
+    };
+    const handler = makeVoiceTriggersTranscript({
+      queue,
+      invokeAgentTurn: (input) => defaultInvokeAgentTurn(input, invokerDeps),
+    });
+    const result = (await handler(makeValidArgs())) as {
+      ok: true;
+      result: { instructions_update: string };
+    };
+    expect(result.ok).toBe(true);
+    expect(result.result.instructions_update).toBe(
+      'Updated persona — focus on Reservierung Bestaetigung.',
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 6: REQ-DIR-16 — full turn-history forwarded into agent prompt
+  // -------------------------------------------------------------------------
+  it('Test 6: REQ-DIR-16 — 5-turn transcript → all 5 turns appear in the agent prompt in order', async () => {
+    const queue = new VoiceTriggerQueue();
+    const runContainer = makeRunContainerSuccess(fenced(NULL_SENTINEL));
+    const invokerDeps: VoiceAgentInvokerDeps = {
+      runContainer,
+      loadMainGroup: () => makeMainGroup(),
+    };
+    const handler = makeVoiceTriggersTranscript({
+      queue,
+      invokeAgentTurn: (input) => defaultInvokeAgentTurn(input, invokerDeps),
+    });
+
+    const turns = [
+      { role: 'counterpart' as const, text: 'Erste Frage', started_at: '1' },
+      { role: 'assistant' as const, text: 'Erste Antwort', started_at: '2' },
+      { role: 'counterpart' as const, text: 'Zweite Frage', started_at: '3' },
+      { role: 'assistant' as const, text: 'Zweite Antwort', started_at: '4' },
+      { role: 'counterpart' as const, text: 'Dritte Frage', started_at: '5' },
+    ];
+
+    await handler(
+      makeValidArgs({
+        turn_id: 5,
+        transcript: { turns },
+      }),
+    );
+
+    expect(runContainer).toHaveBeenCalledOnce();
+    const containerInput = runContainer.mock.calls[0][1] as { prompt: string };
+    for (const t of turns) {
+      expect(containerInput.prompt).toContain(t.text);
+    }
+    // Order: each turn appears after the previous in prompt.
+    let lastIdx = -1;
+    for (const t of turns) {
+      const idx = containerInput.prompt.indexOf(t.text);
+      expect(idx).toBeGreaterThan(lastIdx);
+      lastIdx = idx;
+    }
   });
 });

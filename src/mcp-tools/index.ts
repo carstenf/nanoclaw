@@ -40,11 +40,16 @@ import {
   makeVoiceTriggersInit,
   TOOL_NAME as VOICE_TRIGGERS_INIT_TOOL_NAME,
   type VoiceTriggersInitInput,
+  // Phase 05.6 Plan 01 Task 2: real defaultInvokeAgent re-exported from
+  // voice-triggers-init.ts (which itself re-exports from voice-agent-invoker.ts).
+  // Replaces the Phase-05.5 inline AGENT-NOT-WIRED no-op stub.
+  defaultInvokeAgent as realDefaultInvokeAgent,
 } from './voice-triggers-init.js';
 import {
   makeVoiceTriggersTranscript,
   TOOL_NAME as VOICE_TRIGGERS_TRANSCRIPT_TOOL_NAME,
   type VoiceTriggersTranscriptInput,
+  defaultInvokeAgentTurn as realDefaultInvokeAgentTurn,
 } from './voice-triggers-transcript.js';
 import { VoiceTriggerQueue } from '../voice-trigger-queue.js';
 import { createActiveSessionTracker } from '../channels/active-session-tracker.js';
@@ -483,16 +488,16 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   );
 
   // Phase 05.5 Plan 01 Task 4 (D-8, D-24): voice_triggers_init + voice_triggers_transcript.
-  // Container-agent reasoning triggers. Default no-op handlers — replaced when
-  // container-agent wiring lands in Phase 05.6. Keeps tool registry valid even
-  // pre-rollout so tools/list reports the new schemas (mcp-stream-server.ts
-  // TOOL_META covers the schema metadata).
-  const defaultInvokeAgent: NonNullable<RegistryDeps['invokeAgent']> = async () => ({
-    instructions: 'AGENT_NOT_WIRED',
-  });
-  const defaultInvokeAgentTurn: NonNullable<RegistryDeps['invokeAgentTurn']> = async () => ({
-    instructions_update: null,
-  });
+  // Container-agent reasoning triggers. Phase 05.6 Plan 01 Task 2 replaced the
+  // inline no-op AGENT-NOT-WIRED stubs (returned null) with the real
+  // `src/voice-agent-invoker.ts` integration imported above as
+  // `realDefaultInvokeAgent` / `realDefaultInvokeAgentTurn`. Tests that pass
+  // an explicit `invokeAgent` / `invokeAgentTurn` via DI continue to work —
+  // only the default behaviour changed.
+  const defaultInvokeAgent: NonNullable<RegistryDeps['invokeAgent']> =
+    realDefaultInvokeAgent;
+  const defaultInvokeAgentTurn: NonNullable<RegistryDeps['invokeAgentTurn']> =
+    realDefaultInvokeAgentTurn;
 
   // Phase 05.5 Plan 05 (REQ-COST-06): per-trigger cost-ledger sink. Wraps
   // the existing voice_record_turn_cost code-path so init / transcript
