@@ -494,10 +494,37 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     instructions_update: null,
   });
 
+  // Phase 05.5 Plan 05 (REQ-COST-06): per-trigger cost-ledger sink. Wraps
+  // the existing voice_record_turn_cost code-path so init / transcript
+  // triggers share the same insertTurnCost pipeline (and the same SUM
+  // aggregation) as Realtime turns. Synthetic turn_ids ('init', 'trigger-N')
+  // avoid PRIMARY KEY collisions with numeric Realtime turn_ids.
+  const recordTriggerCost = async (entry: {
+    call_id: string;
+    turn_id: string;
+    trigger_type: 'init_trigger' | 'transcript_trigger';
+    cost_eur: number;
+  }): Promise<void> => {
+    const row = {
+      ts: new Date().toISOString(),
+      call_id: entry.call_id,
+      turn_id: entry.turn_id,
+      audio_in_tokens: 0,
+      audio_out_tokens: 0,
+      cached_in_tokens: 0,
+      text_in_tokens: 0,
+      text_out_tokens: 0,
+      cost_eur: entry.cost_eur,
+      trigger_type: entry.trigger_type,
+    };
+    insertTurnCost(getDatabase(), row);
+  };
+
   registry.register(
     VOICE_TRIGGERS_INIT_TOOL_NAME,
     makeVoiceTriggersInit({
       invokeAgent: deps.invokeAgent ?? defaultInvokeAgent,
+      recordCost: recordTriggerCost,
       jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-triggers.jsonl` : undefined,
     }),
   );
@@ -507,6 +534,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     makeVoiceTriggersTranscript({
       queue: voiceTriggerQueue,
       invokeAgentTurn: deps.invokeAgentTurn ?? defaultInvokeAgentTurn,
+      recordCost: recordTriggerCost,
       jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-triggers.jsonl` : undefined,
     }),
   );

@@ -27,6 +27,14 @@
 // `invokeAgentTurn` callback. Phase 05.5 ships a no-op default in
 // `mcp-tools/index.ts` returning `{ instructions_update: null }`; Phase
 // 05.6 replaces with a real `src/container-runner.ts` integration.
+//
+// REQ-COST-06 (Plan 05.5-05): optional `recordCost` DI captures per-turn
+// trigger cost in the same voice_record_turn_cost ledger as Realtime turns.
+// Synthetic turn_id `'trigger-N'` (N from input) avoids collision with the
+// monotonic numeric turn_id used by Realtime; trigger_type='transcript_trigger'
+// distinguishes the row from the existing per-turn Realtime rows. Mutation-
+// blocked turns DO NOT record cost (the agent's mutating attempt is denied
+// before any model spend lands; we audit-only via the JSONL trail).
 import path from 'path';
 import fs from 'fs';
 
@@ -84,10 +92,26 @@ export interface VoiceTriggersTranscriptDeps {
   /**
    * D-24 DI seam — Phase 05.5 ships a no-op default; Phase 05.6 replaces
    * with the real `src/container-runner.ts` integration.
+   *
+   * REQ-COST-06: invokeAgentTurn MAY return `cost_eur`. The Phase-05.5
+   * no-op default returns 0; the real container-agent integration in 05.6+
+   * populates it from Claude API usage.
    */
   invokeAgentTurn: (
     input: VoiceTriggersTranscriptInput,
-  ) => Promise<{ instructions_update: string | null }>;
+  ) => Promise<{ instructions_update: string | null; cost_eur?: number }>;
+  /**
+   * REQ-COST-06: optional cost-ledger sink. When wired (default in
+   * `mcp-tools/index.ts` registration), the handler inserts one synthetic
+   * row per transcript-trigger invocation with trigger_type='transcript_trigger'
+   * and turn_id='trigger-{turn_id}'. Failure is non-fatal (caught + logged).
+   */
+  recordCost?: (entry: {
+    call_id: string;
+    turn_id: string;
+    trigger_type: 'init_trigger' | 'transcript_trigger';
+    cost_eur: number;
+  }) => Promise<void>;
   /** JSONL path for per-trigger audit log. */
   jsonlPath?: string;
   /** Clock override for tests. */
@@ -150,12 +174,36 @@ export function makeVoiceTriggersTranscript(
           };
         }
 
+        // REQ-COST-06: per-trigger cost-ledger entry. Synthetic turn_id
+        // 'trigger-N' (where N is the input turn_id) avoids collision with
+        // the monotonic Realtime numeric turn_ids; trigger_type marks it as
+        // a container-agent invocation. Failure non-fatal — JSONL audit is
+        // last resort.
+        if (deps.recordCost) {
+          await deps
+            .recordCost({
+              call_id: parsed.data.call_id,
+              turn_id: `trigger-${parsed.data.turn_id}`,
+              trigger_type: 'transcript_trigger',
+              cost_eur: r.cost_eur ?? 0,
+            })
+            .catch((rcErr: unknown) => {
+              logger.warn({
+                event: 'voice_triggers_transcript_record_cost_failed',
+                call_id: parsed.data.call_id,
+                turn_id: parsed.data.turn_id,
+                err: (rcErr as Error)?.message ?? String(rcErr),
+              });
+            });
+        }
+
         appendJsonl(jsonlPath, {
           ts: new Date().toISOString(),
           event: 'transcript_trigger_done',
           call_id: parsed.data.call_id,
           turn_id: parsed.data.turn_id,
           had_update: r.instructions_update !== null,
+          cost_eur: r.cost_eur ?? 0,
           latency_ms: nowFn() - start,
         });
 

@@ -166,4 +166,96 @@ describe('voice_triggers_transcript', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toBe('mutation_blocked_mid_call');
   });
+
+  // --- Phase 05.5 Plan 05 (REQ-COST-06) — recordCost DI tests ---
+
+  it('REQ-COST-06: invokes recordCost with transcript_trigger + synthetic turn_id="trigger-N"', async () => {
+    const queue = new VoiceTriggerQueue();
+    const recordCost = vi.fn(async () => {});
+    const invokeAgentTurn = vi
+      .fn()
+      .mockResolvedValue({ instructions_update: null, cost_eur: 0.0033 });
+    const handler = makeVoiceTriggersTranscript({
+      queue,
+      invokeAgentTurn,
+      recordCost,
+    });
+
+    const result = (await handler(
+      makeValidArgs({ call_id: 'tt-call-1', turn_id: 7 }),
+    )) as { ok: true };
+
+    expect(result.ok).toBe(true);
+    expect(recordCost).toHaveBeenCalledOnce();
+    expect(recordCost).toHaveBeenCalledWith({
+      call_id: 'tt-call-1',
+      turn_id: 'trigger-7',
+      trigger_type: 'transcript_trigger',
+      cost_eur: 0.0033,
+    });
+  });
+
+  it('REQ-COST-06: agent returns no cost_eur → recordCost called with cost_eur=0 (Phase-05.5 stub default)', async () => {
+    const queue = new VoiceTriggerQueue();
+    const recordCost = vi.fn(async () => {});
+    const handler = makeVoiceTriggersTranscript({
+      queue,
+      invokeAgentTurn: async () => ({ instructions_update: null }),
+      recordCost,
+    });
+
+    await handler(makeValidArgs());
+
+    expect(recordCost).toHaveBeenCalledOnce();
+    expect(recordCost).toHaveBeenCalledWith(
+      expect.objectContaining({ cost_eur: 0, trigger_type: 'transcript_trigger' }),
+    );
+  });
+
+  it('REQ-COST-06: recordCost omitted → handler success path unchanged (backward-compat)', async () => {
+    const queue = new VoiceTriggerQueue();
+    const handler = makeVoiceTriggersTranscript({
+      queue,
+      invokeAgentTurn: async () => ({ instructions_update: 'updated', cost_eur: 0.01 }),
+    });
+
+    const result = (await handler(makeValidArgs())) as {
+      ok: true;
+      result: { instructions_update: string | null };
+    };
+    expect(result.ok).toBe(true);
+    expect(result.result.instructions_update).toBe('updated');
+  });
+
+  it('REQ-COST-06: mutation-blocked turn does NOT record cost (audit-only)', async () => {
+    const queue = new VoiceTriggerQueue();
+    const recordCost = vi.fn(async () => {});
+    const handler = makeVoiceTriggersTranscript({
+      queue,
+      invokeAgentTurn: async () => ({ instructions_update: '__MUTATION_ATTEMPT__' }),
+      recordCost,
+    });
+
+    const result = (await handler(makeValidArgs())) as {
+      ok: false;
+      error: 'mutation_blocked_mid_call';
+    };
+
+    expect(result.ok).toBe(false);
+    expect(recordCost).not.toHaveBeenCalled();
+  });
+
+  it('REQ-COST-06: recordCost rejects → handler still returns ok (non-fatal)', async () => {
+    const queue = new VoiceTriggerQueue();
+    const recordCost = vi.fn().mockRejectedValue(new Error('db locked'));
+    const handler = makeVoiceTriggersTranscript({
+      queue,
+      invokeAgentTurn: async () => ({ instructions_update: null, cost_eur: 0.01 }),
+      recordCost,
+    });
+
+    const result = (await handler(makeValidArgs())) as { ok: true };
+    expect(result.ok).toBe(true);
+    expect(recordCost).toHaveBeenCalledOnce();
+  });
 });

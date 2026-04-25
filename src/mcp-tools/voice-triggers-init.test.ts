@@ -100,6 +100,76 @@ describe('voice_triggers_init', () => {
     expect(VoiceTriggersInitSchema.safeParse(makeValidArgs({ case_type: 'case_6a' })).success).toBe(true);
   });
 
+  // --- Phase 05.5 Plan 05 (REQ-COST-06) — recordCost DI tests ---
+
+  it('REQ-COST-06: invokes recordCost with init_trigger + turn_id="init" + call_id', async () => {
+    const recordCost = vi.fn(async () => {});
+    const invokeAgent = vi
+      .fn()
+      .mockResolvedValue({ instructions: 'p', cost_eur: 0.0042 });
+    const handler = makeVoiceTriggersInit({
+      invokeAgent,
+      recordCost,
+      jsonlPath: tmpJsonl(),
+    });
+
+    const result = (await handler(makeValidArgs({ call_id: 'cost-call-1' }))) as {
+      ok: true;
+    };
+
+    expect(result.ok).toBe(true);
+    expect(recordCost).toHaveBeenCalledOnce();
+    expect(recordCost).toHaveBeenCalledWith({
+      call_id: 'cost-call-1',
+      turn_id: 'init',
+      trigger_type: 'init_trigger',
+      cost_eur: 0.0042,
+    });
+  });
+
+  it('REQ-COST-06: agent returns no cost_eur → recordCost called with cost_eur=0 (Phase-05.5 stub default)', async () => {
+    const recordCost = vi.fn(async () => {});
+    const invokeAgent = vi.fn().mockResolvedValue({ instructions: 'AGENT_NOT_WIRED' });
+    const handler = makeVoiceTriggersInit({
+      invokeAgent,
+      recordCost,
+      jsonlPath: tmpJsonl(),
+    });
+
+    await handler(makeValidArgs());
+
+    expect(recordCost).toHaveBeenCalledOnce();
+    expect(recordCost).toHaveBeenCalledWith(
+      expect.objectContaining({ cost_eur: 0, trigger_type: 'init_trigger' }),
+    );
+  });
+
+  it('REQ-COST-06: recordCost omitted → handler success path unchanged (backward-compat)', async () => {
+    const invokeAgent = vi
+      .fn()
+      .mockResolvedValue({ instructions: 'p', cost_eur: 0.001 });
+    const handler = makeVoiceTriggersInit({ invokeAgent, jsonlPath: tmpJsonl() });
+
+    const result = (await handler(makeValidArgs())) as { ok: true };
+    expect(result.ok).toBe(true);
+  });
+
+  it('REQ-COST-06: recordCost rejects → handler still returns ok (non-fatal)', async () => {
+    const recordCost = vi.fn().mockRejectedValue(new Error('db locked'));
+    const invokeAgent = vi
+      .fn()
+      .mockResolvedValue({ instructions: 'p', cost_eur: 0.01 });
+    const handler = makeVoiceTriggersInit({
+      invokeAgent,
+      recordCost,
+      jsonlPath: tmpJsonl(),
+    });
+
+    const result = (await handler(makeValidArgs())) as { ok: true };
+    expect(result.ok).toBe(true);
+    expect(recordCost).toHaveBeenCalledOnce();
+  });
+
   // --- Test 5: JSONL audit line written with init_trigger_done + latency_ms + call_id ---
   it('writes JSONL audit line with event init_trigger_done, latency_ms, call_id', async () => {
     const jsonlPath = tmpJsonl();

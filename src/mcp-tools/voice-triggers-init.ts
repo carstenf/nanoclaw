@@ -19,6 +19,14 @@
 // `mcp-tools/index.ts` returning `{ instructions: 'AGENT_NOT_WIRED' }`;
 // Phase 05.6 replaces the default with a real `src/container-runner.ts`
 // integration. This file only owns the schema + handler contract.
+//
+// REQ-COST-06 (Plan 05.5-05): optional `recordCost` DI captures per-trigger
+// cost in the same voice_record_turn_cost ledger as Realtime turns. The
+// container-agent's `invokeAgent` returns an optional `cost_eur` (defaults
+// to 0 for the Phase-05.5 no-op stub); the handler inserts a synthetic-row
+// (turn_id='init', trigger_type='init_trigger') so SUM(cost_eur) per call
+// continues to reflect the real total. recordCost failure is non-fatal —
+// the JSONL audit is the last-resort record.
 import path from 'path';
 import fs from 'fs';
 
@@ -56,8 +64,26 @@ export interface VoiceTriggersInitDeps {
   /**
    * D-24 DI seam — Phase 05.5 ships a no-op default; Phase 05.6 replaces
    * with the real `src/container-runner.ts` integration.
+   *
+   * REQ-COST-06: invokeAgent MAY return `cost_eur`. The Phase-05.5 no-op
+   * default returns 0; the real container-agent integration in 05.6+
+   * populates it from Claude API usage.
    */
-  invokeAgent: (input: VoiceTriggersInitInput) => Promise<{ instructions: string }>;
+  invokeAgent: (
+    input: VoiceTriggersInitInput,
+  ) => Promise<{ instructions: string; cost_eur?: number }>;
+  /**
+   * REQ-COST-06: optional cost-ledger sink. When wired (default in
+   * `mcp-tools/index.ts` registration), the handler inserts one synthetic
+   * row per init-trigger invocation with trigger_type='init_trigger' and
+   * turn_id='init'. Failure is non-fatal (caught + logged).
+   */
+  recordCost?: (entry: {
+    call_id: string;
+    turn_id: string;
+    trigger_type: 'init_trigger' | 'transcript_trigger';
+    cost_eur: number;
+  }) => Promise<void>;
   /** JSONL path for per-trigger audit log. */
   jsonlPath?: string;
   /** Clock override for tests. */
@@ -91,12 +117,32 @@ export function makeVoiceTriggersInit(deps: VoiceTriggersInitDeps): ToolHandler 
 
     try {
       const r = await deps.invokeAgent(parsed.data);
+      // REQ-COST-06: per-trigger cost-ledger entry. Synthetic turn_id='init'
+      // with trigger_type='init_trigger' so SUM(cost_eur) still reflects
+      // total voice cost. Failure non-fatal — JSONL audit is last resort.
+      if (deps.recordCost) {
+        await deps
+          .recordCost({
+            call_id: parsed.data.call_id,
+            turn_id: 'init',
+            trigger_type: 'init_trigger',
+            cost_eur: r.cost_eur ?? 0,
+          })
+          .catch((rcErr: unknown) => {
+            logger.warn({
+              event: 'voice_triggers_init_record_cost_failed',
+              call_id: parsed.data.call_id,
+              err: (rcErr as Error)?.message ?? String(rcErr),
+            });
+          });
+      }
       appendJsonl(jsonlPath, {
         ts: new Date().toISOString(),
         event: 'init_trigger_done',
         call_id: parsed.data.call_id,
         case_type: parsed.data.case_type,
         call_direction: parsed.data.call_direction,
+        cost_eur: r.cost_eur ?? 0,
         latency_ms: nowFn() - start,
       });
       return { ok: true as const, result: { instructions: r.instructions } };
