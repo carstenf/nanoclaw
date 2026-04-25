@@ -984,8 +984,9 @@ async function main(): Promise<void> {
   // Phase 05.6-04 follow-up: voice_request injector — when ask_core(topic=
   // 'andy') fires and the main whatsapp_main container is alive, drop an IPC
   // file instead of spawning a fresh --rm Andy. queue.sendVoiceRequest
-  // returns false if no main container is active → voice-ask-core falls back
-  // to runAndyForVoice (cold-spawn).
+  // returns false if no main container is active → voice-ask-core returns a
+  // graceful "Andy nicht erreichbar" message (NO --rm fallback to avoid
+  // orphan-container leaks across NanoClaw restarts).
   const tryInjectVoiceRequest = (callId: string, prompt: string): boolean => {
     const main = getMainGroupAndJid();
     if (!main?.jid) return false;

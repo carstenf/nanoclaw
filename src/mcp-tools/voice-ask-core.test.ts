@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { makeVoiceAskCore } from './voice-ask-core.js';
 import { BadRequestError } from './voice-on-transcript-turn.js';
-import type { AndyVoiceResult } from './andy-agent-runner.js';
 
 // Helper: build deps with sensible defaults
 function makeDeps(
@@ -14,7 +13,6 @@ function makeDeps(
       msgs: Array<{ role: 'user'; content: string }>,
       opts?: { timeoutMs?: number; maxTokens?: number },
     ) => Promise<string>;
-    runAndy: (req: string) => Promise<AndyVoiceResult>;
     sendDiscord: (
       channelId: string,
       content: string,
@@ -35,13 +33,6 @@ function makeDeps(
         path: '/skills/ask-core-test/SKILL.md',
       })),
     callClaude: overrides.callClaude ?? (async () => 'answer text'),
-    runAndy:
-      overrides.runAndy ??
-      (async () => ({
-        voice_short: 'Andy Antwort.',
-        discord_long: null,
-        container_latency_ms: 100,
-      })),
     sendDiscord:
       overrides.sendDiscord ?? vi.fn().mockResolvedValue({ ok: true }),
     andyDiscordChannel: overrides.andyDiscordChannel ?? '1234567890',
@@ -150,117 +141,8 @@ describe('voice_ask_core', () => {
     expect(result.error).toBe('claude_timeout');
   });
 
-  // --- New: topic='andy' path tests ---
-
-  it('topic=andy: routes to runAndy, returns voice_short as answer', async () => {
-    const runAndy = vi.fn().mockResolvedValue({
-      voice_short: 'Neil Armstrong war der erste.',
-      discord_long: null,
-      container_latency_ms: 1500,
-    });
-    const deps = makeDeps({ runAndy });
-    const handler = makeVoiceAskCore(deps);
-    const result = (await handler({
-      topic: 'andy',
-      request: 'wer war der erste Mensch auf dem Mond',
-    })) as { ok: true; result: { answer: string; topic: string } };
-
-    expect(result.ok).toBe(true);
-    expect(result.result.answer).toBe('Neil Armstrong war der erste.');
-    expect(result.result.topic).toBe('andy');
-    expect(runAndy).toHaveBeenCalledWith(
-      'wer war der erste Mensch auf dem Mond',
-    );
-  });
-
-  it('topic=andy + discord_long: fires sendDiscord (fire-and-forget)', async () => {
-    const sendDiscord = vi.fn().mockResolvedValue({ ok: true });
-    const runAndy = vi.fn().mockResolvedValue({
-      voice_short: 'Kurze Antwort.',
-      discord_long: 'Detaillierte Erklaerung fuer Discord.',
-      container_latency_ms: 2000,
-    });
-    const deps = makeDeps({
-      runAndy,
-      sendDiscord,
-      andyDiscordChannel: 'ch-999',
-    });
-    const handler = makeVoiceAskCore(deps);
-    const result = (await handler({
-      topic: 'andy',
-      request: 'erklaere mir X',
-    })) as {
-      ok: true;
-      result: { answer: string };
-    };
-
-    expect(result.ok).toBe(true);
-    expect(result.result.answer).toBe('Kurze Antwort.');
-    // Allow one tick for fire-and-forget
-    await new Promise((r) => setTimeout(r, 10));
-    expect(sendDiscord).toHaveBeenCalledWith(
-      'ch-999',
-      'Detaillierte Erklaerung fuer Discord.',
-    );
-  });
-
-  it('topic=andy + null discord_long: does NOT call sendDiscord', async () => {
-    const sendDiscord = vi.fn().mockResolvedValue({ ok: true });
-    const runAndy = vi.fn().mockResolvedValue({
-      voice_short: 'Kurze Antwort.',
-      discord_long: null,
-      container_latency_ms: 800,
-    });
-    const deps = makeDeps({ runAndy, sendDiscord });
-    const handler = makeVoiceAskCore(deps);
-    await handler({ topic: 'andy', request: 'test' });
-
-    await new Promise((r) => setTimeout(r, 10));
-    expect(sendDiscord).not.toHaveBeenCalled();
-  });
-
-  it('topic=andy runAndy throws: returns graceful fallback, no crash', async () => {
-    const runAndy = vi.fn().mockRejectedValue(new Error('container failed'));
-    const deps = makeDeps({ runAndy });
-    const handler = makeVoiceAskCore(deps);
-    const result = (await handler({ topic: 'andy', request: 'test' })) as {
-      ok: boolean;
-      result?: { answer: string };
-      error?: string;
-    };
-
-    // Must not throw — either ok:true with fallback or ok:false
-    expect(result).toBeDefined();
-  });
-
-  it('topic=andy: JSONL event contains ask_core_andy_done', async () => {
-    const fs = await import('fs');
-    const jsonlPath = '/tmp/test-andy-jsonl-' + Date.now() + '.jsonl';
-    const deps = makeDeps({ jsonlPath });
-    const handler = makeVoiceAskCore(deps);
-    await handler({ topic: 'andy', request: 'test frage' });
-
-    const lines = fs.default.readFileSync(jsonlPath, 'utf8').trim().split('\n');
-    const events = lines.map((l) => JSON.parse(l));
-    expect(
-      events.some((e: { event: string }) => e.event === 'ask_core_andy_done'),
-    ).toBe(true);
-  });
-
-  it('topic=test (echo-path regression): does NOT call runAndy', async () => {
-    const runAndy = vi.fn().mockResolvedValue({
-      voice_short: 'Should not be called.',
-      discord_long: null,
-      container_latency_ms: 0,
-    });
-    const deps = makeDeps({ runAndy });
-    const handler = makeVoiceAskCore(deps);
-    const result = (await handler({ topic: 'test', request: 'sag Hallo' })) as {
-      ok: true;
-      result: { answer: string };
-    };
-
-    expect(runAndy).not.toHaveBeenCalled();
-    expect(result.result.answer).toBe('answer text'); // callClaude default mock
-  });
+  // topic='andy' tests entfernt — sie testeten den runAndyForVoice cold-spawn
+  // Pfad, der mit Phase 05.6-04 entfernt wurde. Neue Tests für den
+  // tryInjectVoiceRequest + VoiceRespondManager Pfad kommen in der
+  // tests-first Session (siehe nanoclaw-state/open_points.md).
 });

@@ -212,9 +212,10 @@ export interface RegistryDeps {
   /**
    * Phase 05.6-04 follow-up: drop a voice_request IPC envelope into the
    * active main container. Returns true if the container was active and the
-   * file was written; false if no active container — voice-ask-core will
-   * fall back to the legacy --rm runAndy path. Wired in NanoClaw index.ts as
-   * `(callId, prompt) => queue.sendVoiceRequest(mainJid, callId, prompt)`.
+   * file was written; false if no active container — voice-ask-core then
+   * returns a graceful "Andy nicht erreichbar" (NO --rm fallback to avoid
+   * orphan-container leaks across NanoClaw restarts). Wired in NanoClaw
+   * index.ts as `(callId, prompt) => queue.sendVoiceRequest(mainJid, ...)`.
    */
   tryInjectVoiceRequest?: (callId: string, prompt: string) => boolean;
 }

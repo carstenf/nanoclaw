@@ -8,8 +8,7 @@
  * voice-bridge as the ask_core tool result.
  *
  * If `discord_long` is provided AND a Discord channel is configured, the
- * long-form text is sent to Discord fire-and-forget — same UX contract as
- * the legacy runAndyForVoice path.
+ * long-form text is sent to Discord fire-and-forget.
  */
 import { z } from 'zod';
 import { BadRequestError } from './voice-on-transcript-turn.js';
