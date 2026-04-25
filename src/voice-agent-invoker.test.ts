@@ -1,40 +1,46 @@
 // src/voice-agent-invoker.test.ts
 //
-// Phase 05.6 Plan 02 — vitest unit tests for the direct-API render path.
-//
-// All Anthropic API calls are stubbed via the renderApi DI seam; no real
-// network, no real skill-files reads (loadSkillFiles is also stubbed).
+// Phase 05.6 Plan 02 (Option E) — vitest unit tests for the pure-template
+// render path. Skill-files reader is stubbed via the loadSkillFiles DI
+// seam; no LLM, no network, no filesystem reads in tests.
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
   defaultInvokeAgent,
   defaultInvokeAgentTurn,
-  buildPersonaRenderPrompt,
-  buildPersonaTurnPrompt,
-  buildSystemPrompt,
+  renderPersona,
   extractRenderedString,
   INSTRUCTIONS_FENCE_START,
   INSTRUCTIONS_FENCE_END,
-  NULL_SENTINEL,
   type VoicePersonaSkillFiles,
 } from './voice-agent-invoker.js';
 import type { VoiceTriggersInitInput } from './mcp-tools/voice-triggers-init.js';
 import type { VoiceTriggersTranscriptInput } from './mcp-tools/voice-triggers-transcript.js';
 
-function fenced(body: string): string {
-  return `ignored chatter\n${INSTRUCTIONS_FENCE_START}\n${body}\n${INSTRUCTIONS_FENCE_END}\nmore`;
-}
+const FAKE_BASELINE = `### ROLE
+Aufgabe: {{goal}}.
+Kontext: {{context}}.
+Gegenueber: {{counterpart_label}}. Richtung: {{call_direction}}.
+Anrede: {{anrede_form}}, Pronomen {{anrede_pronoun}}, Re-Ask {{anrede_capitalized}}, Disclosure {{anrede_disclosure}}.
+
+### CONVERSATION FLOW
+<!-- BEGIN SCHWEIGEN_LADDER call_direction=inbound -->
+INBOUND-LADDER: bist du da
+<!-- END SCHWEIGEN_LADDER -->
+<!-- BEGIN SCHWEIGEN_LADDER call_direction=outbound -->
+OUTBOUND-LADDER: ist da jemand
+<!-- END SCHWEIGEN_LADDER -->
+`;
 
 function fakeSkill(caseType: string): VoicePersonaSkillFiles {
   const overlayMap: Record<string, string> = {
-    case_6b: '## TASK\nInbound von Carsten — Du-Form.',
-    case_2: '## TASK\nOutbound zur Restaurant-Reservierung — Sie-Form.',
+    case_6b: '### TASK\nInbound von Carsten.',
+    case_2: '### TASK\nOutbound zur Reservierung.',
   };
   return {
-    skill: '# SKILL\nRender persona between fences.',
-    baseline:
-      '# BASELINE\nGoal: {{goal}}\nCounterpart: {{counterpart_label}}\nAnrede: {{anrede_form}}',
+    skill: '# SKILL',
+    baseline: FAKE_BASELINE,
     overlay: overlayMap[caseType] ?? '',
     overlayPath: overlayMap[caseType] ? `overlays/${caseType}.md` : null,
   };
@@ -73,98 +79,83 @@ function makeTranscriptInput(
 }
 
 // ---------------------------------------------------------------------------
+// renderPersona — pure unit
+// ---------------------------------------------------------------------------
+
+describe('renderPersona', () => {
+  it('case_6b inbound → Du-form, drops outbound ladder, no {{...}} leaks', () => {
+    const out = renderPersona(fakeSkill('case_6b'), makeInitInput());
+    expect(out).toContain('Anrede: Du');
+    expect(out).toContain('Pronomen du');
+    expect(out).toContain('Re-Ask dich');
+    expect(out).toContain('Disclosure Bist du');
+    expect(out).toContain('Gegenueber: Carsten');
+    expect(out).toContain('Richtung: inbound');
+    expect(out).toContain('INBOUND-LADDER');
+    expect(out).not.toContain('OUTBOUND-LADDER');
+    expect(out).not.toMatch(/\{\{[a-z_]+\}\}/);
+    expect(out).toContain('Inbound von Carsten'); // overlay attached
+  });
+
+  it('case_2 outbound → Sie-form, drops inbound ladder, attaches case_2 overlay', () => {
+    const out = renderPersona(
+      fakeSkill('case_2'),
+      makeInitInput({
+        case_type: 'case_2',
+        call_direction: 'outbound',
+        counterpart_label: 'Bella Vista',
+      }),
+    );
+    expect(out).toContain('Anrede: Sie');
+    expect(out).toContain('Pronomen Sie');
+    expect(out).toContain('Re-Ask Sie');
+    expect(out).toContain('Disclosure Sind Sie');
+    expect(out).toContain('Gegenueber: Bella Vista');
+    expect(out).toContain('Richtung: outbound');
+    expect(out).toContain('OUTBOUND-LADDER');
+    expect(out).not.toContain('INBOUND-LADDER');
+    expect(out).toContain('Outbound zur Reservierung'); // overlay attached
+  });
+
+  it('drops SCHWEIGEN comment markers entirely (no <!-- BEGIN/END --> remains)', () => {
+    const out = renderPersona(fakeSkill('case_6b'), makeInitInput());
+    expect(out).not.toContain('BEGIN SCHWEIGEN_LADDER');
+    expect(out).not.toContain('END SCHWEIGEN_LADDER');
+  });
+
+  it('no overlay → renders baseline only without crash (case_6a is overlay-less)', () => {
+    const out = renderPersona(
+      fakeSkill('case_6a'),
+      makeInitInput({ case_type: 'case_6a' }),
+    );
+    expect(out).toContain('Anrede: Sie'); // non-6b → Sie default
+  });
+});
+
+// ---------------------------------------------------------------------------
 // extractRenderedString
 // ---------------------------------------------------------------------------
 
 describe('extractRenderedString', () => {
   it('extracts body between fence markers', () => {
-    const r = extractRenderedString(fenced('Hallo Carsten, Du-Form.'));
+    const r = extractRenderedString(
+      `chatter\n${INSTRUCTIONS_FENCE_START}\nbody\n${INSTRUCTIONS_FENCE_END}\nmore`,
+    );
     expect(r.fenced).toBe(true);
-    expect(r.instructions).toBe('Hallo Carsten, Du-Form.');
-    expect(r.placeholderLeak).toBe(false);
+    expect(r.instructions).toBe('body');
   });
 
   it('falls back to trimmed full text without fences', () => {
-    const r = extractRenderedString('   plain output without markers   ');
+    const r = extractRenderedString('   plain   ');
     expect(r.fenced).toBe(false);
-    expect(r.instructions).toBe('plain output without markers');
+    expect(r.instructions).toBe('plain');
   });
 
-  it('detects unsubstituted placeholder leak', () => {
-    const r = extractRenderedString(fenced('Hallo {{counterpart_label}}'));
-    expect(r.placeholderLeak).toBe(true);
-  });
-
-  it('returns empty body on null input', () => {
-    expect(extractRenderedString(null).instructions).toBe('');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// buildPersonaRenderPrompt / buildPersonaTurnPrompt
-// ---------------------------------------------------------------------------
-
-describe('buildPersonaRenderPrompt', () => {
-  it('includes call_id, case_type, call_direction, counterpart_label', () => {
-    const p = buildPersonaRenderPrompt(makeInitInput());
-    expect(p).toContain('rtc_unit_init');
-    expect(p).toContain('case_6b');
-    expect(p).toContain('inbound');
-    expect(p).toContain('Carsten');
-  });
-
-  it('declares Du-form derivation guidance for case_6b', () => {
-    const p = buildPersonaRenderPrompt(makeInitInput({ case_type: 'case_6b' }));
-    expect(p).toContain('Du');
-  });
-
-  it('declares Sie-form derivation guidance for case_2', () => {
-    const p = buildPersonaRenderPrompt(makeInitInput({ case_type: 'case_2' }));
-    expect(p).toContain('Sie');
-  });
-});
-
-describe('buildPersonaTurnPrompt', () => {
-  it('forwards full turn-history (REQ-DIR-16)', () => {
-    const p = buildPersonaTurnPrompt(
-      makeTranscriptInput({
-        transcript: {
-          turns: [
-            { role: 'counterpart', text: 'turn-1', started_at: '2026-04-25T10:00:00Z' },
-            { role: 'assistant', text: 'turn-2', started_at: '2026-04-25T10:00:05Z' },
-            { role: 'counterpart', text: 'turn-3', started_at: '2026-04-25T10:00:10Z' },
-          ],
-        },
-      }),
+  it('detects {{...}} leak', () => {
+    const r = extractRenderedString(
+      `${INSTRUCTIONS_FENCE_START}\nHallo {{counterpart_label}}\n${INSTRUCTIONS_FENCE_END}`,
     );
-    expect(p).toContain('turn-1');
-    expect(p).toContain('turn-2');
-    expect(p).toContain('turn-3');
-  });
-
-  it('mentions NULL_NO_UPDATE sentinel for no-op decision', () => {
-    const p = buildPersonaTurnPrompt(makeTranscriptInput());
-    expect(p).toContain(NULL_SENTINEL);
-  });
-});
-
-describe('buildSystemPrompt', () => {
-  it('inlines SKILL.md, baseline.md, and overlay', () => {
-    const p = buildSystemPrompt(fakeSkill('case_6b'));
-    expect(p).toContain('Render persona between fences');
-    expect(p).toContain('Goal: {{goal}}');
-    expect(p).toContain('Inbound von Carsten');
-  });
-
-  it('emits a no-overlay note when case_type has no mapped overlay', () => {
-    const p = buildSystemPrompt(fakeSkill('unknown_case'));
-    expect(p).toContain('No overlay mapped');
-  });
-
-  it('mandates fence markers in OUTPUT FORMAT section', () => {
-    const p = buildSystemPrompt(fakeSkill('case_6b'));
-    expect(p).toContain(INSTRUCTIONS_FENCE_START);
-    expect(p).toContain(INSTRUCTIONS_FENCE_END);
+    expect(r.placeholderLeak).toBe(true);
   });
 });
 
@@ -173,82 +164,43 @@ describe('buildSystemPrompt', () => {
 // ---------------------------------------------------------------------------
 
 describe('defaultInvokeAgent', () => {
-  it('returns rendered persona on happy path (case_6b Du-form)', async () => {
-    const renderApi = vi
-      .fn()
-      .mockResolvedValue(fenced('Hallo Carsten, schoen dass Du anrufst.'));
+  it('returns rendered persona with Du-form for case_6b inbound', async () => {
     const r = await defaultInvokeAgent(makeInitInput(), {
-      renderApi,
       loadSkillFiles: fakeSkill,
     });
-    expect(r.instructions).toContain('Du anrufst');
-    expect(renderApi).toHaveBeenCalledTimes(1);
-    const [systemPrompt, userMessage] = renderApi.mock.calls[0];
-    expect(systemPrompt).toContain('Render persona between fences');
-    expect(userMessage).toContain('case_6b');
-    expect(userMessage).toContain('inbound');
+    expect(r.instructions).toContain('Du');
+    expect(r.instructions).toContain('Carsten');
+    expect(r.instructions).not.toMatch(/\{\{[a-z_]+\}\}/);
   });
 
-  it('passes the case_2 overlay through buildSystemPrompt for case_2 input', async () => {
-    const renderApi = vi.fn().mockResolvedValue(fenced('Guten Tag, hier ist Andy.'));
-    await defaultInvokeAgent(makeInitInput({ case_type: 'case_2' }), {
-      renderApi,
-      loadSkillFiles: fakeSkill,
-    });
-    const [systemPrompt] = renderApi.mock.calls[0];
-    expect(systemPrompt).toContain('Outbound zur Restaurant-Reservierung');
-  });
-
-  it('throws agent_unavailable on render API error', async () => {
-    const renderApi = vi.fn().mockRejectedValue(new Error('Claude API error: HTTP 500'));
-    await expect(
-      defaultInvokeAgent(makeInitInput(), { renderApi, loadSkillFiles: fakeSkill }),
-    ).rejects.toMatchObject({
-      message: expect.stringContaining('agent_unavailable'),
-      code: 'agent_unavailable',
-    });
-  });
-
-  it('throws timeout-coded error on AbortError from API', async () => {
-    const renderApi = vi
-      .fn()
-      .mockRejectedValue(Object.assign(new Error('aborted'), { name: 'AbortError' }));
-    await expect(
-      defaultInvokeAgent(makeInitInput(), { renderApi, loadSkillFiles: fakeSkill }),
-    ).rejects.toMatchObject({ code: 'timeout' });
+  it('returns Sie-form for case_2 outbound', async () => {
+    const r = await defaultInvokeAgent(
+      makeInitInput({
+        case_type: 'case_2',
+        call_direction: 'outbound',
+        counterpart_label: 'Bella Vista',
+      }),
+      { loadSkillFiles: fakeSkill },
+    );
+    expect(r.instructions).toContain('Sie');
+    expect(r.instructions).toContain('Bella Vista');
   });
 
   it('throws agent_unavailable on skill load failure', async () => {
-    const loadSkillFiles = vi.fn().mockImplementation(() => {
-      throw new Error('ENOENT: skill missing');
-    });
-    const renderApi = vi.fn();
     await expect(
-      defaultInvokeAgent(makeInitInput(), { renderApi, loadSkillFiles }),
+      defaultInvokeAgent(makeInitInput(), {
+        loadSkillFiles: () => {
+          throw new Error('ENOENT');
+        },
+      }),
     ).rejects.toMatchObject({ code: 'agent_unavailable' });
-    expect(renderApi).not.toHaveBeenCalled();
   });
 
-  it('extracts fenceless output and flags it (no exception)', async () => {
-    const renderApi = vi.fn().mockResolvedValue('plain output without markers');
+  it('returns rendered persona with no AGENT_NOT_WIRED string', async () => {
     const r = await defaultInvokeAgent(makeInitInput(), {
-      renderApi,
       loadSkillFiles: fakeSkill,
     });
-    expect(r.instructions).toBe('plain output without markers');
-  });
-
-  it('passes timeoutMs/maxTokens/model deps through to renderApi', async () => {
-    const renderApi = vi.fn().mockResolvedValue(fenced('ok'));
-    await defaultInvokeAgent(makeInitInput(), {
-      renderApi,
-      loadSkillFiles: fakeSkill,
-      timeoutMs: 1234,
-      maxTokens: 2222,
-      model: 'claude-haiku-4-5',
-    });
-    const [, , opts] = renderApi.mock.calls[0];
-    expect(opts).toMatchObject({ timeoutMs: 1234, maxTokens: 2222, model: 'claude-haiku-4-5' });
+    expect(r.instructions).not.toContain('AGENT_NOT_WIRED');
   });
 });
 
@@ -257,54 +209,25 @@ describe('defaultInvokeAgent', () => {
 // ---------------------------------------------------------------------------
 
 describe('defaultInvokeAgentTurn', () => {
-  it('returns null instructions_update when LLM emits NULL_NO_UPDATE', async () => {
-    const renderApi = vi.fn().mockResolvedValue(fenced(NULL_SENTINEL));
-    const r = await defaultInvokeAgentTurn(makeTranscriptInput(), {
-      renderApi,
-      loadSkillFiles: fakeSkill,
-    });
+  it('returns null instructions_update by default (no mid-call re-render policy yet)', async () => {
+    const r = await defaultInvokeAgentTurn(makeTranscriptInput());
     expect(r.instructions_update).toBeNull();
   });
 
-  it('returns the rendered string when LLM emits a fresh persona', async () => {
-    const renderApi = vi
-      .fn()
-      .mockResolvedValue(fenced('Updated persona — re-affirm Reservierungs-Confirmation.'));
-    const r = await defaultInvokeAgentTurn(makeTranscriptInput(), {
-      renderApi,
-      loadSkillFiles: fakeSkill,
-    });
-    expect(r.instructions_update).toContain('Reservierungs-Confirmation');
-  });
-
-  it('forwards full turn-history into the user message (REQ-DIR-16)', async () => {
-    const renderApi = vi.fn().mockResolvedValue(fenced(NULL_SENTINEL));
-    await defaultInvokeAgentTurn(
+  it('does not error on multi-turn history (REQ-DIR-16 contract preserved)', async () => {
+    const r = await defaultInvokeAgentTurn(
       makeTranscriptInput({
         transcript: {
           turns: [
-            { role: 'counterpart', text: 't1', started_at: '2026-04-25T10:00:00Z' },
-            { role: 'assistant', text: 't2', started_at: '2026-04-25T10:00:05Z' },
-            { role: 'counterpart', text: 't3', started_at: '2026-04-25T10:00:10Z' },
-            { role: 'assistant', text: 't4', started_at: '2026-04-25T10:00:15Z' },
-            { role: 'counterpart', text: 't5', started_at: '2026-04-25T10:00:20Z' },
+            { role: 'counterpart', text: 't1', started_at: '1' },
+            { role: 'assistant', text: 't2', started_at: '2' },
+            { role: 'counterpart', text: 't3', started_at: '3' },
+            { role: 'assistant', text: 't4', started_at: '4' },
+            { role: 'counterpart', text: 't5', started_at: '5' },
           ],
         },
       }),
-      { renderApi, loadSkillFiles: fakeSkill },
     );
-    const [, userMessage] = renderApi.mock.calls[0];
-    expect(userMessage).toContain('t1');
-    expect(userMessage).toContain('t5');
-  });
-
-  it('throws agent_unavailable on render API error', async () => {
-    const renderApi = vi.fn().mockRejectedValue(new Error('boom'));
-    await expect(
-      defaultInvokeAgentTurn(makeTranscriptInput(), {
-        renderApi,
-        loadSkillFiles: fakeSkill,
-      }),
-    ).rejects.toMatchObject({ code: 'agent_unavailable' });
+    expect(r.instructions_update).toBeNull();
   });
 });

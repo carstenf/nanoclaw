@@ -307,7 +307,6 @@ describe('voice_triggers_transcript — real defaultInvokeAgentTurn integration 
     const queue = new VoiceTriggerQueue();
     const renderApi = makeRenderApiSuccess(fenced(NULL_SENTINEL));
     const invokerDeps: VoiceAgentInvokerDeps = {
-      renderApi,
       loadSkillFiles: fakeSkill,
     };
     const handler = makeVoiceTriggersTranscript({
@@ -325,42 +324,37 @@ describe('voice_triggers_transcript — real defaultInvokeAgentTurn integration 
   // -------------------------------------------------------------------------
   // Test 5: real-default — non-null update path
   // -------------------------------------------------------------------------
-  it('Test 5: fenced persona body → handler returns instructions_update equal to body', async () => {
+  // Test 5 (Phase 05.6 Plan 02 Option E): real-default returns null today —
+  // mid-call persona re-render policy will be added later. Bridge falls back
+  // to existing instructions on null update (REQ-DIR-12 path is unchanged).
+  it('Test 5: real-default → handler returns instructions_update:null (no mid-call re-render policy yet)', async () => {
     const queue = new VoiceTriggerQueue();
-    const renderApi = makeRenderApiSuccess(
-      fenced('Updated persona — focus on Reservierung Bestaetigung.'),
-    );
-    const invokerDeps: VoiceAgentInvokerDeps = {
-      renderApi,
-      loadSkillFiles: fakeSkill,
-    };
     const handler = makeVoiceTriggersTranscript({
       queue,
-      invokeAgentTurn: (input) => defaultInvokeAgentTurn(input, invokerDeps),
+      invokeAgentTurn: (input) =>
+        defaultInvokeAgentTurn(input, { loadSkillFiles: fakeSkill }),
     });
     const result = (await handler(makeValidArgs())) as {
       ok: true;
-      result: { instructions_update: string };
+      result: { instructions_update: string | null };
     };
     expect(result.ok).toBe(true);
-    expect(result.result.instructions_update).toBe(
-      'Updated persona — focus on Reservierung Bestaetigung.',
-    );
+    expect(result.result.instructions_update).toBeNull();
   });
 
   // -------------------------------------------------------------------------
-  // Test 6: REQ-DIR-16 — full turn-history forwarded into agent prompt
+  // Test 6: REQ-DIR-16 — full turn-history is forwarded into the
+  // invokeAgentTurn callback so any future re-render policy has full context.
+  // Asserted via a custom invokeAgentTurn spy that captures the input.
   // -------------------------------------------------------------------------
-  it('Test 6: REQ-DIR-16 — 5-turn transcript → all 5 turns appear in the agent prompt in order', async () => {
+  it('Test 6: REQ-DIR-16 — 5-turn transcript → invokeAgentTurn receives all 5 turns in order', async () => {
     const queue = new VoiceTriggerQueue();
-    const renderApi = makeRenderApiSuccess(fenced(NULL_SENTINEL));
-    const invokerDeps: VoiceAgentInvokerDeps = {
-      renderApi,
-      loadSkillFiles: fakeSkill,
-    };
+    const invokeSpy = vi
+      .fn()
+      .mockResolvedValue({ instructions_update: null });
     const handler = makeVoiceTriggersTranscript({
       queue,
-      invokeAgentTurn: (input) => defaultInvokeAgentTurn(input, invokerDeps),
+      invokeAgentTurn: invokeSpy,
     });
 
     const turns = [
@@ -378,17 +372,10 @@ describe('voice_triggers_transcript — real defaultInvokeAgentTurn integration 
       }),
     );
 
-    expect(renderApi).toHaveBeenCalledOnce();
-    const userMessage = renderApi.mock.calls[0][1] as string;
-    for (const t of turns) {
-      expect(userMessage).toContain(t.text);
-    }
-    // Order: each turn appears after the previous in user message.
-    let lastIdx = -1;
-    for (const t of turns) {
-      const idx = userMessage.indexOf(t.text);
-      expect(idx).toBeGreaterThan(lastIdx);
-      lastIdx = idx;
-    }
+    expect(invokeSpy).toHaveBeenCalledOnce();
+    const passedInput = invokeSpy.mock.calls[0][0] as {
+      transcript: { turns: typeof turns };
+    };
+    expect(passedInput.transcript.turns).toEqual(turns);
   });
 });

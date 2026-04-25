@@ -231,21 +231,15 @@ describe('voice_triggers_init', () => {
 // from the production code path.
 // ---------------------------------------------------------------------------
 
-function fenced(body: string): string {
-  return `chatter\n${INSTRUCTIONS_FENCE_START}\n${body}\n${INSTRUCTIONS_FENCE_END}\n`;
-}
-
 function fakeSkill(caseType: string): VoicePersonaSkillFiles {
+  // Baseline carries the placeholders the pure-template renderer substitutes.
+  // Case_6b → Du-form, case_2 → Sie-form (default for any non-6b case).
   return {
-    skill: '# SKILL\nRender persona between fences.',
-    baseline: '# BASELINE\nGoal: {{goal}}\nAnrede: {{anrede_form}}',
-    overlay: caseType === 'case_6b' ? 'Inbound von Carsten — Du-Form.' : 'Outbound — Sie-Form.',
+    skill: '# SKILL',
+    baseline: '# BASELINE\nGoal: {{goal}}\nGegenueber: {{counterpart_label}}\nAnrede: {{anrede_form}}',
+    overlay: caseType === 'case_6b' ? 'Inbound von Carsten.' : 'Outbound zur Reservierung.',
     overlayPath: `overlays/${caseType}.md`,
   };
-}
-
-function makeRenderApiSuccess(resultBody: string) {
-  return vi.fn().mockResolvedValue(resultBody);
 }
 
 describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.6 Plan 01 Task 2)', () => {
@@ -253,11 +247,7 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
   // Test 1: Du-form rendering for case_6b (Carsten inbound)
   // -------------------------------------------------------------------------
   it('Test 1: case_6b → handler returns instructions containing "Du" via real defaultInvokeAgent', async () => {
-    const renderApi = makeRenderApiSuccess(
-      fenced('Hallo Carsten, Du kannst Dir das so vorstellen.'),
-    );
     const invokerDeps: VoiceAgentInvokerDeps = {
-      renderApi,
       loadSkillFiles: fakeSkill,
     };
     const handler = makeVoiceTriggersInit({
@@ -279,11 +269,7 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
   // Test 2: Sie-form rendering for case_2 (outbound)
   // -------------------------------------------------------------------------
   it('Test 2: case_2 → handler returns instructions containing "Sie" (Du/Sie axis exercised)', async () => {
-    const renderApi = makeRenderApiSuccess(
-      fenced('Guten Tag, ich rufe wegen einer Reservierung an. Koennen Sie mir helfen?'),
-    );
     const invokerDeps: VoiceAgentInvokerDeps = {
-      renderApi,
       loadSkillFiles: fakeSkill,
     };
     const handler = makeVoiceTriggersInit({
@@ -302,9 +288,7 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
   // Test 3: real-default — no main group → agent_unavailable
   // -------------------------------------------------------------------------
   it('Test 3: skill load failure → handler returns ok:false / agent_unavailable (no uncaught exception)', async () => {
-    const renderApi = vi.fn();
     const invokerDeps: VoiceAgentInvokerDeps = {
-      renderApi,
       loadSkillFiles: () => {
         throw new Error('ENOENT: skill files missing');
       },
@@ -319,7 +303,6 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
     };
     expect(result.ok).toBe(false);
     expect(result.error).toBe('agent_unavailable');
-    expect(renderApi).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
@@ -328,9 +311,7 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
   // -------------------------------------------------------------------------
   it('Test 7: REQ-DIR-17 — handler registers call_id in active-call set on entry', async () => {
     _resetActiveSet();
-    const renderApi = makeRenderApiSuccess(fenced('A persona body.'));
     const invokerDeps: VoiceAgentInvokerDeps = {
-      renderApi,
       loadSkillFiles: fakeSkill,
     };
     const handler = makeVoiceTriggersInit({
@@ -350,9 +331,7 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
   // (Plan-checker BLOCKER #1 lock-in).
   // -------------------------------------------------------------------------
   it('regression: no AGENT_NOT_WIRED string survives in production code-path', async () => {
-    const renderApi = makeRenderApiSuccess(fenced('A real persona body.'));
     const invokerDeps: VoiceAgentInvokerDeps = {
-      renderApi,
       loadSkillFiles: fakeSkill,
     };
     const handler = makeVoiceTriggersInit({
