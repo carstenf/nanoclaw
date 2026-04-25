@@ -290,4 +290,99 @@ export class NanoclawMcpClient {
     }
     this.client = null
   }
+
+  /**
+   * Generic typed tool-call passthrough — exposes `callTool` for callers that
+   * don't use the helper-method shortcuts (`init` / `transcript`). Matches
+   * the v1 callCoreTool signature so the legacy callers (sideband.ts,
+   * tools/dispatch.ts) can swap with zero churn after Phase 05.6 cleanup.
+   */
+  async callToolGeneric<T = unknown>(
+    name: string,
+    args: unknown,
+    opts: { timeoutMs?: number; signal?: AbortSignal } = {},
+  ): Promise<T> {
+    return (await this.callTool<T>(name, args, opts)) as T
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Module-private singleton — Phase 05.6 D-22 cleanup migration.
+//
+// After the cleanup commit removes core-mcp-client.ts entirely, callers that
+// used `callCoreTool` (sideband.ts, tools/dispatch.ts) swap to
+// `callNanoclawTool` here. Same v1-style signature, same implicit
+// (URL, token) keying via env vars. Per-call overrides spawn a short-lived
+// client so the singleton never gets contaminated with per-call creds.
+// ---------------------------------------------------------------------------
+let defaultClient: NanoclawMcpClient | null = null
+
+function getDefaultClient(): NanoclawMcpClient {
+  if (!defaultClient) {
+    if (!NANOCLAW_VOICE_MCP_URL) {
+      throw new NanoclawMcpError(
+        'nanoclaw-mcp: NANOCLAW_VOICE_MCP_URL not configured',
+      )
+    }
+    defaultClient = new NanoclawMcpClient({
+      url: NANOCLAW_VOICE_MCP_URL,
+      bearer: NANOCLAW_VOICE_MCP_TOKEN,
+    })
+  }
+  return defaultClient
+}
+
+export interface CallNanoclawToolOpts {
+  url?: string
+  token?: string
+  timeoutMs?: number
+  signal?: AbortSignal
+}
+
+/**
+ * v1-compatible free-function. Drop-in replacement for the now-deleted
+ * `callCoreTool` — same signature, same return-shape (parsed JSON from
+ * content[0].text or raw string fallback). Routes via the nanoclaw-voice
+ * MCP-stream server (port 3201) instead of the legacy Phase-4 REST shortcut.
+ */
+export async function callNanoclawTool<T = unknown>(
+  name: string,
+  args: unknown,
+  opts: CallNanoclawToolOpts = {},
+): Promise<T> {
+  if (opts.url || opts.token) {
+    const urlStr = opts.url ?? NANOCLAW_VOICE_MCP_URL
+    if (!urlStr) {
+      throw new NanoclawMcpError(
+        'nanoclaw-mcp: NANOCLAW_VOICE_MCP_URL not configured',
+      )
+    }
+    const client = new NanoclawMcpClient({
+      url: urlStr,
+      bearer: opts.token ?? NANOCLAW_VOICE_MCP_TOKEN,
+      timeoutMs: opts.timeoutMs,
+    })
+    try {
+      return await client.callToolGeneric<T>(name, args, {
+        timeoutMs: opts.timeoutMs,
+        signal: opts.signal,
+      })
+    } finally {
+      await client.close()
+    }
+  }
+  return getDefaultClient().callToolGeneric<T>(name, args, {
+    timeoutMs: opts.timeoutMs,
+    signal: opts.signal,
+  })
+}
+
+/**
+ * Test-only hook — resets the module singleton.
+ */
+export function __resetNanoclawDefaultClientForTests(): void {
+  if (defaultClient) {
+    void defaultClient.close().catch(() => undefined)
+  }
+  defaultClient = null
 }

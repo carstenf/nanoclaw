@@ -25,10 +25,18 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 
+// Phase 05.6 D-22 cutover: this module's transport now points at the
+// nanoclaw-voice MCP-stream server (port 3201) instead of the legacy
+// Phase-4 CORE_MCP_URL endpoint. The class names + exports stay so all
+// import sites (sideband.ts, tools/dispatch.ts, pre-greet.ts, cost/gate.ts,
+// webhook.ts, call-router.ts) keep compiling. Slow-brain endpoint is gone;
+// every callCoreTool / new CoreMcpClient(...) call now reaches the unified
+// NanoClaw MCP server with the proper bearer auth — fixes ask_core dispatch
+// after the cutover.
 import {
-  CORE_MCP_URL,
-  CORE_MCP_TIMEOUT_MS,
-  CORE_MCP_TOKEN,
+  NANOCLAW_VOICE_MCP_URL as CORE_MCP_URL,
+  NANOCLAW_VOICE_MCP_TIMEOUT_MS as CORE_MCP_TIMEOUT_MS,
+  NANOCLAW_VOICE_MCP_TOKEN as CORE_MCP_TOKEN,
 } from './config.js'
 
 // ---------------------------------------------------------------------------
