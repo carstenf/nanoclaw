@@ -88,6 +88,8 @@ import { OnTranscriptTurnSchema } from './mcp-tools/voice-on-transcript-turn.js'
 import { VoiceNotifyUserSchema } from './mcp-tools/voice-notify-user.js';
 import { VoiceStartCase2CallSchema } from './mcp-tools/voice-start-case-2-call.js';
 import { VoiceCase2ScheduleRetrySchema } from './mcp-tools/voice-case-2-retry.js';
+import { VoiceTriggersInitSchema } from './mcp-tools/voice-triggers-init.js';
+import { VoiceTriggersTranscriptSchema } from './mcp-tools/voice-triggers-transcript.js';
 
 // Same allowlist as port 3200 (src/mcp-server.ts DEFAULT_ALLOWLIST).
 // 10.0.0.1 Hetzner, 10.0.0.2 self, 10.0.0.4 iPhone, 10.0.0.5 iPad.
@@ -226,6 +228,16 @@ const TOOL_META: Record<string, { description: string; shape: z.ZodRawShape }> =
       description:
         'Schedule a Case-2 retry with ladder (5/15/45/120 min) and daily cap of 5.',
       shape: VoiceCase2ScheduleRetrySchema.shape,
+    },
+    'voice_triggers_init': {
+      description:
+        'Container-agent reasoning trigger — synchronous at /accept. Returns fully-rendered persona instructions string.',
+      shape: VoiceTriggersInitSchema.shape,
+    },
+    'voice_triggers_transcript': {
+      description:
+        'Container-agent reasoning trigger — per-turn FIFO. Returns instructions_update string or null.',
+      shape: VoiceTriggersTranscriptSchema.shape,
     },
   };
 

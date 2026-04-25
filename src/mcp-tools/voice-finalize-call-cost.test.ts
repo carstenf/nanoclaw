@@ -177,6 +177,41 @@ describe('makeVoiceFinalizeCallCost (INFRA-06)', () => {
     expect(entry).toHaveProperty('latency_ms');
   });
 
+  // Phase 05.5 Plan 01 Task 4 (REQ-INFRA-16, D-11): finalize-call-cost calls
+  // voiceTriggerQueue.gc(call_id) on success. We verify the singleton's depth
+  // is zero after finalize even when the queue had entries before — the gc
+  // path is exercised end-to-end through the real singleton.
+  it('REQ-INFRA-16: gc()s the voice-trigger queue chain on success', async () => {
+    const { voiceTriggerQueue } = await import('./index.js');
+    // Seed an in-flight task for the call so depth > 0 before finalize.
+    let release: () => void = () => {};
+    const inflight = voiceTriggerQueue.enqueue('finalize-gc-call', () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    expect(voiceTriggerQueue.depth('finalize-gc-call')).toBeGreaterThan(0);
+
+    const deps = makeDeps();
+    const handler = makeVoiceFinalizeCallCost(deps);
+    const r = (await handler({
+      call_id: 'finalize-gc-call',
+      case_type: 'case_6a',
+      started_at: '2026-04-19T11:59:00Z',
+      ended_at: '2026-04-19T12:01:30Z',
+      terminated_by: 'counterpart_bye',
+    })) as { ok: true };
+    expect(r.ok).toBe(true);
+
+    // gc() drops the chain reference — depth reads as 0 even though the
+    // in-flight task may still resolve later.
+    expect(voiceTriggerQueue.depth('finalize-gc-call')).toBe(0);
+
+    // Drain the in-flight task so vitest does not flag an open handle.
+    release();
+    await inflight;
+  });
+
   it('DB throws → handler still returns ok (graceful degrade)', async () => {
     const deps = makeDeps({
       upsertCallCost: () => {

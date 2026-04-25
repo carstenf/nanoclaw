@@ -36,6 +36,17 @@ import { makeVoiceInsertPriceSnapshot } from './voice-insert-price-snapshot.js';
 import { makeVoiceNotifyUser, TOOL_NAME as VOICE_NOTIFY_USER_TOOL_NAME } from './voice-notify-user.js';
 import { makeVoiceCase2ScheduleRetry, TOOL_NAME as VOICE_CASE_2_RETRY_TOOL_NAME } from './voice-case-2-retry.js';
 import { makeVoiceStartCase2Call, TOOL_NAME as VOICE_START_CASE_2_TOOL_NAME } from './voice-start-case-2-call.js';
+import {
+  makeVoiceTriggersInit,
+  TOOL_NAME as VOICE_TRIGGERS_INIT_TOOL_NAME,
+  type VoiceTriggersInitInput,
+} from './voice-triggers-init.js';
+import {
+  makeVoiceTriggersTranscript,
+  TOOL_NAME as VOICE_TRIGGERS_TRANSCRIPT_TOOL_NAME,
+  type VoiceTriggersTranscriptInput,
+} from './voice-triggers-transcript.js';
+import { VoiceTriggerQueue } from '../voice-trigger-queue.js';
 import { createActiveSessionTracker } from '../channels/active-session-tracker.js';
 import { loadSkill } from './skill-loader.js';
 import { callClaudeViaOneCli } from './claude-client.js';
@@ -138,7 +149,25 @@ export interface RegistryDeps {
    * inbound message, then passes the same instance here so the routing has real data.
    */
   activeSessionTracker?: import('../channels/active-session-tracker.js').ActiveSessionTracker;
+  /**
+   * Phase 05.5 Plan 01 Task 4 (D-24): DI seam for the container-agent reasoning
+   * layer. Phase 05.5 keeps the defaults as no-op stubs (see registration below);
+   * Phase 05.6 replaces with a real `src/container-runner.ts` integration.
+   * Tests inject mocks for behavioural verification.
+   */
+  invokeAgent?: (
+    input: VoiceTriggersInitInput,
+  ) => Promise<{ instructions: string }>;
+  invokeAgentTurn?: (
+    input: VoiceTriggersTranscriptInput,
+  ) => Promise<{ instructions_update: string | null }>;
 }
+
+// Phase 05.5 Plan 01 Task 4 (REQ-INFRA-16, D-11): Module-level singleton so
+// `voice-finalize-call-cost.ts` can import it for end-of-call gc(). Named
+// export — finalize-call-cost imports via dynamic import to avoid circular
+// dependency (mcp-tools/index.ts imports finalize-call-cost statically).
+export const voiceTriggerQueue = new VoiceTriggerQueue();
 
 export interface RegistryHandle {
   registry: ToolRegistry;
@@ -450,6 +479,35 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       bridgeUrl: BRIDGE_OUTBOUND_URL,
       bridgeAuthToken: BRIDGE_OUTBOUND_AUTH_TOKEN || undefined,
       jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-case-2-start.jsonl` : undefined,
+    }),
+  );
+
+  // Phase 05.5 Plan 01 Task 4 (D-8, D-24): voice_triggers_init + voice_triggers_transcript.
+  // Container-agent reasoning triggers. Default no-op handlers — replaced when
+  // container-agent wiring lands in Phase 05.6. Keeps tool registry valid even
+  // pre-rollout so tools/list reports the new schemas (mcp-stream-server.ts
+  // TOOL_META covers the schema metadata).
+  const defaultInvokeAgent: NonNullable<RegistryDeps['invokeAgent']> = async () => ({
+    instructions: 'AGENT_NOT_WIRED',
+  });
+  const defaultInvokeAgentTurn: NonNullable<RegistryDeps['invokeAgentTurn']> = async () => ({
+    instructions_update: null,
+  });
+
+  registry.register(
+    VOICE_TRIGGERS_INIT_TOOL_NAME,
+    makeVoiceTriggersInit({
+      invokeAgent: deps.invokeAgent ?? defaultInvokeAgent,
+      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-triggers.jsonl` : undefined,
+    }),
+  );
+
+  registry.register(
+    VOICE_TRIGGERS_TRANSCRIPT_TOOL_NAME,
+    makeVoiceTriggersTranscript({
+      queue: voiceTriggerQueue,
+      invokeAgentTurn: deps.invokeAgentTurn ?? defaultInvokeAgentTurn,
+      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-triggers.jsonl` : undefined,
     }),
   );
 

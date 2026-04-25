@@ -154,6 +154,25 @@ export function makeVoiceFinalizeCallCost(
       latency_ms: now() - start,
     });
 
+    // Phase 05.5 Plan 01 Task 4 (REQ-INFRA-16, D-11): garbage-collect the
+    // per-call_id voice-trigger queue chain on end-of-call. Dynamic import
+    // avoids a circular dependency: `mcp-tools/index.ts` already imports
+    // this file statically, so importing the singleton from there in a
+    // top-level static import would loop. Failures are non-fatal — the
+    // queue's own `gc()` is idempotent and the next end_call would retry.
+    try {
+      const indexMod = (await import('./index.js')) as {
+        voiceTriggerQueue: { gc: (callId: string) => void };
+      };
+      indexMod.voiceTriggerQueue.gc(d.call_id);
+    } catch (e: unknown) {
+      logger.warn({
+        event: 'voice_trigger_queue_gc_failed',
+        call_id: d.call_id,
+        err: (e as Error)?.message ?? String(e),
+      });
+    }
+
     return {
       ok: true,
       result: {
