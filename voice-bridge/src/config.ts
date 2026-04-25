@@ -186,6 +186,46 @@ export const CORE_MCP_TIMEOUT_MS = Number(
 // Optional Bearer-Token fuer Core-MCP-Auth. Unset = WG-only auth (aktuell v0).
 export const CORE_MCP_TOKEN = process.env.CORE_MCP_TOKEN
 
+// ----- Phase 05.5 — REASONING_MODE flag + Nanoclaw-Voice MCP -----
+//
+// Phase 05.5 lands the Bridge-side scaffold for slow-brain removal WITHOUT
+// cutting over yet. The flag default stays at 'slow-brain' so existing
+// Phase-5 runtime behaviour is unchanged; Phase 05.6 flips the default
+// after live-PSTN PASS (D-22). The CORE_MCP_* + SLOW_BRAIN_* constants
+// above are intentionally retained — Phase 05.6 cleanup deletes them.
+
+// D-21: feature flag. 'slow-brain' (legacy) | 'container-agent' (new).
+// Default 'slow-brain' until rollout flips per D-22 (after live-test PASS).
+// Any value other than 'container-agent' falls back to 'slow-brain' so a
+// typo in the env can never accidentally activate the new path.
+export const REASONING_MODE: 'slow-brain' | 'container-agent' =
+  process.env.REASONING_MODE === 'container-agent'
+    ? 'container-agent'
+    : 'slow-brain'
+
+// D-3: Nanoclaw-Voice MCP endpoint (Bridge → nanoclaw-voice MCP server on
+// Port 3201). Distinct from the legacy CORE_MCP_URL above — that targets
+// the Phase-4 REST-shortcut and is referenced by the slow-brain code path
+// during the rollout window.
+export const NANOCLAW_VOICE_MCP_URL = process.env.NANOCLAW_VOICE_MCP_URL
+export const NANOCLAW_VOICE_MCP_TOKEN = process.env.NANOCLAW_VOICE_MCP_TOKEN
+
+// D-9: 5000 ms default per REQ-DIR-20. NOT 8000 ms like legacy
+// CORE_MCP_TIMEOUT_MS — slow-brain budget does not apply here.
+export const NANOCLAW_VOICE_MCP_TIMEOUT_MS = Number(
+  process.env.NANOCLAW_VOICE_MCP_TIMEOUT_MS ?? 5000,
+)
+
+// D-15 / REQ-DIR-18: minimal generic Sie-form persona used EXCLUSIVELY when
+// the container-agent is unreachable at /accept (REQ-DIR-12 fallback). ~10
+// lines, no case-specific content. This is the ONLY persona text the Bridge
+// may contain post-Phase-05.5; all other personas live in the
+// `container/skills/voice-personas/` skill (D-13).
+export const FALLBACK_PERSONA =
+  'Du bist NanoClaw, ein hoeflicher deutscher Sprach-Assistent. ' +
+  'Sprich nur Deutsch, kurze Saetze, Sie-Form. ' +
+  'Wenn du nicht weiter weisst, sage hoeflich Bescheid und beende den Anruf.'
+
 // ----- Plan 02-14: Case-6b persona + filler-phrase injection -----
 
 // E.164 CLI number that maps to CASE6B_PERSONA (Carsten's personal number).
