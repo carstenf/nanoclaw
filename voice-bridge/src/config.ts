@@ -222,13 +222,12 @@ export const DISPATCH_TOOL_TIMEOUT_MS = Number(
 
 // Per-tool timeout overrides. Long-latency tools (container-spawn, Andy-Agent)
 // need much more than the 3s hot-path budget. Filler-phrase bridges the UX gap.
-// ask_core: 120s — Core-side ASK_CORE_ANDY_TIMEOUT_MS is 90s (container cold
-// start), bridge needs ≥ that + round-trip margin. Live-verified 2026-04-18
-// PSTN test 20:23: container_latency_ms ≈ 90004, 45s bridge-timeout dropped
-// the voice_short output; 120s lets it through.
-// Format env override: "ask_core=120000,other_tool=20000".
+// ask_core: 320s — Core-side ASK_CORE_ANDY_TIMEOUT_MS is 300s (5min, lifted
+// from 90s 2026-04-25 so deeper Andy research has room before timeout). Bridge
+// needs ≥ Core-timeout + round-trip margin (~20s).
+// Format env override: "ask_core=320000,other_tool=20000".
 const TOOL_TIMEOUT_OVERRIDES_ENV =
-  process.env.DISPATCH_TOOL_TIMEOUT_OVERRIDES ?? 'ask_core=120000'
+  process.env.DISPATCH_TOOL_TIMEOUT_OVERRIDES ?? 'ask_core=320000'
 export const DISPATCH_TOOL_TIMEOUT_OVERRIDES: Record<string, number> = (() => {
   const out: Record<string, number> = {}
   for (const pair of TOOL_TIMEOUT_OVERRIDES_ENV.split(',').map((s) => s.trim()).filter(Boolean)) {

@@ -182,6 +182,21 @@ export async function runAndyForVoice(
   const _loadSkill = deps.loadSkill ?? loadSkill;
 
   const startTs = now();
+  // Phase 05.6 telemetry: per-phase timing for ask_core/Andy. Logged at info
+  // level under event=`andy_telemetry` with `phase` and ms_since_start so the
+  // call timeline can be reconstructed via grep/jq.
+  const telemetry = (phase: string, extra: Record<string, unknown> = {}) => {
+    logger.info(
+      {
+        event: 'andy_telemetry',
+        phase,
+        ms_since_start: now() - startTs,
+        ...extra,
+      },
+      `andy_telemetry phase=${phase}`,
+    );
+  };
+  telemetry('runner_start');
 
   // 1. Load skill body
   const skill = await _loadSkill('andy').catch(() => ({
@@ -189,6 +204,7 @@ export async function runAndyForVoice(
     body: null,
     path: '',
   }));
+  telemetry('skill_loaded', { exists: skill.exists });
 
   if (!skill.exists || !skill.body) {
     logger.warn(
@@ -204,6 +220,7 @@ export async function runAndyForVoice(
 
   // 2. Fetch main-group row
   const mainGroup = _loadMainGroup();
+  telemetry('main_group_loaded', { found: !!mainGroup });
   if (!mainGroup) {
     logger.warn(
       { event: 'andy_runner_no_main_group' },
@@ -236,7 +253,10 @@ export async function runAndyForVoice(
   // cold starts. Our outer race timeout fires only if no output arrives at all.
   let streamedResult: string | null = null;
   let streamError: string | null = null;
+  let firstChunkLogged = false;
+  let firstSuccessLogged = false;
 
+  telemetry('runcontainer_call');
   let output: ContainerOutput;
   try {
     output = await Promise.race([
@@ -244,14 +264,25 @@ export async function runAndyForVoice(
         mainGroup,
         containerInput,
         (_proc, name) => {
+          telemetry('container_spawned', { container_name: name });
           logger.info(
             { event: 'andy_container_spawned', containerName: name },
             'Andy container spawned for voice request',
           );
         },
         async (chunk: ContainerOutput) => {
+          if (!firstChunkLogged) {
+            firstChunkLogged = true;
+            telemetry('first_stream_chunk', { status: chunk.status });
+          }
           // Collect the last successful result from streaming output markers
           if (chunk.status === 'success' && chunk.result) {
+            if (!firstSuccessLogged) {
+              firstSuccessLogged = true;
+              telemetry('first_success_chunk', {
+                result_len: chunk.result.length,
+              });
+            }
             streamedResult = chunk.result;
           } else if (chunk.status === 'error' && chunk.error) {
             streamError = chunk.error;
@@ -283,6 +314,12 @@ export async function runAndyForVoice(
   }
 
   const latency = now() - startTs;
+  telemetry('runcontainer_returned', {
+    output_status: output.status,
+    output_error: output.error ?? null,
+    has_streamed_result: streamedResult !== null,
+    total_ms: latency,
+  });
 
   // 5. Check if we received streaming output (even if container exited with error after)
   // In streaming mode, runContainerAgent returns {status:'success', result:null} on normal

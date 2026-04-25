@@ -47,10 +47,14 @@ export interface ContainerInput {
 }
 
 export interface ContainerOutput {
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'voice_response';
   result: string | null;
   newSessionId?: string;
   error?: string;
+  /** voice_response only: call_id from the originating voice_request IPC. */
+  call_id?: string;
+  /** voice_response only: optional long-form for Discord (parallel to voice). */
+  discord_long?: string | null;
 }
 
 interface VolumeMount {
@@ -416,6 +420,27 @@ export async function runContainerAgent(
   fs.mkdirSync(logsDir, { recursive: true });
 
   return new Promise((resolve) => {
+    // Phase 05.6 telemetry: capture per-call container lifecycle timing so
+    // ask_core/Andy latency can be broken down (docker spawn → first output →
+    // first result marker → exit). Logged at info level under event=
+    // `container_telemetry` with `phase` so grep/jq can build a timeline.
+    const telemetryT0 = Date.now();
+    let firstOutputAt: number | null = null;
+    let firstMarkerAt: number | null = null;
+    const telemetry = (phase: string, extra: Record<string, unknown> = {}) => {
+      logger.info(
+        {
+          event: 'container_telemetry',
+          phase,
+          container: containerName,
+          ms_since_spawn: Date.now() - telemetryT0,
+          ...extra,
+        },
+        `container_telemetry phase=${phase}`,
+      );
+    };
+    telemetry('docker_spawn_start');
+
     const container = spawn(CONTAINER_RUNTIME_BIN, containerArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -437,6 +462,12 @@ export async function runContainerAgent(
 
     container.stdout.on('data', (data) => {
       const chunk = data.toString();
+
+      // Telemetry: first stdout byte = container alive + first stdout flush.
+      if (firstOutputAt === null) {
+        firstOutputAt = Date.now();
+        telemetry('first_stdout');
+      }
 
       // Always accumulate for logging
       if (!stdoutTruncated) {
@@ -470,6 +501,18 @@ export async function runContainerAgent(
             const parsed: ContainerOutput = JSON.parse(jsonStr);
             if (parsed.newSessionId) {
               newSessionId = parsed.newSessionId;
+            }
+            // Telemetry: first parsed result-marker = first SDK output ready
+            // (= first inference round-trip done).
+            if (firstMarkerAt === null) {
+              firstMarkerAt = Date.now();
+              telemetry('first_result_marker', {
+                marker_status: parsed.status,
+                ms_since_first_stdout:
+                  firstOutputAt !== null
+                    ? firstMarkerAt - firstOutputAt
+                    : null,
+              });
             }
             hadStreamingOutput = true;
             // Activity detected — reset the hard timeout
@@ -544,6 +587,13 @@ export async function runContainerAgent(
     container.on('close', (code) => {
       clearTimeout(timeout);
       const duration = Date.now() - startTime;
+      telemetry('container_exit', {
+        exit_code: code,
+        ms_since_first_stdout:
+          firstOutputAt !== null ? Date.now() - firstOutputAt : null,
+        ms_since_first_marker:
+          firstMarkerAt !== null ? Date.now() - firstMarkerAt : null,
+      });
 
       if (timedOut) {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');

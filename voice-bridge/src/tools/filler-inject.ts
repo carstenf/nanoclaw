@@ -65,20 +65,23 @@ export async function emitFillerPhrase(
   lastEmitAt.set(dedupKey, now)
 
   try {
+    // OpenAI Realtime API schema (current): assistant-message content uses
+    // `output_text` (not `text`) and response.create takes `output_modalities`
+    // (not `modalities`). Old field names trigger session_update_rejected.
     ws.send(
       JSON.stringify({
         type: 'conversation.item.create',
         item: {
           type: 'message',
           role: 'assistant',
-          content: [{ type: 'text', text: msg }],
+          content: [{ type: 'output_text', text: msg }],
         },
       }),
     )
     ws.send(
       JSON.stringify({
         type: 'response.create',
-        response: { modalities: ['audio', 'text'] },
+        response: { output_modalities: ['audio'] },
       }),
     )
     log.info({

@@ -77,6 +77,7 @@ import { makeFreeswitchCall, initFreeswitchVoice } from './freeswitch-voice.js';
 import { startMcpServer } from './mcp-server.js';
 import { startMcpStreamServer } from './mcp-stream-server.js';
 import { buildDefaultRegistry } from './mcp-tools/index.js';
+import { VoiceRespondManager } from './voice-respond-manager.js';
 import { createActiveSessionTracker } from './channels/active-session-tracker.js';
 
 // Re-export for backwards compatibility during refactor
@@ -90,6 +91,12 @@ let messageLoopRunning = false;
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
+// Phase 05.6-04 follow-up: shared VoiceRespondManager. Voice-ask-core (mcp-tool)
+// registers pending requests; the runAgent callback below resolves them when
+// agent-runner emits a `voice_response` output marker (which carries call_id +
+// voice_short text). Same singleton is wired into buildDefaultRegistry so the
+// voice_respond MCP tool (Andy's explicit path) shares the same map.
+const voiceRespondManager = new VoiceRespondManager();
 
 const onecli = new OneCLI({ url: ONECLI_URL });
 
@@ -303,6 +310,36 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let outputSentToUser = false;
 
   const output = await runAgent(group, prompt, chatJid, async (result) => {
+    // Phase 05.6-04 follow-up: voice_response marker — agent-runner tagged
+    // this turn as the answer to a voice_request IPC. Route to the shared
+    // VoiceRespondManager (resolves the pending ask_core Promise in the
+    // voice-bridge) and SKIP the normal channel.sendMessage path. The
+    // voice_respond MCP tool also has a Discord fallback for after-90s
+    // arrivals; here we route via the manager directly because the answer
+    // is in time and the voice-bot is still on the line.
+    if (result.status === 'voice_response' && result.call_id && result.result) {
+      const raw =
+        typeof result.result === 'string'
+          ? result.result
+          : JSON.stringify(result.result);
+      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+      logger.info(
+        {
+          event: 'voice_response_marker_received',
+          call_id: result.call_id,
+          length: text.length,
+        },
+        `voice_response marker — routing to VoiceRespondManager`,
+      );
+      voiceRespondManager.resolve(result.call_id, {
+        voice_short: text,
+        discord_long: result.discord_long ?? null,
+      });
+      resetIdleTimer();
+      queue.notifyIdle(chatJid);
+      return;
+    }
+
     // Streaming output callback — called for each agent result
     if (result.result) {
       const raw =
@@ -944,10 +981,22 @@ async function main(): Promise<void> {
   // Single-source ToolRegistry shared between the legacy REST fassade
   // (port 3200, Bridge consumer) and the Phase-4 Plan-04-03 StreamableHTTP
   // transport (port 3201, Chat-Claude consumer). AC-07 invariant.
+  // Phase 05.6-04 follow-up: voice_request injector — when ask_core(topic=
+  // 'andy') fires and the main whatsapp_main container is alive, drop an IPC
+  // file instead of spawning a fresh --rm Andy. queue.sendVoiceRequest
+  // returns false if no main container is active → voice-ask-core falls back
+  // to runAndyForVoice (cold-spawn).
+  const tryInjectVoiceRequest = (callId: string, prompt: string): boolean => {
+    const main = getMainGroupAndJid();
+    if (!main?.jid) return false;
+    return queue.sendVoiceRequest(main.jid, callId, prompt);
+  };
   const sharedRegistry = buildDefaultRegistry({
     sendDiscordMessage,
     getMainGroupAndJid,
     activeSessionTracker,
+    tryInjectVoiceRequest,
+    voiceRespondManager,
   });
   startMcpServer({
     registry: sharedRegistry,

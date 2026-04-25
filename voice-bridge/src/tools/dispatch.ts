@@ -333,11 +333,23 @@ export async function dispatchTool(
   let mcpStatus: 'ok' | 'err' | 'timeout' | 'not_implemented' = 'ok'
   let resultPayload: unknown
 
+  // For tools whose handler needs to correlate back to this voice call
+  // (ask_core → voice_respond Promise-match), inject the real rtc_* call_id
+  // into the args so nanoclaw's voice-ask-core handler sees it. The bot's
+  // function_call args don't carry call_id — only `{topic, request}` — so
+  // without this injection the handler hits its "not_wired" branch.
+  const argsForCore =
+    toolName === 'ask_core' &&
+    args !== null &&
+    typeof args === 'object' &&
+    !Array.isArray(args)
+      ? { ...(args as Record<string, unknown>), call_id: callId }
+      : args
   try {
     const invoke = (): Promise<unknown> =>
-      callCore(coreName, args, { timeoutMs })
+      callCore(coreName, argsForCore, { timeoutMs })
     const result = entry.mutating
-      ? await invokeIdempotent(callId, turnId, toolName, args, invoke, log)
+      ? await invokeIdempotent(callId, turnId, toolName, argsForCore, invoke, log)
       : await invoke()
     const latency = Date.now() - t0
     mcpStatus = 'ok'

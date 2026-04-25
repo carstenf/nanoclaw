@@ -55,7 +55,8 @@ import { VoiceTriggerQueue } from '../voice-trigger-queue.js';
 import { createActiveSessionTracker } from '../channels/active-session-tracker.js';
 import { loadSkill } from './skill-loader.js';
 import { callClaudeViaOneCli } from './claude-client.js';
-import { runAndyForVoice } from './andy-agent-runner.js';
+import { makeVoiceRespond } from './voice-respond.js';
+import { VoiceRespondManager } from '../voice-respond-manager.js';
 import {
   createTask,
   getAllTasks,
@@ -200,6 +201,22 @@ export interface RegistryDeps {
   invokeAgentTurn?: (
     input: VoiceTriggersTranscriptInput,
   ) => Promise<{ instructions_update: string | null }>;
+  /**
+   * Phase 05.6-04 follow-up: shared VoiceRespondManager for the
+   * existing-container voice-request path. The voice_respond MCP tool
+   * resolves pending Promises in this manager; voice-ask-core (topic='andy')
+   * registers them. Inject the same instance for both. If omitted,
+   * buildDefaultRegistry creates one internally.
+   */
+  voiceRespondManager?: VoiceRespondManager;
+  /**
+   * Phase 05.6-04 follow-up: drop a voice_request IPC envelope into the
+   * active main container. Returns true if the container was active and the
+   * file was written; false if no active container — voice-ask-core will
+   * fall back to the legacy --rm runAndy path. Wired in NanoClaw index.ts as
+   * `(callId, prompt) => queue.sendVoiceRequest(mainJid, callId, prompt)`.
+   */
+  tryInjectVoiceRequest?: (callId: string, prompt: string) => boolean;
 }
 
 // Phase 05.5 Plan 01 Task 4 (REQ-INFRA-16, D-11): Module-level singleton so
@@ -229,6 +246,11 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   }
 
   const sessionManager = deps.sessionManager ?? new SlowBrainSessionManager();
+  // Phase 05.6-04 follow-up: shared VoiceRespondManager for ask_core
+  // existing-container path. Singleton per registry — voice-ask-core
+  // registers, voice_respond resolves.
+  const voiceRespondManager =
+    deps.voiceRespondManager ?? new VoiceRespondManager();
 
   // Start idle-sweep on a 60s interval (clearable via handle.stop)
   const sweepMs = deps.sweepIntervalMs ?? 60000;
@@ -399,7 +421,8 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       '');
 
   // voice_ask_core — always registered; graceful skill_not_configured when skill absent
-  // topic='andy' → runAndyForVoice (real container-agent against groups/main)
+  // topic='andy' → IPC injection into existing whatsapp_main container; reply
+  //                comes back via the voice_respond MCP-Tool. NO --rm fallback.
   // other topics  → echo-skill / Claude inference path
   registry.register(
     'voice_ask_core',
@@ -410,8 +433,6 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
           timeoutMs: o?.timeoutMs,
           maxTokens: o?.maxTokens,
         }),
-      runAndy: (req) =>
-        runAndyForVoice(req, { timeoutMs: ASK_CORE_ANDY_TIMEOUT_MS }),
       sendDiscord: deps.sendDiscordMessage,
       andyDiscordChannel: andyDiscordChannel || undefined,
       jsonlPath: deps.dataDir
@@ -419,6 +440,21 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
         : undefined,
       timeoutMs: ASK_CORE_CLAUDE_TIMEOUT_MS,
       maxTokens: ASK_CORE_MAX_TOKENS_PER_CALL,
+      voiceRespondManager,
+      voiceRequestTimeoutMs: ASK_CORE_ANDY_TIMEOUT_MS,
+      tryInjectVoiceRequest: deps.tryInjectVoiceRequest,
+    }),
+  );
+
+  // voice_respond — Andy → Voice delivery channel. Resolves the pending
+  // Promise registered by voice_ask_core (existing-container path) so the
+  // voice-bridge gets Andy's reply as the ask_core tool result.
+  registry.register(
+    'voice_respond',
+    makeVoiceRespond({
+      manager: voiceRespondManager,
+      sendDiscord: deps.sendDiscordMessage,
+      andyDiscordChannel: andyDiscordChannel || undefined,
     }),
   );
 

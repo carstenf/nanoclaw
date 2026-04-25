@@ -3,7 +3,8 @@
  *
  * MCP tool: voice_ask_core
  * Two-path handler:
- *   - topic='andy' → runAndyForVoice (real container-agent call against groups/main)
+ *   - topic='andy' → IPC injection into the existing whatsapp_main container
+ *     (Andy answers via the voice_respond MCP tool). NO --rm fallback.
  *   - other topics  → Claude-Sonnet inference via OneCLI (echo-skill path)
  *
  * Skill-resolution: data/skills/ask-core-<topic>/SKILL.md
@@ -26,7 +27,10 @@ import {
 } from '../config.js';
 import { BadRequestError } from './voice-on-transcript-turn.js';
 import type { SkillLoadResult } from './skill-loader.js';
-import type { AndyVoiceResult } from './andy-agent-runner.js';
+import {
+  type VoiceRespondManager,
+  VoiceRespondTimeoutError,
+} from '../voice-respond-manager.js';
 
 // Input schema: topic must be slug-format to prevent path-traversal
 export const AskCoreSchema = z.object({
@@ -49,11 +53,6 @@ export interface VoiceAskCoreDeps {
     opts?: { timeoutMs?: number; maxTokens?: number },
   ) => Promise<string>;
   /**
-   * Run Andy via real container-agent (topic='andy' path).
-   * Injected from andy-agent-runner.runAndyForVoice in index.ts.
-   */
-  runAndy?: (request: string) => Promise<AndyVoiceResult>;
-  /**
    * Send Discord message (fire-and-forget for andy discord_long).
    * Injected from index.ts sendDiscordMessage callback.
    */
@@ -72,6 +71,29 @@ export interface VoiceAskCoreDeps {
   timeoutMs?: number;
   /** Max tokens per call. Default: ASK_CORE_MAX_TOKENS_PER_CALL */
   maxTokens?: number;
+  /**
+   * Phase 05.6-04 follow-up: shared VoiceRespondManager. When provided
+   * together with `tryInjectVoiceRequest`, topic='andy' first tries to inject
+   * the request into the existing whatsapp_main container (no docker spawn).
+   */
+  voiceRespondManager?: VoiceRespondManager;
+  /**
+   * Phase 05.6-04 follow-up: timeout (ms) for waiting on voice_respond when
+   * the existing-container path is taken. Defaults to ASK_CORE_ANDY_TIMEOUT_MS.
+   */
+  voiceRequestTimeoutMs?: number;
+  /**
+   * Phase 05.6-04 follow-up: drop a voice_request IPC envelope into the
+   * active main container. Returns true if the container was active and the
+   * file was written; false if no active container — in which case ask_core
+   * returns a graceful "Andy not reachable" message (NO --rm fallback to
+   * avoid orphan-container leaks across NanoClaw restarts). Wired in
+   * NanoClaw index.ts as `(callId, prompt) => queue.sendVoiceRequest(...)`.
+   */
+  tryInjectVoiceRequest?: (
+    callId: string,
+    prompt: string,
+  ) => boolean;
   /** Now function for latency calculation (injectable for tests). */
   now?: () => number;
 }
@@ -103,74 +125,158 @@ export function makeVoiceAskCore(deps: VoiceAskCoreDeps) {
     const { call_id, topic, request } = parseResult.data;
 
     // -----------------------------------------------------------------------
-    // PATH A: topic='andy' → real container-agent call
+    // PATH A: topic='andy' → Andy in the existing whatsapp_main container.
+    // Single source. NO --rm fallback — running parallel containers would
+    // race with the persistent whatsapp_main container's IPC + leak orphans
+    // on each NanoClaw restart. If no main container is active, we return a
+    // graceful "Andy not reachable" so the voice-bot can ask the user to try
+    // again after pinging Andy on Discord/WhatsApp first.
     // -----------------------------------------------------------------------
     if (topic === 'andy') {
-      if (!deps.runAndy) {
-        // Graceful degradation when runAndy not wired (shouldn't happen in prod)
+      if (
+        !call_id ||
+        !deps.voiceRespondManager ||
+        !deps.tryInjectVoiceRequest
+      ) {
         logger.warn(
-          { event: 'ask_core_andy_not_wired' },
-          'runAndy not injected — falling through to echo path',
+          {
+            event: 'ask_core_andy_not_wired',
+            has_call_id: !!call_id,
+            has_manager: !!deps.voiceRespondManager,
+            has_injector: !!deps.tryInjectVoiceRequest,
+          },
+          'ask_core andy: missing wiring (call_id / voiceRespondManager / tryInjectVoiceRequest)',
         );
-      } else {
-        try {
-          const result = await deps.runAndy(request);
+        appendJsonl(jsonlPath, {
+          ts: new Date().toISOString(),
+          event: 'ask_core_andy_not_wired',
+          tool: 'voice_ask_core',
+          call_id: call_id ?? null,
+          topic,
+          request_len: request.length,
+        });
+        return {
+          ok: true,
+          result: {
+            answer:
+              'Andy ist gerade nicht erreichbar. Bitte ping Andy kurz auf Discord, dann nochmal anrufen.',
+            topic: 'andy',
+            citations: [],
+          },
+        };
+      }
 
-          // Fire-and-forget Discord long-form if present
-          if (
-            result.discord_long &&
+      // Register the pending Promise FIRST, then inject. If we injected
+      // first and Andy was super-fast (sub-second), voice_respond could
+      // resolve before register() ran → matched=false → Discord fallback
+      // even on perfectly-timed answers (race condition).
+      const waitTimeoutMs =
+        deps.voiceRequestTimeoutMs ?? 90_000;
+      const pendingPromise = deps.voiceRespondManager.register(
+        call_id,
+        waitTimeoutMs,
+      );
+
+      const injected = deps.tryInjectVoiceRequest(call_id, request);
+      if (!injected) {
+        // Cancel the just-registered pending entry — nothing will resolve it.
+        // .clear() rejects all pending; we can't surgically remove one entry,
+        // so let the Promise time out naturally (not awaited here).
+        pendingPromise.catch(() => undefined);
+        logger.info(
+          {
+            event: 'ask_core_andy_no_active_container',
+            call_id,
+          },
+          'No active main container — graceful skip (no --rm fallback)',
+        );
+        appendJsonl(jsonlPath, {
+          ts: new Date().toISOString(),
+          event: 'ask_core_andy_no_active_container',
+          tool: 'voice_ask_core',
+          call_id,
+          topic,
+          request_len: request.length,
+        });
+        return {
+          ok: true,
+          result: {
+            answer:
+              'Andy ist gerade nicht erreichbar. Bitte ping Andy kurz auf Discord, dann nochmal anrufen.',
+            topic: 'andy',
+            citations: [],
+          },
+        };
+      }
+
+      try {
+        const t0 = now();
+        const payload = await pendingPromise;
+        const elapsed = now() - t0;
+        logger.info(
+          {
+            event: 'ask_core_andy_done_existing_container',
+            call_id,
+            elapsed_ms: elapsed,
+            voice_short_len: payload.voice_short.length,
+            has_discord_long: !!payload.discord_long,
+          },
+          'ask_core via existing whatsapp_main container',
+        );
+        appendJsonl(jsonlPath, {
+          ts: new Date().toISOString(),
+          event: 'ask_core_andy_done_existing_container',
+          tool: 'voice_ask_core',
+          call_id,
+          topic,
+          request_len: request.length,
+          container_latency_ms: elapsed,
+          voice_short_len: payload.voice_short.length,
+          discord_long_sent: !!(
+            payload.discord_long &&
             deps.sendDiscord &&
             deps.andyDiscordChannel
-          ) {
-            void deps
-              .sendDiscord(deps.andyDiscordChannel, result.discord_long)
-              .catch((err: unknown) =>
-                logger.warn({ event: 'discord_longform_failed', err }),
-              );
-          }
-
-          appendJsonl(jsonlPath, {
-            ts: new Date().toISOString(),
-            event: 'ask_core_andy_done',
-            tool: 'voice_ask_core',
-            call_id: call_id ?? null,
-            topic,
-            request_len: request.length,
-            container_latency_ms: result.container_latency_ms,
-            voice_short_len: result.voice_short.length,
-            discord_long_sent: !!(
-              result.discord_long &&
-              deps.sendDiscord &&
-              deps.andyDiscordChannel
-            ),
-            discord_long_len: result.discord_long?.length ?? null,
-          });
-
-          return {
-            ok: true,
-            result: {
-              answer: result.voice_short,
-              topic: 'andy',
-              citations: [],
-            },
-          };
-        } catch (err) {
-          logger.warn({ event: 'ask_core_andy_error', err });
-          appendJsonl(jsonlPath, {
-            ts: new Date().toISOString(),
-            event: 'ask_core_andy_failed',
-            tool: 'voice_ask_core',
-            call_id: call_id ?? null,
-            topic,
-            request_len: request.length,
-            container_latency_ms: null,
-            voice_short_len: 0,
-            discord_long_sent: false,
-            discord_long_len: null,
-            error: err instanceof Error ? err.message : String(err),
-          });
-          return { ok: false, error: 'andy_error' };
-        }
+          ),
+          discord_long_len: payload.discord_long?.length ?? null,
+        });
+        return {
+          ok: true,
+          result: {
+            answer: payload.voice_short,
+            topic: 'andy',
+            citations: [],
+          },
+        };
+      } catch (err) {
+        const isTimeout = err instanceof VoiceRespondTimeoutError;
+        logger.warn(
+          {
+            event: 'ask_core_andy_existing_container_failed',
+            call_id,
+            is_timeout: isTimeout,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          'ask_core existing-container path failed — graceful skip (no --rm fallback)',
+        );
+        appendJsonl(jsonlPath, {
+          ts: new Date().toISOString(),
+          event: 'ask_core_andy_existing_container_failed',
+          tool: 'voice_ask_core',
+          call_id,
+          topic,
+          request_len: request.length,
+          is_timeout: isTimeout,
+        });
+        return {
+          ok: true,
+          result: {
+            answer: isTimeout
+              ? 'Andy braucht laenger als erwartet. Ich melde mich gleich auf Discord.'
+              : 'Andy ist gerade nicht erreichbar. Bitte ping Andy kurz auf Discord, dann nochmal anrufen.',
+            topic: 'andy',
+            citations: [],
+          },
+        };
       }
     }
 

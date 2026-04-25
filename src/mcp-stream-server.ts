@@ -90,6 +90,7 @@ import { VoiceStartCase2CallSchema } from './mcp-tools/voice-start-case-2-call.j
 import { VoiceCase2ScheduleRetrySchema } from './mcp-tools/voice-case-2-retry.js';
 import { VoiceTriggersInitSchema } from './mcp-tools/voice-triggers-init.js';
 import { VoiceTriggersTranscriptSchema } from './mcp-tools/voice-triggers-transcript.js';
+import { VoiceRespondSchema } from './mcp-tools/voice-respond.js';
 
 // Same allowlist as port 3200 (src/mcp-server.ts DEFAULT_ALLOWLIST).
 // 10.0.0.1 Hetzner, 10.0.0.2 self, 10.0.0.4 iPhone, 10.0.0.5 iPad.
@@ -248,6 +249,11 @@ const TOOL_META: Record<string, { description: string; shape: z.ZodRawShape }> =
         'Container-agent reasoning trigger — per-turn FIFO. Returns instructions_update string or null.',
       shape: VoiceTriggersTranscriptSchema.shape,
     },
+    'voice_respond': {
+      description:
+        'Andy → Voice: deliver the result of a voice_request injected into the existing whatsapp_main container. Args: {call_id, voice_short, discord_long?}. Resolves the pending ask_core Promise.',
+      shape: VoiceRespondSchema.shape,
+    },
   };
 
 /**
@@ -371,8 +377,15 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
       // a string, which fails the `z.number()` schema in
       // voice_triggers_transcript and breaks every transcript trigger in
       // production. (Phase 05.6 Plan 01 Task 3 surfaced this.)
+      // Tools that carry the REAL Bridge↔NanoClaw call_id and MUST NOT have
+      // it overwritten by synthetic chat-IDs (else cross-tool correlation
+      // breaks: e.g. voice_ask_core registers a pending Promise on call_id A
+      // and voice_respond resolves on call_id B → matched=false every time).
       const skipSyntheticIds =
-        name === 'voice_triggers_init' || name === 'voice_triggers_transcript';
+        name === 'voice_triggers_init' ||
+        name === 'voice_triggers_transcript' ||
+        name === 'voice_ask_core' ||
+        name === 'voice_respond';
       const handler = async (args: unknown) => {
         // Pitfall 8: every chat/iOS invocation gets synthetic IDs so its
         // idempotency keys are disjoint from live voice calls. Skipped for

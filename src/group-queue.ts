@@ -178,6 +178,41 @@ export class GroupQueue {
   }
 
   /**
+   * Voice-channel injection (Phase 05.6-04 follow-up). Drop a voice_request
+   * IPC envelope into the active container's input/. The container's
+   * agent-runner recognises type='voice_request' and routes Andy's response
+   * via the voice_respond MCP-Tool (resolved by VoiceRespondManager). Returns
+   * true if the file was written, false if no active container — in which
+   * case the caller (voice-ask-core) falls back to the legacy --rm Andy path.
+   */
+  sendVoiceRequest(
+    groupJid: string,
+    callId: string,
+    prompt: string,
+  ): boolean {
+    const state = this.getGroup(groupJid);
+    if (!state.active || !state.groupFolder || state.isTaskContainer)
+      return false;
+    state.idleWaiting = false;
+
+    const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
+    try {
+      fs.mkdirSync(inputDir, { recursive: true });
+      const filename = `${Date.now()}-voice-${callId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 24)}.json`;
+      const filepath = path.join(inputDir, filename);
+      const tempPath = `${filepath}.tmp`;
+      fs.writeFileSync(
+        tempPath,
+        JSON.stringify({ type: 'voice_request', call_id: callId, prompt }),
+      );
+      fs.renameSync(tempPath, filepath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Signal the active container to wind down by writing a close sentinel.
    */
   closeStdin(groupJid: string): void {

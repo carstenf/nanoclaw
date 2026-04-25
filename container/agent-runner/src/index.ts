@@ -36,10 +36,14 @@ interface ContainerInput {
 }
 
 interface ContainerOutput {
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'voice_response';
   result: string | null;
   newSessionId?: string;
   error?: string;
+  /** voice_response only: call_id from the originating voice_request IPC. */
+  call_id?: string;
+  /** voice_response only: optional long-form for Discord (parallel to voice). */
+  discord_long?: string | null;
 }
 
 interface SessionEntry {
@@ -308,6 +312,13 @@ function shouldClose(): boolean {
  * Drain all pending IPC input messages.
  * Returns messages found, or empty array.
  */
+// Phase 05.6-04 follow-up: when a voice_request IPC envelope is consumed,
+// remember its call_id so the next assistant `result` can be tagged with a
+// `voice_response` output-marker (host then routes to VoiceRespondManager
+// instead of the Discord channel). Andy doesn't have to call voice_respond
+// explicitly — agent-runner does the rerouting transparently.
+let pendingVoiceRequestCallId: string | null = null;
+
 function drainIpcInput(): string[] {
   try {
     fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
@@ -324,6 +335,17 @@ function drainIpcInput(): string[] {
         fs.unlinkSync(filePath);
         if (data.type === 'message' && data.text) {
           messages.push(data.text);
+        } else if (
+          data.type === 'voice_request' &&
+          typeof data.call_id === 'string' &&
+          typeof data.prompt === 'string'
+        ) {
+          // Voice channel request — track call_id so the host can route the
+          // assistant's text response to voice_respond. The wrapper hint is
+          // still emitted so Andy knows the request is voice-bound and may
+          // call voice_respond directly (both paths converge).
+          pendingVoiceRequestCallId = data.call_id;
+          messages.push(buildVoiceRequestPrompt(data.call_id, data.prompt));
         }
       } catch (err) {
         log(
@@ -341,6 +363,69 @@ function drainIpcInput(): string[] {
     log(`IPC drain error: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   }
+}
+
+/**
+ * Build the prompt envelope for a voice-channel request. Andy is in the
+ * existing whatsapp_main container — the normal output path goes to
+ * WhatsApp/Discord. Voice requests must instead route through the
+ * voice_respond MCP tool so the bridge gets the result as a tool reply.
+ *
+ * Hint is appended in plain text (not a system message) because the SDK
+ * injects this string into the existing message stream — there is no
+ * separate channel for system-level overrides mid-conversation.
+ */
+function buildVoiceRequestPrompt(callId: string, userRequest: string): string {
+  return [
+    '############################################################',
+    '# VOICE-CHANNEL REQUEST — KRITISCH                          #',
+    '############################################################',
+    '',
+    `call_id: ${callId}`,
+    '',
+    'Diese Anfrage kommt ueber den Voice-Channel (Telefon).',
+    'Carsten wartet AM TELEFON auf eine Antwort. Der Voice-Bot wartet bis 90s.',
+    '',
+    '## DEINE ROLLE',
+    '',
+    'Du bist Andy in voice-mode. Du hast Zugriff zu allen Tools: WebSearch, WebFetch,',
+    'mcp__nanoclaw-voice__*, mcp__gmail__*, mcp__gcalendar__*, Bash, Read, Grep usw.',
+    'Optimiere fuer SCHNELLE Antwort. Bei Wetter/Live-Daten: max 1 WebSearch (5-10s).',
+    'Wenn du die Antwort schon weisst, antworte direkt ohne Recherche.',
+    '',
+    '## ANTWORT-PFAD — HARTE REGEL',
+    '',
+    'Antworte AUSSCHLIESSLICH durch genau EINEN Aufruf des Tools',
+    '**mcp__nanoclaw-voice__voice_respond** mit folgenden Args:',
+    '',
+    '  {',
+    `    "call_id": "${callId}",`,
+    '    "voice_short": "<deutsche Antwort, max 3 Saetze, max 500 Zeichen, KEINE Markdown, KEINE Aufzaehlungen, KEINE Emoji — wird vorgelesen>",',
+    '    "discord_long": "<optional: lange Form mit Quellen/Details, oder null>"',
+    '  }',
+    '',
+    '## VERBOTEN — wuerde Carsten am Telefon NICHTS hoeren lassen',
+    '',
+    '- KEIN normaler Text-Output (keine assistant Text-Message).',
+    '- KEIN Aufruf von voice_send_discord_message, send_discord_message,',
+    '  WhatsApp-send oder anderen channel-output-Tools.',
+    '- KEIN JSON-Block im text-output.',
+    '- KEINE weiteren Aktionen NACH dem voice_respond-Aufruf — Turn beenden.',
+    '',
+    'Wenn du discord_long brauchst (lange Antwort/Quellen): packe sie IN das voice_respond-Tool',
+    "als 'discord_long'-Arg. Das Tool kuemmert sich um den Discord-Post fuer dich.",
+    '',
+    '## BEI UNSICHERHEIT',
+    '',
+    'Rufe voice_respond mit voice_short = "Das weiss ich gerade nicht." und discord_long = null.',
+    'NICHT halluzinieren. NICHT raten.',
+    '',
+    '############################################################',
+    '# ANFRAGE                                                    #',
+    '############################################################',
+    '',
+    userRequest,
+  ].join('\n');
 }
 
 /**
@@ -565,11 +650,31 @@ async function runQuery(
       log(
         `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`,
       );
-      writeOutput({
-        status: 'success',
-        result: textResult || null,
-        newSessionId,
-      });
+      // If this turn was driven by a voice_request, emit a voice_response
+      // marker so the host can route the answer to VoiceRespondManager
+      // (and skip Discord). Cleared after one emission so subsequent turns
+      // in the same query (e.g. follow-up Discord messages) revert to the
+      // normal success-marker channel routing.
+      if (pendingVoiceRequestCallId) {
+        const callId = pendingVoiceRequestCallId;
+        pendingVoiceRequestCallId = null;
+        log(
+          `Voice-channel response captured for call_id=${callId} (${(textResult || '').length} chars)`,
+        );
+        writeOutput({
+          status: 'voice_response',
+          result: textResult || null,
+          call_id: callId,
+          discord_long: null,
+          newSessionId,
+        });
+      } else {
+        writeOutput({
+          status: 'success',
+          result: textResult || null,
+          newSessionId,
+        });
+      }
     }
   }
 
