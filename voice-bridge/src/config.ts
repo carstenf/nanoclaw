@@ -75,29 +75,11 @@ export function getWhitelist(): Set<string> {
   )
 }
 
-export const PHASE1_PERSONA =
-  'Du bist NanoClaw, ein freundlicher deutscher Sprach-Assistent. Antworte kurz und auf Deutsch.'
-
 // ----- Phase 2 additions -----
 
 // D-43: Sideband WS connect-within-1500ms SLA (measured from /accept 200 to sideband_ready).
 export const SIDEBAND_CONNECT_TIMEOUT_MS = Number(
   process.env.SIDEBAND_CONNECT_TIMEOUT_MS ?? 1500,
-)
-
-// D-25: max 1 session.update per N turns (default 2). 0 disables cap.
-export const SLOW_BRAIN_CADENCE_CAP = Number(
-  process.env.SLOW_BRAIN_CADENCE_CAP ?? 2,
-)
-
-// D-27: Claude Sonnet async worker HTTP timeout (ms). Exceeding = graceful degrade.
-export const SLOW_BRAIN_TIMEOUT_MS = Number(
-  process.env.SLOW_BRAIN_TIMEOUT_MS ?? 8000,
-)
-
-// D-28: max transcript queue depth before oldest-shift back-pressure kicks in.
-export const SLOW_BRAIN_QUEUE_MAX = Number(
-  process.env.SLOW_BRAIN_QUEUE_MAX ?? 5,
 )
 
 // Sideband WS URL template — callers substitute {callId}.
@@ -171,51 +153,15 @@ export const ESL_TIMEOUT_MS = Number(process.env.ESL_TIMEOUT_MS ?? 5000)
 export const OPENAI_SIP_PROJECT_ID =
   process.env.OPENAI_SIP_PROJECT_ID ?? 'proj_4tEBz3XjO4gwM5hyrvsxLM8E'
 
-// ----- Plan 02-09: NanoClaw-Core MCP endpoint (Slow-Brain Retrofit) -----
-// Slow-Brain-Inference lebt in NanoClaw-Core (Plan 03-02). voice-bridge ruft
-// per Turn voice_on_transcript_turn via HTTP-MCP ueber WireGuard. Unset =
-// slow-brain no-op mode (wie alter getAnthropicKey-Fallback).
-export const CORE_MCP_URL = process.env.CORE_MCP_URL
-
-// D-27 retention: Slow-Brain via Core hat selben Timeout-Envelope wie direkt-
-// Anthropic-Calls vor 02-09.
-export const CORE_MCP_TIMEOUT_MS = Number(
-  process.env.CORE_MCP_TIMEOUT_MS ?? 8000,
-)
-
-// Optional Bearer-Token fuer Core-MCP-Auth. Unset = WG-only auth (aktuell v0).
-export const CORE_MCP_TOKEN = process.env.CORE_MCP_TOKEN
-
-// ----- Phase 05.5 — REASONING_MODE flag + Nanoclaw-Voice MCP -----
-//
-// Phase 05.5 lands the Bridge-side scaffold for slow-brain removal WITHOUT
-// cutting over yet. The flag default stays at 'slow-brain' so existing
-// Phase-5 runtime behaviour is unchanged; Phase 05.6 flips the default
-// after live-PSTN PASS (D-22). The CORE_MCP_* + SLOW_BRAIN_* constants
-// above are intentionally retained — Phase 05.6 cleanup deletes them.
-
-// Phase 05.6 D-22 cutover: default flipped to 'container-agent' after live PSTN
-// PASS recorded in 06-02-cutover-log.md (Step 2 PASS, Step 3 deferred but
-// architecture verified live 2026-04-25).
-//
-// Step 1 commit (this commit) flips the default; Step 2 commit (cleanup)
-// removes the flag entirely. Runtime ENV REASONING_MODE=slow-brain still works
-// during the brief window between Step 1 and Step 2 commits — emergency revert
-// path. After Step 2 lands the flag is gone from code and the runtime-ENV
-// revert no longer functions; emergency revert becomes `git revert <Step-2-SHA>`
-// per D-30.
-export const REASONING_MODE: 'slow-brain' | 'container-agent' =
-  process.env.REASONING_MODE === 'slow-brain' ? 'slow-brain' : 'container-agent'
-
-// D-3: Nanoclaw-Voice MCP endpoint (Bridge → nanoclaw-voice MCP server on
-// Port 3201). Distinct from the legacy CORE_MCP_URL above — that targets
-// the Phase-4 REST-shortcut and is referenced by the slow-brain code path
-// during the rollout window.
+// ----- Nanoclaw-Voice MCP endpoint (Bridge → nanoclaw on Port 3201) -----
+// Single MCP wire to NanoClaw for both persona render (voice_triggers_init /
+// voice_triggers_transcript via NanoclawMcpClient) and tool dispatch (ask_core,
+// voice_check_calendar, etc. via CoreMcpClient). Slow-brain endpoint retired
+// in Phase 05.6.
 export const NANOCLAW_VOICE_MCP_URL = process.env.NANOCLAW_VOICE_MCP_URL
 export const NANOCLAW_VOICE_MCP_TOKEN = process.env.NANOCLAW_VOICE_MCP_TOKEN
 
-// D-9: 5000 ms default per REQ-DIR-20. NOT 8000 ms like legacy
-// CORE_MCP_TIMEOUT_MS — slow-brain budget does not apply here.
+// D-9: 5000 ms default per REQ-DIR-20.
 export const NANOCLAW_VOICE_MCP_TIMEOUT_MS = Number(
   process.env.NANOCLAW_VOICE_MCP_TIMEOUT_MS ?? 5000,
 )

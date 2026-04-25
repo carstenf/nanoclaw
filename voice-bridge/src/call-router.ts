@@ -67,15 +67,14 @@ export interface CallContext {
    * Per-call MCP session. Set by webhook.ts /accept via startCall({ coreMcp }).
    * The sideband ws.on('close') handler receives this via SidebandOpenOpts.coreMcp
    * and closes the MCP session — prevents server-side sessions Map leak.
-   * Optional — undefined when CORE_MCP_URL is unset (dev/test) or in test
-   * fixtures that don't need MCP plumbing.
+   * Optional — undefined when NANOCLAW_VOICE_MCP_URL is unset (dev/test) or
+   * in test fixtures that don't need MCP plumbing.
    */
   coreMcp?: CoreMcpClient
   /**
-   * Phase 05.5 — per-call NanoclawMcpClient (REASONING_MODE='container-agent').
-   * Constructed at /accept (webhook.ts) when REASONING_MODE flag is flipped;
-   * stays undefined under default 'slow-brain' so legacy paths see no change.
-   * The endCall() finalizer closes it idempotently (REQ-DIR-19 lifecycle).
+   * Per-call NanoclawMcpClient. Constructed at /accept (webhook.ts) when
+   * NANOCLAW_VOICE_MCP_URL is configured. The endCall() finalizer closes it
+   * idempotently (REQ-DIR-19 lifecycle).
    */
   nanoclawMcp?: NanoclawMcpClient
   /**
@@ -98,9 +97,9 @@ export interface CallContext {
 export interface StartCallOpts {
   coreMcp?: CoreMcpClient
   /**
-   * Phase 05.5 — optional NanoclawMcpClient for the container-agent reasoning
-   * path. webhook.ts /accept passes this when REASONING_MODE='container-agent';
-   * tests inject a mock. Slow-brain default leaves this undefined.
+   * Optional NanoclawMcpClient for transcript-trigger fire-and-forget.
+   * webhook.ts /accept passes this when NANOCLAW_VOICE_MCP_URL is configured;
+   * tests inject a mock.
    */
   nanoclawMcp?: NanoclawMcpClient
   traceEventsPath?: string
@@ -160,11 +159,10 @@ export function createCallRouter(
           const closeLog = logs.get(id) ?? log
           router.endCall(id, closeLog)
         },
-        // Wire Sideband user-transcript-completed events. Phase 05.5: branch on
-        // REASONING_MODE — slow-brain pushes to legacy worker; container-agent
-        // fires nanoclawMcp.transcript() fire-and-forget per D-12 (Hot-Path
-        // never blocks). Lookup via router.getCall so the closure doesn't
-        // capture a stale ctx before it's been registered in `map`.
+        // Wire Sideband user-transcript-completed events. Each turn fires
+        // nanoclawMcp.transcript() fire-and-forget per D-12 (Hot-Path never
+        // blocks). Lookup via router.getCall so the closure doesn't capture a
+        // stale ctx before it's been registered in `map`.
         onTranscriptTurn: (turnId, transcript) => {
           const existing = router.getCall(callId)
           if (!existing) {
@@ -338,10 +336,11 @@ export function createCallRouter(
 }
 
 /**
- * Phase 05.5 — no-op SlowBrainWorker handle used when REASONING_MODE is
- * 'container-agent'. The legacy push/stop call-sites (sideband transcript
- * wiring + endCall finalizer) stay structurally identical without firing the
- * legacy reasoning path. Not exported — internal scaffold only.
+ * No-op SlowBrainWorker handle. The legacy push/stop call-sites (sideband
+ * transcript wiring + endCall finalizer) stay structurally identical so the
+ * existing call-router test fixtures don't churn; nanoclawMcp.transcript is
+ * the live transcript-trigger path. Removing this stub is a follow-up that
+ * touches call-router.test.ts.
  */
 function makeNoopSlowBrain(): SlowBrainWorker {
   return {

@@ -957,15 +957,18 @@ describe('POST /accept — Case-2 outbound branch (05-03 Task 3)', () => {
         // requestResponse is still pending in the setTimeout queue.
         expect(sentMessages.length).toBeGreaterThanOrEqual(2)
 
-        // Test F ordering: first send = session.update with type:'realtime' + Case-2 persona
-        // Plan 05.2-04: Case-2 persona migrated to baseline+overlay composition.
-        // Baseline contains 'NanoClaw' identity; goal phrasing contains 'im Auftrag von Carsten'.
-        // Both markers still present but no longer contiguous in the same sentence.
+        // Test F ordering: first send = session.update with type:'realtime' +
+        // Case-2 persona. Phase 05.6 cleanup: persona content is rendered by
+        // nanoclaw via voice-personas skill (REQ-DIR-13); this test runs
+        // without nanoclawMcp wired, so the swap uses FALLBACK_PERSONA. The
+        // architectural invariant is: session.update carries non-empty
+        // instructions of type:'realtime' — the exact persona content lives
+        // in nanoclaw and is contract-tested there.
         const firstParsed = JSON.parse(sentMessages[0])
         expect(firstParsed.type).toBe('session.update')
         expect(firstParsed.session?.type).toBe('realtime')
-        expect(firstParsed.session?.instructions).toContain('NanoClaw')
-        expect(firstParsed.session?.instructions).toContain('im Auftrag von Carsten')
+        expect(typeof firstParsed.session?.instructions).toBe('string')
+        expect(firstParsed.session?.instructions.length).toBeGreaterThan(0)
 
         // Test F ordering: second send = conversation.item.create role=user synthetic directive
         const secondParsed = JSON.parse(sentMessages[1])

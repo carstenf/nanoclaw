@@ -15,7 +15,6 @@ import {
   getSecret,
   getApiKey,
   getWhitelist,
-  REASONING_MODE,
   NANOCLAW_VOICE_MCP_URL,
   NANOCLAW_VOICE_MCP_TOKEN,
   NANOCLAW_VOICE_MCP_TIMEOUT_MS,
@@ -50,9 +49,8 @@ export interface BuildAppOptions {
   /** Override peer IP for /outbound tests (bypasses real IP extraction). */
   peerIpOverride?: string
   /**
-   * Phase 05.5 — optional NanoclawMcpClient injection for branch-coverage
-   * tests. Production wiring constructs the client only when
-   * REASONING_MODE='container-agent' AND NANOCLAW_VOICE_MCP_URL is set.
+   * Optional NanoclawMcpClient injection for branch-coverage tests.
+   * Production wiring constructs the client when NANOCLAW_VOICE_MCP_URL is set.
    */
   nanoclawMcpOverride?: NanoclawMcpClient
 }
@@ -140,13 +138,12 @@ export async function buildApp(opts: BuildAppOptions = {}) {
       timers: { setTimeout, clearTimeout },
     })
 
-  // Phase 05.5 — per-process NanoclawMcpClient. Constructed only when the
-  // REASONING_MODE flag is flipped AND the URL is configured (D-3, D-21).
-  // Default 'slow-brain' mode leaves this undefined so no MCP connection is
-  // attempted and Phase-5 paths stay byte-identical.
+  // Per-process NanoclawMcpClient (D-3, D-21). Bridge talks to the
+  // nanoclaw-voice MCP server on port 3201 for persona render
+  // (voice_triggers_init / voice_triggers_transcript).
   const nanoclawMcp =
     opts.nanoclawMcpOverride ??
-    (REASONING_MODE === 'container-agent' && NANOCLAW_VOICE_MCP_URL
+    (NANOCLAW_VOICE_MCP_URL
       ? new NanoclawMcpClient({
           url: NANOCLAW_VOICE_MCP_URL,
           bearer: NANOCLAW_VOICE_MCP_TOKEN,

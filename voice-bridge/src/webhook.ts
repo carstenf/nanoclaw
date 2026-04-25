@@ -26,18 +26,15 @@ import {
   CARSTEN_CLI_NUMBER,
   SESSION_CONFIG,
   buildTracePath,
-  REASONING_MODE,
   FALLBACK_PERSONA,
+  NANOCLAW_VOICE_MCP_URL,
+  NANOCLAW_VOICE_MCP_TOKEN,
 } from './config.js'
-import { PHASE2_PERSONA, buildCase2OutboundPersona } from './persona.js'
-import { buildBasePersona } from './persona/baseline.js'
-import { buildTaskOverlay } from './persona/overlays/index.js'
 import { getAllowlist, type ToolEntry } from './tools/allowlist.js'
 import type { CallRouter } from './call-router.js'
 import type { OutboundRouter } from './outbound-router.js'
 import { maybeInjectPreGreet } from './pre-greet.js'
 import { CoreMcpClient } from './core-mcp-client.js'
-import { CORE_MCP_URL, CORE_MCP_TOKEN } from './config.js'
 import type { NanoclawMcpClient } from './nanoclaw-mcp-client.js'
 import type { CoreClientLike } from './pre-greet.js'
 import { enableAutoResponseCreate, requestResponse, updateInstructions } from './sideband.js'
@@ -384,37 +381,28 @@ export function registerAcceptRoute(
       // ctxRef is populated after router.startCall() inside the Case-2 branch.
       // Declared at outbound-block scope so the onHuman closure can capture it.
       let ctxRef: { sideband: { state: Parameters<typeof updateInstructions>[0] } } | null = null
+      // Case-2 only: pre-rendered post-AMD persona for the onHuman swap.
+      // Rendered synchronously at /accept via nanoclawMcp.init so the AMD
+      // verdict can apply it without a synchronous render at verdict time.
+      let case2Persona: string | null = null
 
-      // Phase 05.5 Splice A — outbound /accept REASONING_MODE branch.
-      // When the flag is 'container-agent', synchronously call nanoclawMcp.init
-      // (REQ-DIR-19) and use the returned fully-rendered persona. On
-      // timeout/error fall back to FALLBACK_PERSONA per REQ-VOICE-13 fallback
-      // exception. The legacy baseline+overlay composition stays in the else
-      // branch — Phase-5 default behaviour is byte-identical.
-      //
-      // Critical guard: if the flag is on but `nanoclawMcp` was not wired
-      // (config error — index.ts skipped construction), log fatal and use
-      // FALLBACK_PERSONA. Silently regressing to legacy code would mask the
-      // misconfiguration.
-      //
-      // Case-2 AMD-classifier requires CASE2_AMD_CLASSIFIER_PROMPT as the
-      // initial /accept instructions so the model stays in detection-mode
-      // pre-verdict (§201 StGB AMD-gate, Plan 05-03 T-05-03-01). The
-      // container-agent persona is therefore swapped in via the post-AMD-
-      // verdict onHuman closure path (existing updateInstructions wiring) —
-      // not at /accept time. Hence this Splice A applies to NON-Case-2
-      // outbound paths (Case-1 + override envelopes); Case-2 keeps its
-      // classifier-prompt instructions and the persona/overlay swap inside
-      // onHuman remains the legacy Phase-5 path until Plan 05.6 cleanup.
-      const useContainerAgent =
-        REASONING_MODE === 'container-agent' && !isCase2
-      if (useContainerAgent) {
+      if (isCase2) {
+        // Case-2 outbound: CASE2_AMD_CLASSIFIER_PROMPT as initial /accept
+        // instructions so the model stays in detection-mode pre-verdict
+        // (§201 StGB AMD-gate, Plan 05-03 T-05-03-01). The post-AMD persona
+        // is rendered NOW via nanoclawMcp.init and cached in case2Persona;
+        // the onHuman callback below applies it via updateInstructions.
+        outboundInstructions = CASE2_AMD_CLASSIFIER_PROMPT
+
+        // Pre-render Case-2 conversation persona via container-agent
+        // (REQ-DIR-19, REQ-DIR-13: voice-personas skill is single SoT).
+        // On render failure → FALLBACK_PERSONA (REQ-DIR-18 fallback exception).
         if (!nanoclawMcp) {
           log.error({
             event: 'container_agent_mode_but_client_missing',
             call_id: callId,
           })
-          outboundInstructions = FALLBACK_PERSONA
+          case2Persona = FALLBACK_PERSONA
         } else {
           try {
             const r = await nanoclawMcp.init({
@@ -425,38 +413,17 @@ export function registerAcceptRoute(
                 activeOutbound.case_payload?.restaurant_name ?? 'Counterpart',
               ),
             })
-            outboundInstructions = r.instructions
+            case2Persona = r.instructions
           } catch (err) {
             log.warn({
               event: 'container_agent_init_failed',
               call_id: callId,
+              case_type: 'case_2',
               err: (err as Error)?.message,
             })
-            outboundInstructions = FALLBACK_PERSONA
+            case2Persona = FALLBACK_PERSONA
           }
         }
-        // Default tools allowlist — container-agent doesn't override tools at
-        // /accept (REQ-DIR-11: no tools mid-call; tools fixed at /accept).
-        toolsPayloadOut = getAllowlist().map((e: ToolEntry) => {
-          const desc = (e.schema as { description?: unknown }).description
-          return {
-            type: 'function' as const,
-            name: e.name,
-            ...(typeof desc === 'string' && desc.length > 0
-              ? { description: desc }
-              : {}),
-            parameters: e.schema,
-          }
-        })
-        log.info({
-          event: 'container_agent_outbound_active',
-          call_id: callId,
-          task_id: activeOutbound.task_id,
-        })
-      } else if (isCase2) {
-        // Case-2: AMD classifier prompt as initial instructions.
-        // The classifier fires amd_result which swaps to CASE2_OUTBOUND_PERSONA.
-        outboundInstructions = CASE2_AMD_CLASSIFIER_PROMPT
 
         // Case-2 tool list: base allowlist minus 3 Case-6-specific tools + amd_result.
         // Net count: 15 - 3 + 1 = 13 (under REQ-TOOLS-09 cap of 15).
@@ -491,23 +458,19 @@ export function registerAcceptRoute(
 
         // Register AMD classifier for this call so dispatch.ts can route amd_result.
         const casePayload = (activeOutbound.case_payload ?? {}) as Record<string, unknown>
-        const coreMcpForAmd = CORE_MCP_URL
-          ? new CoreMcpClient(new URL(CORE_MCP_URL), CORE_MCP_TOKEN)
+        const coreMcpForAmd = NANOCLAW_VOICE_MCP_URL
+          ? new CoreMcpClient(new URL(NANOCLAW_VOICE_MCP_URL), NANOCLAW_VOICE_MCP_TOKEN)
           : null
 
         const classifier = createAmdClassifier({
           callId,
           log,
           onHuman: () => {
-            // Verdict: human — swap to Case-2 outbound persona + trigger first response
-            const persona = buildCase2OutboundPersona({
-              restaurant_name: String(casePayload.restaurant_name ?? 'Restaurant'),
-              requested_date: String(casePayload.requested_date ?? ''),
-              requested_time: String(casePayload.requested_time ?? ''),
-              time_tolerance_min: Number(casePayload.time_tolerance_min ?? 30),
-              party_size: Number(casePayload.party_size ?? 1),
-              notes: casePayload.notes != null ? String(casePayload.notes) : undefined,
-            })
+            // Verdict: human — swap to the persona pre-rendered at /accept via
+            // nanoclawMcp.init (case2Persona). The render is synchronous-at-
+            // /accept so onHuman applies it without a render round-trip; on
+            // render failure case2Persona is FALLBACK_PERSONA (REQ-DIR-18).
+            const persona = case2Persona ?? FALLBACK_PERSONA
             log.info({
               event: 'case_2_amd_human_verdict',
               call_id: callId,
@@ -521,7 +484,8 @@ export function registerAcceptRoute(
               // instructions+tools co-pushes does NOT affect this code path.
               // Re-visit if a future state-graph transition pushes both together
               // (see q7-atomicity-finding.md + session-update-atomicity-probe.ts).
-              // `persona` is baseline + Case-2 overlay (post-Plan 05.2-04 migration).
+              // `persona` is the pre-rendered case_2 outbound persona from
+              // voice-personas skill (REQ-DIR-13: single SoT in nanoclaw).
               updateInstructions(ctxRef.sideband.state, persona, log)
 
               // Plan 05.1-01 Task 3 invariant: synthetic user-directive between
@@ -607,10 +571,21 @@ export function registerAcceptRoute(
           task_id: activeOutbound.task_id,
           tools_count: toolsPayloadOut.length,
         })
-      } else if (hasPersonaOverride || hasToolsOverride) {
-        outboundInstructions = hasPersonaOverride
-          ? (activeOutbound.persona_override as string)
-          : (outboundRouter?.buildPersonaForTask(activeOutbound.task_id) ?? '')
+      } else {
+        // Non-Case-2 outbound. Bridge no longer renders personas (REQ-DIR-13:
+        // voice-personas skill in nanoclaw is the single SoT). Two valid
+        // sources for instructions: explicit persona_override pushed by the
+        // caller, or FALLBACK_PERSONA (REQ-DIR-18) when none is supplied.
+        if (hasPersonaOverride) {
+          outboundInstructions = activeOutbound.persona_override as string
+        } else {
+          log.warn({
+            event: 'outbound_no_persona_source',
+            call_id: callId,
+            task_id: activeOutbound.task_id,
+          })
+          outboundInstructions = FALLBACK_PERSONA
+        }
         toolsPayloadOut = hasToolsOverride
           ? (activeOutbound.tools_override as Array<{
               name: string
@@ -641,17 +616,6 @@ export function registerAcceptRoute(
           tools_override_count: hasToolsOverride
             ? (activeOutbound.tools_override as unknown[]).length
             : 0,
-        })
-      } else {
-        outboundInstructions = outboundRouter?.buildPersonaForTask(activeOutbound.task_id) ?? ''
-        toolsPayloadOut = getAllowlist().map((e: ToolEntry) => {
-          const desc = (e.schema as { description?: unknown }).description
-          return {
-            type: 'function' as const,
-            name: e.name,
-            ...(typeof desc === 'string' && desc.length > 0 ? { description: desc } : {}),
-            parameters: e.schema,
-          }
         })
       }
 
@@ -691,9 +655,8 @@ export function registerAcceptRoute(
         } as unknown as Parameters<typeof openai.realtime.calls.accept>[1])
         const ctx = router.startCall(callId, log, {
           traceEventsPath,
-          // Phase 05.5: pass per-call NanoclawMcpClient so onTranscriptTurn
-          // (call-router.ts) can fire the transcript trigger under
-          // REASONING_MODE='container-agent'. Stays undefined under default.
+          // Per-call NanoclawMcpClient so onTranscriptTurn (call-router.ts)
+          // can fire the transcript trigger to the voice-personas skill.
           nanoclawMcp,
         })
         log.info({
@@ -762,43 +725,16 @@ export function registerAcceptRoute(
       return reply.code(200).send({ ok: true })
     }
 
-    // Accept — full session config: allowlist tools, persona (case6b or phase2),
-    // server_vad + create_response:false, de-DE. Inbound Carsten composes
-    // baseline + case_6b_inbound_carsten overlay (retires legacy CASE6B_PERSONA)
-    // mirroring outbound Case-2 composition. personaLabel literal 'case6b'
-    // preserved byte-identical (log-observer contract unchanged).
-    const carstenBaseline = buildBasePersona({
-      anrede_form: 'Du',
-      counterpart_label: 'Carsten',
-      goal: 'Inbound-Anruf von Carsten: Kalender pflegen, Reisezeiten, Recherche delegieren',
-      context: 'Inbound-Anruf von Carstens CLI',
-      call_direction: 'inbound',
-    })
-    const carstenInstructions = [
-      carstenBaseline,
-      buildTaskOverlay('case_6b_inbound_carsten', {}),
-    ].join('\n\n')
-
+    // Inbound /accept — render persona via nanoclawMcp.init (REQ-DIR-13:
+    // voice-personas skill in nanoclaw is the single SoT). Carsten → case_6b.
+    // Non-Carsten callers reaching /accept after whitelist (case_6a not yet
+    // wired) fall through to FALLBACK_PERSONA (REQ-DIR-18). On nanoclaw
+    // render failure → FALLBACK_PERSONA (REQ-VOICE-13 inbound best-effort).
     const personaLabel =
-      callerNumber === CARSTEN_CLI_NUMBER ? 'case6b' : 'phase2'
+      callerNumber === CARSTEN_CLI_NUMBER ? 'case6b' : 'fallback'
 
-    // Phase 05.5 Splice B — inbound /accept REASONING_MODE branch (REQ-DIR-19).
-    // When the flag is 'container-agent', synchronously call nanoclawMcp.init
-    // and use the returned fully-rendered Case-6b persona. On timeout/error
-    // fall back to FALLBACK_PERSONA (REQ-VOICE-13 inbound best-effort + REQ-
-    // DIR-18 fallback exception). The legacy carstenInstructions / PHASE2_PERSONA
-    // composition stays in the else branch — Phase-5 default unchanged.
-    //
-    // Inbound branch only runs the container-agent path for the Carsten case
-    // (case_6b). Non-Carsten callers reaching /accept after whitelist would
-    // fall back to PHASE2_PERSONA via the legacy path; in v1 of Phase 05.5,
-    // case_6a is not in the schema enum yet, so we keep the legacy path for
-    // those.
     let instructions: string
-    if (
-      REASONING_MODE === 'container-agent' &&
-      callerNumber === CARSTEN_CLI_NUMBER
-    ) {
+    if (callerNumber === CARSTEN_CLI_NUMBER) {
       if (!nanoclawMcp) {
         log.error({
           event: 'container_agent_mode_but_client_missing',
@@ -818,14 +754,14 @@ export function registerAcceptRoute(
           log.warn({
             event: 'container_agent_init_failed',
             call_id: callId,
+            case_type: 'case_6b',
             err: (err as Error)?.message,
           })
           instructions = FALLBACK_PERSONA
         }
       }
     } else {
-      instructions =
-        callerNumber === CARSTEN_CLI_NUMBER ? carstenInstructions : PHASE2_PERSONA
+      instructions = FALLBACK_PERSONA
     }
 
     const allowlist = getAllowlist()
@@ -841,9 +777,10 @@ export function registerAcceptRoute(
     // Per-call MCP session: construct the CoreMcpClient BEFORE router.startCall()
     // so it flows through to openSidebandSession's ws.on('close') finalizer,
     // which calls coreMcp.close() on hangup. Without this, the server-side
-    // sessions Map leaks one session per call.
-    const coreMcp = CORE_MCP_URL
-      ? new CoreMcpClient(new URL(CORE_MCP_URL), CORE_MCP_TOKEN)
+    // sessions Map leaks one session per call. Transport points at the
+    // nanoclaw-voice MCP server (port 3201) — see core-mcp-client.ts header.
+    const coreMcp = NANOCLAW_VOICE_MCP_URL
+      ? new CoreMcpClient(new URL(NANOCLAW_VOICE_MCP_URL), NANOCLAW_VOICE_MCP_TOKEN)
       : undefined
     try {
       await openai.realtime.calls.accept(callId, {
@@ -859,9 +796,8 @@ export function registerAcceptRoute(
       // commit d6bf803 now that the path is production-grade.
       const ctx = router.startCall(callId, log, {
         coreMcp,
-        // Phase 05.5: pass per-call NanoclawMcpClient so onTranscriptTurn
-        // (call-router.ts) can fire the transcript trigger under
-        // REASONING_MODE='container-agent'. Stays undefined under default.
+        // Per-call NanoclawMcpClient so onTranscriptTurn (call-router.ts)
+        // can fire the transcript trigger to the voice-personas skill.
         nanoclawMcp,
         traceEventsPath: buildTracePath(callId),
       })
@@ -877,11 +813,10 @@ export function registerAcceptRoute(
         persona_selected: personaLabel,
       })
 
-      // Fire-and-forget Slow-Brain pre-greet injection (<2000ms budget,
-      // fallback to static persona on timeout or no instructions returned;
-      // never blocks accept-handler return). Adapt the per-call CoreMcpClient
-      // into the CoreClientLike shape slow-brain/pre-greet expect. The result
-      // cast to { ok, instructions_update? } mirrors v1's return-shape contract.
+      // Fire-and-forget pre-greet injection (<2000ms budget, fallback to
+      // FALLBACK_PERSONA on timeout or no instructions returned; never blocks
+      // accept-handler return). Adapt the per-call CoreMcpClient into the
+      // CoreClientLike shape pre-greet expects.
       const coreClient: CoreClientLike = coreMcp
         ? {
             callTool: async (name, args, o) =>
@@ -891,11 +826,11 @@ export function registerAcceptRoute(
               })) as { ok: boolean; instructions_update?: string | null },
           }
         : {
-            // If CORE_MCP_URL is unset (dev/test without Core), pre-greet
-            // becomes a no-op — the callTool adapter throws, and
-            // maybeInjectPreGreet catches and logs `core_call_failed`.
+            // If NANOCLAW_VOICE_MCP_URL is unset (dev/test), pre-greet becomes
+            // a no-op — callTool throws, maybeInjectPreGreet catches and logs
+            // `core_call_failed`.
             callTool: async () => {
-              throw new Error('core-mcp: CORE_MCP_URL not configured')
+              throw new Error('core-mcp: NANOCLAW_VOICE_MCP_URL not configured')
             },
           }
       void maybeInjectPreGreet({

@@ -269,20 +269,10 @@ describe('OutboundRouter (03-11 pivot — Sipgate REST)', () => {
     expect(router.taskIdForOpenaiCallId('not-a-real-id')).toBeNull()
   })
 
-  it('buildPersonaForTask returns OUTBOUND_PERSONA with goal+context substituted', async () => {
-    const { createOutboundRouter } = await import('../src/outbound-router.js')
-    const router = createOutboundRouter(deps)
-    const task = router.enqueue({
-      target_phone: '+491234567890',
-      goal: 'Bei der Praxis Termin verschieben',
-      context: 'Patient: Carsten, Termin am 23.5.',
-      report_to_jid: 'dc:1',
-    })
-    const persona = router.buildPersonaForTask(task.task_id)
-    expect(persona).toBeTruthy()
-    expect(persona).toContain('Bei der Praxis Termin verschieben')
-    expect(persona).toContain('Patient: Carsten, Termin am 23.5.')
-  })
+  // Persona rendering moved out of the Bridge in Phase 05.6 (REQ-DIR-13:
+  // voice-personas skill in nanoclaw is the single SoT). The router no longer
+  // exposes buildPersonaForTask; non-Case-2 outbound either uses the
+  // persona_override envelope or falls back to FALLBACK_PERSONA at /accept.
 
   // ---- Plan 05-00 Task 1 (Spike-A) / Wave 3 prep: override envelope ----
 

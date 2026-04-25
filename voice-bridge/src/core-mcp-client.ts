@@ -25,18 +25,14 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 
-// Phase 05.6 D-22 cutover: this module's transport now points at the
-// nanoclaw-voice MCP-stream server (port 3201) instead of the legacy
-// Phase-4 CORE_MCP_URL endpoint. The class names + exports stay so all
-// import sites (sideband.ts, tools/dispatch.ts, pre-greet.ts, cost/gate.ts,
-// webhook.ts, call-router.ts) keep compiling. Slow-brain endpoint is gone;
-// every callCoreTool / new CoreMcpClient(...) call now reaches the unified
-// NanoClaw MCP server with the proper bearer auth — fixes ask_core dispatch
-// after the cutover.
+// Transport target: nanoclaw-voice MCP-stream server (port 3201). The class
+// names (CoreMcpClient / CoreMcpError) are kept for now to avoid churn in
+// import sites — rename is a follow-up. Slow-brain endpoint is gone post
+// Phase 05.6.
 import {
-  NANOCLAW_VOICE_MCP_URL as CORE_MCP_URL,
-  NANOCLAW_VOICE_MCP_TIMEOUT_MS as CORE_MCP_TIMEOUT_MS,
-  NANOCLAW_VOICE_MCP_TOKEN as CORE_MCP_TOKEN,
+  NANOCLAW_VOICE_MCP_URL,
+  NANOCLAW_VOICE_MCP_TIMEOUT_MS,
+  NANOCLAW_VOICE_MCP_TOKEN,
 } from './config.js'
 
 // ---------------------------------------------------------------------------
@@ -131,7 +127,7 @@ export class CoreMcpClient {
   ): Promise<unknown> {
     await this.ensureConnected()
     const c = this.client!
-    const timeoutMs = opts.timeoutMs ?? CORE_MCP_TIMEOUT_MS
+    const timeoutMs = opts.timeoutMs ?? NANOCLAW_VOICE_MCP_TIMEOUT_MS
     try {
       const result = (await c.callTool(
         {
@@ -193,18 +189,22 @@ export class CoreMcpClient {
 
 // ---------------------------------------------------------------------------
 // Module-private singleton for callers that don't hold their own
-// CoreMcpClient. Keyed implicitly by (CORE_MCP_URL, CORE_MCP_TOKEN) — the
-// opts.url / opts.token overrides create a short-lived client so the
-// singleton never gets contaminated with per-call credentials.
+// CoreMcpClient. Keyed implicitly by (NANOCLAW_VOICE_MCP_URL,
+// NANOCLAW_VOICE_MCP_TOKEN) — the opts.url / opts.token overrides create a
+// short-lived client so the singleton never gets contaminated with per-call
+// credentials.
 // ---------------------------------------------------------------------------
 let defaultClient: CoreMcpClient | null = null
 
 function getDefaultClient(): CoreMcpClient {
   if (!defaultClient) {
-    if (!CORE_MCP_URL) {
-      throw new Error('core-mcp: CORE_MCP_URL not configured')
+    if (!NANOCLAW_VOICE_MCP_URL) {
+      throw new Error('core-mcp: NANOCLAW_VOICE_MCP_URL not configured')
     }
-    defaultClient = new CoreMcpClient(new URL(CORE_MCP_URL), CORE_MCP_TOKEN)
+    defaultClient = new CoreMcpClient(
+      new URL(NANOCLAW_VOICE_MCP_URL),
+      NANOCLAW_VOICE_MCP_TOKEN,
+    )
   }
   return defaultClient
 }
@@ -226,13 +226,13 @@ export async function callCoreTool(
   if (opts.url || opts.token) {
     // Per-call override: use a short-lived client so overrides don't leak
     // into the default singleton.
-    const urlStr = opts.url ?? CORE_MCP_URL
+    const urlStr = opts.url ?? NANOCLAW_VOICE_MCP_URL
     if (!urlStr) {
-      throw new Error('core-mcp: CORE_MCP_URL not configured')
+      throw new Error('core-mcp: NANOCLAW_VOICE_MCP_URL not configured')
     }
     const client = new CoreMcpClient(
       new URL(urlStr),
-      opts.token ?? CORE_MCP_TOKEN,
+      opts.token ?? NANOCLAW_VOICE_MCP_TOKEN,
     )
     try {
       return await client.callTool(name, args, {
@@ -251,8 +251,8 @@ export async function callCoreTool(
 
 /**
  * Test-only hook — resets the module singleton so tests can re-point
- * CORE_MCP_URL between cases without leaking a stale client. Not part of
- * the public API surface; production code must not call this.
+ * NANOCLAW_VOICE_MCP_URL between cases without leaking a stale client.
+ * Not part of the public API surface; production code must not call this.
  */
 export function __resetDefaultClientForTests(): void {
   if (defaultClient) {

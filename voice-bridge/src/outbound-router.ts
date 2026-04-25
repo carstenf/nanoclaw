@@ -34,32 +34,25 @@ import {
   OUTBOUND_CALL_MAX_DURATION_MS,
   OUTBOUND_ESCALATION_TIMEOUT_MS,
 } from './config.js'
-import { buildOutboundPersona } from './persona.js'
 
 // ---- Types ----
 
 /**
- * Plan 05-00 Task 1 (Spike-A) + Wave-3 prep: per-call override envelope.
+ * Per-call override envelope.
  *
  * When `persona_override` is set, /accept uses it verbatim as session
- * instructions instead of buildOutboundPersona(goal, context). When
- * `tools_override` is set, /accept emits these tools instead of the default
- * allowlist for THIS call only. Tool names must match Anthropic/OpenAI
- * regex `^[a-zA-Z0-9_]{1,64}$` (validated at zod boundary in
+ * instructions. When `tools_override` is set, /accept emits these tools
+ * instead of the default allowlist for THIS call only. Tool names must match
+ * Anthropic/OpenAI regex `^[a-zA-Z0-9_]{1,64}$` (validated at zod boundary in
  * outbound-webhook.ts).
  *
- * These fields are in-memory only — not persisted, not mirrored to Core.
- * Their purpose is two-fold:
- *   (1) Spike-A AMD-classifier dry-run (05-00 Task 1), which injects the
- *       CASE2_AMD_CLASSIFIER_PROMPT + a throwaway `amd_result` tool without
- *       modifying allowlist.ts or persona.ts.
- *   (2) Wave 3 Case-2 outbound, where Core will compute the per-call
- *       persona + tools by case_type and push them through this same
- *       envelope — Bridge stays generic.
- *
- * Defaults: both undefined → existing buildOutboundPersona + getAllowlist
- * path runs unchanged. Production callers that don't set either field see
- * no behavior change.
+ * These fields are in-memory only — not persisted. The Bridge no longer
+ * renders personas itself (REQ-DIR-13: voice-personas skill in nanoclaw is
+ * the single SoT); for `case_type='case_2'` the Bridge calls
+ * nanoclawMcp.init({case_type:'case_2',call_direction:'outbound',...}) at
+ * /accept and uses the returned instructions. For non-Case-2 outbound, the
+ * caller must supply `persona_override` or the call falls back to
+ * FALLBACK_PERSONA (REQ-DIR-18).
  */
 export interface ToolOverrideSpec {
   name: string
@@ -172,8 +165,6 @@ export interface OutboundRouter {
   bindOpenaiCallId: (taskId: string, openaiCallId: string) => void
   /** Reverse lookup so endCall handlers can convert openai_call_id back to taskId. */
   taskIdForOpenaiCallId: (openaiCallId: string) => string | null
-  /** For 03-11: persona built fresh per call, exposed for /accept handler. */
-  buildPersonaForTask: (taskId: string) => string | null
 }
 
 // ---- Error ----
@@ -520,12 +511,6 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
     return openaiToTask.get(openaiCallId) ?? null
   }
 
-  function buildPersonaForTask(taskId: string): string | null {
-    const t = tasks.get(taskId)
-    if (!t) return null
-    return buildOutboundPersona(t.goal, t.context)
-  }
-
   return {
     enqueue,
     onCallEnd,
@@ -533,6 +518,5 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
     getActiveTask,
     bindOpenaiCallId,
     taskIdForOpenaiCallId,
-    buildPersonaForTask,
   }
 }
