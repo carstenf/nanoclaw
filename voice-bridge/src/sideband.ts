@@ -213,7 +213,8 @@ export interface SidebandOpenOpts {
    * Invoked per user-utterance-turn-end, i.e. when an OpenAI Realtime
    * `conversation.item.input_audio_transcription.completed` event arrives on
    * the sideband WS. Carries the stable item_id as turnId and the final
-   * transcript text. Callers wire this to `slowBrain.push({...})`.
+   * transcript text. Callers wire this to nanoclawMcp.transcript fire-and-
+   * forget (call-router.ts onTranscriptTurn).
    */
   onTranscriptTurn?: (turnId: string, transcript: string) => void
   /**
@@ -501,7 +502,7 @@ export function openSidebandSession(
         return
       }
 
-      // User-utterance transcript completed → slow-brain push
+      // User-utterance transcript completed → nanoclawMcp.transcript fire-and-forget
       if (
         opts.onTranscriptTurn &&
         parsed?.type === 'conversation.item.input_audio_transcription.completed' &&

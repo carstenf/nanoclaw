@@ -1,8 +1,8 @@
 // voice-bridge/src/call-router.ts
-// Phase 05.3 — Per-call state registry + lifecycle orchestration. /accept
-// bootstraps via startCall() (opens sideband WS, starts slow-brain, arms
-// hard-safety hangup floor); sideband WS-close fires endCall() (teardown,
-// ghost-scan, MCP-close via SidebandOpenOpts.coreMcp).
+// Per-call state registry + lifecycle orchestration. /accept bootstraps via
+// startCall() (opens sideband WS, arms hard-safety hangup floor); sideband
+// WS-close fires endCall() (teardown, ghost-scan, MCP-close via
+// SidebandOpenOpts.coreMcp).
 //
 // Owning plans: 04.5-03 (per-call MCP session, Pitfall 5), 05.2 VAD wiring
 // (AMD-classifier forward, Case-2 VAD-fallback human path), 05.3-05b D-3 PART 2
@@ -26,16 +26,6 @@ import type { CoreMcpClient } from './core-mcp-client.js'
 import type { NanoclawMcpClient } from './nanoclaw-mcp-client.js'
 import { OUTBOUND_CALL_MAX_DURATION_MS } from './config.js'
 
-// Phase 05.6 cleanup: legacy SlowBrainWorker interface inlined here as a
-// no-op stub. The slow-brain transcript-push pipeline was removed in favor
-// of nanoclawMcp.transcript fire-and-forget — but the .push/.stop call sites
-// in sideband transcript wiring + endCall finalizer stay so the callsites
-// don't churn. Field is kept in CallContext for ABI compat with existing tests.
-export interface SlowBrainWorker {
-  push: (delta: { turnId: string; transcript: string }) => void
-  stop: () => Promise<void>
-}
-
 /**
  * Phase 05.5 D-16 turn-history record. Counterpart turns are appended in the
  * onTranscriptTurn callback (sideband transcription completed event); assistant
@@ -55,7 +45,6 @@ export interface CallContext {
   memBaselineMB: number
   turnLog: TurnLog
   sideband: SidebandHandle
-  slowBrain: SlowBrainWorker
   /**
    * Hard-safety hangup floor (pure wall-clock timer, no VAD awareness).
    * Replaces the legacy silence-monitor VAD state machine + 3-round nudge
@@ -232,10 +221,6 @@ export function createCallRouter(
         traceEventsPath: startOpts.traceEventsPath,
       })
       logs.set(callId, log)
-      // Phase 05.6 cleanup: legacy slow-brain worker removed entirely. The
-      // .push call site below stays as a no-op so existing test fixtures
-      // that read ctx.slowBrain see a structurally-identical handle.
-      const slowBrain = makeNoopSlowBrain()
       // Plan 05.3-05b D-3 invariant: per-call hard-safety hangup floor (pure
       // wall-clock ceiling). Fires hangup after OUTBOUND_CALL_MAX_DURATION_MS
       // regardless of VAD state. Outbound has its own durationTimer in
@@ -251,7 +236,6 @@ export function createCallRouter(
         memBaselineMB,
         turnLog,
         sideband,
-        slowBrain,
         hardHangup,
         coreMcp: startOpts.coreMcp,
         nanoclawMcp: startOpts.nanoclawMcp,
@@ -276,17 +260,10 @@ export function createCallRouter(
       })
       teardown.markClosed()
       ctx.hardHangup?.cancel()
-      ctx.slowBrain.stop().catch((e: Error) => {
-        log.warn({
-          event: 'slow_brain_stop_failed',
-          call_id: callId,
-          err: e.message,
-        })
-      })
-      // Phase 05.5: idempotent close of per-call NanoclawMcpClient. No-op when
-      // the field is undefined (slow-brain default) — close() itself is also
-      // idempotent (mirrors core-mcp-client.close() pattern). Errors logged
-      // only; never thrown — call-end teardown must always proceed.
+      // Idempotent close of per-call NanoclawMcpClient. No-op when the field
+      // is undefined; close() itself is also idempotent (mirrors
+      // core-mcp-client.close() pattern). Errors logged only; never thrown —
+      // call-end teardown must always proceed.
       ctx.nanoclawMcp?.close().catch((e: Error) => {
         log.warn({
           event: 'nanoclaw_mcp_close_failed',
@@ -335,20 +312,3 @@ export function createCallRouter(
   return router
 }
 
-/**
- * No-op SlowBrainWorker handle. The legacy push/stop call-sites (sideband
- * transcript wiring + endCall finalizer) stay structurally identical so the
- * existing call-router test fixtures don't churn; nanoclawMcp.transcript is
- * the live transcript-trigger path. Removing this stub is a follow-up that
- * touches call-router.test.ts.
- */
-function makeNoopSlowBrain(): SlowBrainWorker {
-  return {
-    push: () => {
-      /* noop — container-agent path uses nanoclawMcp.transcript instead */
-    },
-    stop: async () => {
-      /* noop */
-    },
-  }
-}
