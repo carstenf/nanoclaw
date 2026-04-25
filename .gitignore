@@ -48,3 +48,11 @@ groups/global/*
 .nanoclaw/
 
 agents-sdk-docs
+
+# Claude Code local state
+.claude/worktrees/
+.claude/settings.local.json.bak-*
+
+# Root-level SQLite runtime files
+/nanoclaw.db
+/state.db
