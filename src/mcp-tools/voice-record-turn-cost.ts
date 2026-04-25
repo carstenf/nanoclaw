@@ -15,6 +15,13 @@ import type { VoiceTurnCostRow } from '../cost-ledger.js';
 import { BadRequestError } from './voice-on-transcript-turn.js';
 import type { ToolHandler } from './index.js';
 
+// Phase 05.5 / REQ-COST-06: trigger_type extends the schema so each
+// container-agent invocation produces a distinguishable cost-ledger row.
+// Defaults to 'turn' so all existing Phase-4 cost-recording call sites keep
+// working unchanged. Synthetic turn_id convention for triggers: 'init'
+// (init-trigger) or 'trigger-N' (transcript-trigger turn N) — these never
+// collide with the monotonic numeric turn_id used by existing Realtime turns,
+// so PRIMARY KEY (call_id, turn_id) dedup remains intact across both paths.
 export const RecordTurnCostSchema = z.object({
   call_id: z.string().min(1),
   turn_id: z.string().min(1),
@@ -24,6 +31,9 @@ export const RecordTurnCostSchema = z.object({
   text_in_tokens: z.number().int().nonnegative().default(0),
   text_out_tokens: z.number().int().nonnegative().default(0),
   cost_eur: z.number().nonnegative(),
+  trigger_type: z
+    .enum(['turn', 'init_trigger', 'transcript_trigger'])
+    .default('turn'),
 });
 
 export interface VoiceRecordTurnCostDeps {
@@ -59,6 +69,7 @@ export function makeVoiceRecordTurnCost(
       text_in_tokens: parseResult.data.text_in_tokens,
       text_out_tokens: parseResult.data.text_out_tokens,
       cost_eur: parseResult.data.cost_eur,
+      trigger_type: parseResult.data.trigger_type,
     };
 
     try {
@@ -78,6 +89,7 @@ export function makeVoiceRecordTurnCost(
       call_id: row.call_id,
       turn_id: row.turn_id,
       cost_eur: row.cost_eur,
+      trigger_type: row.trigger_type,
       latency_ms: now() - start,
     });
 

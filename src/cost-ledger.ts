@@ -21,6 +21,14 @@ export interface VoiceTurnCostRow {
   text_in_tokens: number;
   text_out_tokens: number;
   cost_eur: number;
+  /**
+   * Phase 05.5 / REQ-COST-06: distinguishes per-turn Realtime costs from
+   * container-agent trigger costs. Defaults to 'turn' for backward-compat
+   * with Phase-4 callers. New container-agent invocations populate
+   * 'init_trigger' or 'transcript_trigger' so aggregation queries can
+   * separate them when needed (SUM(cost_eur) is unaffected).
+   */
+  trigger_type?: 'turn' | 'init_trigger' | 'transcript_trigger';
 }
 
 export interface VoiceCallCostRow {
@@ -101,6 +109,7 @@ export function createSchema(database: Database.Database): void {
       text_in_tokens   INTEGER NOT NULL DEFAULT 0,
       text_out_tokens  INTEGER NOT NULL DEFAULT 0,
       cost_eur         REAL NOT NULL,
+      trigger_type     TEXT NOT NULL DEFAULT 'turn',
       PRIMARY KEY (call_id, turn_id)
     );
     CREATE INDEX IF NOT EXISTS idx_voice_turn_costs_call ON voice_turn_costs(call_id);
@@ -122,6 +131,15 @@ export function createSchema(database: Database.Database): void {
 /**
  * INSERT OR IGNORE — A12: duplicate turn (same call_id+turn_id) is silently
  * dropped. PRIMARY KEY (call_id, turn_id) is the natural dedup key.
+ *
+ * Phase 05.5 / REQ-COST-06: trigger_type column populated. Defaults to
+ * 'turn' when row.trigger_type is undefined (backward-compat with Phase-4
+ * callers). Container-agent invocations pass 'init_trigger' or
+ * 'transcript_trigger' so aggregation can separate them.
+ *
+ * Synthetic turn_id convention for triggers: 'init' (init-trigger) or
+ * 'trigger-N' (transcript-trigger turn N) — never collides with the
+ * monotonic numeric turn_id used by Realtime turns.
  */
 export function insertTurnCost(
   database: Database.Database,
@@ -130,8 +148,8 @@ export function insertTurnCost(
   database
     .prepare(
       `INSERT OR IGNORE INTO voice_turn_costs
-        (call_id, turn_id, ts, audio_in_tokens, audio_out_tokens, cached_in_tokens, text_in_tokens, text_out_tokens, cost_eur)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (call_id, turn_id, ts, audio_in_tokens, audio_out_tokens, cached_in_tokens, text_in_tokens, text_out_tokens, cost_eur, trigger_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.call_id,
@@ -143,6 +161,7 @@ export function insertTurnCost(
       row.text_in_tokens,
       row.text_out_tokens,
       row.cost_eur,
+      row.trigger_type ?? 'turn',
     );
 }
 

@@ -236,6 +236,24 @@ function createSchema(database: Database.Database): void {
   } catch {
     /* columns already exist */
   }
+
+  // Phase 05.5 / REQ-COST-06: trigger_type column on voice_turn_costs.
+  // Distinguishes 'turn' (existing Realtime turns) from 'init_trigger' /
+  // 'transcript_trigger' (new container-agent invocations). Backfilled
+  // 'turn' for any pre-Phase-05.5 rows. Idempotent — guarded by PRAGMA
+  // table_info() so re-running createSchema() is safe.
+  try {
+    const cols = database
+      .prepare(`PRAGMA table_info(voice_turn_costs)`)
+      .all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === 'trigger_type')) {
+      database.exec(
+        `ALTER TABLE voice_turn_costs ADD COLUMN trigger_type TEXT NOT NULL DEFAULT 'turn'`,
+      );
+    }
+  } catch {
+    /* table missing in unexpected DB layout — non-fatal */
+  }
 }
 
 export function initDatabase(): void {

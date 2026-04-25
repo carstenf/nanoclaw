@@ -149,4 +149,75 @@ describe('makeVoiceRecordTurnCost (INFRA-06)', () => {
     // handler does not throw on DB error; JSONL is audit trail of last resort
     expect(result.ok).toBe(true);
   });
+
+  // --- Phase 05.5 / REQ-COST-06: trigger_type schema extension --------------
+
+  it('Phase 05.5 (REQ-COST-06): no trigger_type passed → row stored with trigger_type="turn" (backward-compat)', async () => {
+    const deps = makeDeps();
+    const handler = makeVoiceRecordTurnCost(deps);
+
+    await handler({
+      call_id: 'c-bc',
+      turn_id: 't-bc',
+      cost_eur: 0.02,
+    });
+
+    expect(deps.captured).not.toBeNull();
+    expect(deps.captured!.trigger_type).toBe('turn');
+
+    const raw = fs.readFileSync(JSONL_PATH(), 'utf8');
+    const entry = JSON.parse(raw.trim().split('\n').pop()!);
+    expect(entry.trigger_type).toBe('turn');
+  });
+
+  it('Phase 05.5 (REQ-COST-06): explicit trigger_type="init_trigger" + turn_id="init" → row captures trigger_type', async () => {
+    const deps = makeDeps();
+    const handler = makeVoiceRecordTurnCost(deps);
+
+    await handler({
+      call_id: 'c-init',
+      turn_id: 'init',
+      cost_eur: 0.005,
+      trigger_type: 'init_trigger',
+    });
+
+    expect(deps.captured).not.toBeNull();
+    expect(deps.captured!.call_id).toBe('c-init');
+    expect(deps.captured!.turn_id).toBe('init');
+    expect(deps.captured!.trigger_type).toBe('init_trigger');
+
+    const raw = fs.readFileSync(JSONL_PATH(), 'utf8');
+    const entry = JSON.parse(raw.trim().split('\n').pop()!);
+    expect(entry.trigger_type).toBe('init_trigger');
+  });
+
+  it('Phase 05.5 (REQ-COST-06): explicit trigger_type="transcript_trigger" + turn_id="trigger-1" → row captures trigger_type', async () => {
+    const deps = makeDeps();
+    const handler = makeVoiceRecordTurnCost(deps);
+
+    await handler({
+      call_id: 'c-tt',
+      turn_id: 'trigger-1',
+      cost_eur: 0.003,
+      trigger_type: 'transcript_trigger',
+    });
+
+    expect(deps.captured).not.toBeNull();
+    expect(deps.captured!.turn_id).toBe('trigger-1');
+    expect(deps.captured!.trigger_type).toBe('transcript_trigger');
+  });
+
+  it('Phase 05.5 (REQ-COST-06): invalid trigger_type → throws BadRequestError (Zod enum rejection)', async () => {
+    const deps = makeDeps();
+    const handler = makeVoiceRecordTurnCost(deps);
+
+    await expect(
+      handler({
+        call_id: 'c1',
+        turn_id: 't1',
+        cost_eur: 0.01,
+        trigger_type: 'invalid_value',
+      }),
+    ).rejects.toThrow(BadRequestError);
+  });
 });
