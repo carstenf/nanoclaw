@@ -107,6 +107,10 @@ vi.mock('child_process', async () => {
 
 import { runContainerAgent, ContainerOutput } from './container-runner.js';
 import type { RegisteredGroup } from './types.js';
+import {
+  VoiceRespondManager,
+  handleVoiceResponseMarker,
+} from './voice-channel/index.js';
 
 const testGroup: RegisteredGroup = {
   name: 'Test Group',
@@ -226,5 +230,181 @@ describe('container-runner timeout behavior', () => {
     const result = await resultPromise;
     expect(result.status).toBe('success');
     expect(result.newSessionId).toBe('session-456');
+  });
+});
+
+// E2E voice-channel pipeline: container emits a voice_response marker →
+// container-runner stream-parser hands it to onOutput → handleVoiceResponseMarker
+// resolves the pending Promise on VoiceRespondManager. Mirrors the wiring in
+// src/index.ts:323 (runAgent callback) so that path is regression-safe even
+// without a live container/agent-runner. The container-side IPC drain (read
+// VoiceRequestEnvelope from input/) is runtime-only and contract-enforced via
+// the discriminated union types — no need to simulate it here.
+describe('voice-channel pipeline (host-side: container output → manager.resolve)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fakeProc = createFakeProcess();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('voice_response marker resolves the registered pending Promise', async () => {
+    const manager = new VoiceRespondManager();
+    const pending = manager.register('rtc_e2e_1', 5000);
+
+    const resultPromise = runContainerAgent(
+      testGroup,
+      testInput,
+      () => {},
+      // Wire the runAgent-callback hook — same call as src/index.ts:323
+      async (output) => {
+        handleVoiceResponseMarker(output, manager);
+      },
+    );
+
+    emitOutputMarker(fakeProc, {
+      status: 'voice_response',
+      result: 'Heute scheint die Sonne in Mailand.',
+      call_id: 'rtc_e2e_1',
+      discord_long: null,
+      newSessionId: 'session-e2e',
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    await resultPromise;
+    await expect(pending).resolves.toEqual({
+      voice_short: 'Heute scheint die Sonne in Mailand.',
+      discord_long: null,
+    });
+    expect(manager.size()).toBe(0);
+  });
+
+  it('voice_response marker with discord_long forwards both fields', async () => {
+    const manager = new VoiceRespondManager();
+    const pending = manager.register('rtc_e2e_2', 5000);
+
+    const resultPromise = runContainerAgent(
+      testGroup,
+      testInput,
+      () => {},
+      async (output) => {
+        handleVoiceResponseMarker(output, manager);
+      },
+    );
+
+    emitOutputMarker(fakeProc, {
+      status: 'voice_response',
+      result: 'Kurzfassung fuer Voice.',
+      call_id: 'rtc_e2e_2',
+      discord_long: 'Lange Recherche-Antwort mit Quellen fuer Discord.',
+      newSessionId: 'session-e2e-2',
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    await resultPromise;
+    await expect(pending).resolves.toEqual({
+      voice_short: 'Kurzfassung fuer Voice.',
+      discord_long: 'Lange Recherche-Antwort mit Quellen fuer Discord.',
+    });
+  });
+
+  it('<internal>...</internal> blocks are stripped before resolving', async () => {
+    const manager = new VoiceRespondManager();
+    const pending = manager.register('rtc_e2e_3', 5000);
+
+    const resultPromise = runContainerAgent(
+      testGroup,
+      testInput,
+      () => {},
+      async (output) => {
+        handleVoiceResponseMarker(output, manager);
+      },
+    );
+
+    emitOutputMarker(fakeProc, {
+      status: 'voice_response',
+      result:
+        '<internal>Tool-call: WebSearch(mailand wetter)</internal>Heute scheint die Sonne.',
+      call_id: 'rtc_e2e_3',
+      discord_long: null,
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    await resultPromise;
+    await expect(pending).resolves.toEqual({
+      voice_short: 'Heute scheint die Sonne.',
+      discord_long: null,
+    });
+  });
+
+  it('voice_response marker with no matching pending: handler logs but does not crash', async () => {
+    const manager = new VoiceRespondManager();
+    // No register() — marker arrives for unknown call_id.
+
+    const resultPromise = runContainerAgent(
+      testGroup,
+      testInput,
+      () => {},
+      async (output) => {
+        handleVoiceResponseMarker(output, manager);
+      },
+    );
+
+    emitOutputMarker(fakeProc, {
+      status: 'voice_response',
+      result: 'Antwort fuer abgelaufenen Call.',
+      call_id: 'rtc_ghost',
+      discord_long: null,
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    // Run completes; nothing throws.
+    await resultPromise;
+    expect(manager.size()).toBe(0);
+  });
+
+  it('success marker (non-voice turn) does NOT resolve pending voice promises', async () => {
+    const manager = new VoiceRespondManager();
+    // Pending promise that should NOT be resolved by an unrelated success.
+    const pending = manager.register('rtc_e2e_4', 1000);
+    pending.catch(() => undefined); // suppress unhandled-rejection on timeout
+
+    const resultPromise = runContainerAgent(
+      testGroup,
+      testInput,
+      () => {},
+      async (output) => {
+        handleVoiceResponseMarker(output, manager);
+      },
+    );
+
+    // A normal (WhatsApp-side) turn — success marker, no call_id.
+    emitOutputMarker(fakeProc, {
+      status: 'success',
+      result: 'Antwort fuer den WhatsApp-Channel.',
+      newSessionId: 'session-wa',
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    await resultPromise;
+    // Pending should still be alive (handler returned false, no resolve).
+    expect(manager.size()).toBe(1);
   });
 });
