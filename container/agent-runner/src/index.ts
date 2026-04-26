@@ -35,16 +35,36 @@ interface ContainerInput {
   script?: string;
 }
 
-interface ContainerOutput {
-  status: 'success' | 'error' | 'voice_response';
-  result: string | null;
+// Mirror of src/container-runner.ts ContainerOutput discriminated union (host
+// side, separate TS project). Keep in sync — see voice-channel/protocol.ts
+// jsdoc for the full cross-ref. Discrimination on `status` catches stray
+// field mixing at every writeOutput() construction site below.
+interface ContainerOutputBase {
   newSessionId?: string;
+}
+
+interface ContainerSuccess extends ContainerOutputBase {
+  status: 'success';
+  result: string | null;
+}
+
+interface ContainerError extends ContainerOutputBase {
+  status: 'error';
+  result: string | null;
   error?: string;
-  /** voice_response only: call_id from the originating voice_request IPC. */
-  call_id?: string;
-  /** voice_response only: optional long-form for Discord (parallel to voice). */
+}
+
+interface ContainerVoiceResponse extends ContainerOutputBase {
+  status: 'voice_response';
+  result: string | null;
+  call_id: string;
   discord_long?: string | null;
 }
+
+type ContainerOutput =
+  | ContainerSuccess
+  | ContainerError
+  | ContainerVoiceResponse;
 
 interface SessionEntry {
   sessionId: string;

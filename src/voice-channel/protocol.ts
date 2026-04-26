@@ -45,8 +45,9 @@ export function buildVoiceRequestEnvelope(
  * routes this to VoiceRespondManager.resolve() instead of the channel's
  * normal sendMessage() path.
  *
- * Field shape mirrors src/container-runner.ts ContainerOutput. Mirror any
- * field changes there as well.
+ * Shape matches the ContainerVoiceResponse variant of src/container-runner.ts
+ * ContainerOutput discriminated union. Keep all three (here, container-runner,
+ * agent-runner inline copy) in sync.
  */
 export interface VoiceResponseMarker {
   status: 'voice_response';
