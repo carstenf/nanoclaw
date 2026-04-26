@@ -271,10 +271,9 @@ describe('voice_ask_core', () => {
 
     expect(result.result.answer).toContain('nicht erreichbar');
     expect(tryInjectVoiceRequest).toHaveBeenCalled();
-    // Pending entry was registered, but caller does not await it — it will
-    // time out on its own. size() may be 0 or 1 here depending on timing,
-    // but it MUST drop to 0 once the timeout fires.
-    await new Promise((r) => setTimeout(r, 150));
+    // Manager.cancel() in the no-active-container branch frees the just-
+    // registered pending entry IMMEDIATELY — no need to wait for the natural
+    // timeout. size() must be 0 the moment the handler returns.
     expect(manager.size()).toBe(0);
   });
 

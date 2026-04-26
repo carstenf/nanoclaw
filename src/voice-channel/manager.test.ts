@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   VoiceRespondManager,
   VoiceRespondTimeoutError,
+  VoiceRespondCancelledError,
 } from './manager.js';
 
 describe('VoiceRespondManager', () => {
@@ -88,5 +89,54 @@ describe('VoiceRespondManager', () => {
     await expect(promise).rejects.toBeInstanceOf(VoiceRespondTimeoutError);
     expect(mgr.resolve('call-late', { voice_short: 'too late' })).toBe(false);
     vi.useRealTimers();
+  });
+
+  describe('cancel()', () => {
+    it('cancels pending entry, frees map, rejects with VoiceRespondCancelledError', async () => {
+      const mgr = new VoiceRespondManager();
+      const pending = mgr.register('call-cancel', 60_000);
+      expect(mgr.size()).toBe(1);
+      const cancelled = mgr.cancel('call-cancel', 'no_active_container');
+      expect(cancelled).toBe(true);
+      expect(mgr.size()).toBe(0);
+      await expect(pending).rejects.toBeInstanceOf(VoiceRespondCancelledError);
+      await expect(pending).rejects.toMatchObject({
+        callId: 'call-cancel',
+        reason: 'no_active_container',
+      });
+    });
+
+    it('cancel of unknown call_id: returns false, no throw', () => {
+      const mgr = new VoiceRespondManager();
+      expect(mgr.cancel('call-ghost')).toBe(false);
+    });
+
+    it('cancel after resolve: returns false (entry already gone)', async () => {
+      const mgr = new VoiceRespondManager();
+      const pending = mgr.register('call-rc', 5000);
+      mgr.resolve('call-rc', { voice_short: 'done' });
+      await pending;
+      expect(mgr.cancel('call-rc')).toBe(false);
+    });
+
+    it('cancel clears the timeout (no late rejection after cancel)', async () => {
+      vi.useFakeTimers();
+      const mgr = new VoiceRespondManager();
+      const pending = mgr.register('call-tc', 100);
+      mgr.cancel('call-tc');
+      await expect(pending).rejects.toBeInstanceOf(VoiceRespondCancelledError);
+      // Advance past the original timeout — no second rejection should fire.
+      vi.advanceTimersByTime(200);
+      // size still 0, no double-reject (would be unhandled-rejection if it fired).
+      expect(mgr.size()).toBe(0);
+      vi.useRealTimers();
+    });
+
+    it('cancel with default reason: rejection carries "cancelled"', async () => {
+      const mgr = new VoiceRespondManager();
+      const pending = mgr.register('call-default', 5000);
+      mgr.cancel('call-default');
+      await expect(pending).rejects.toMatchObject({ reason: 'cancelled' });
+    });
   });
 });

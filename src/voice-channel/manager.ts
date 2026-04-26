@@ -50,6 +50,16 @@ export class VoiceRespondNotFoundError extends Error {
   }
 }
 
+export class VoiceRespondCancelledError extends Error {
+  constructor(
+    public readonly callId: string,
+    public readonly reason: string,
+  ) {
+    super(`voice_respond cancelled: ${callId} (${reason})`);
+    this.name = 'VoiceRespondCancelledError';
+  }
+}
+
 export class VoiceRespondManager {
   private pending = new Map<string, PendingRequest>();
 
@@ -95,6 +105,27 @@ export class VoiceRespondManager {
         startedAt: Date.now(),
       });
     });
+  }
+
+  /**
+   * Cancel a pending request without resolving it. Returns true if an entry
+   * was removed, false if no pending entry existed for this callId. Used by
+   * voice-ask-core's no-active-container branch to free the just-registered
+   * entry immediately instead of letting it linger until the configured
+   * timeout — `Promise.race` consumers see a synthetic
+   * VoiceRespondCancelledError rejection right away.
+   */
+  cancel(callId: string, reason = 'cancelled'): boolean {
+    const entry = this.pending.get(callId);
+    if (!entry) return false;
+    clearTimeout(entry.timeoutHandle);
+    this.pending.delete(callId);
+    logger.info(
+      { event: 'voice_respond_cancelled', call_id: callId, reason },
+      'voice_respond pending entry cancelled by caller',
+    );
+    entry.reject(new VoiceRespondCancelledError(callId, reason));
+    return true;
   }
 
   /**

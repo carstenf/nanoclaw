@@ -18,6 +18,7 @@ export {
   VoiceRespondManager,
   VoiceRespondTimeoutError,
   VoiceRespondNotFoundError,
+  VoiceRespondCancelledError,
   type AndyVoicePayload,
 } from './manager.js';
 export {

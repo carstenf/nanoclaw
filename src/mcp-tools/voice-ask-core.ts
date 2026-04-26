@@ -179,10 +179,14 @@ export function makeVoiceAskCore(deps: VoiceAskCoreDeps) {
 
       const injected = deps.tryInjectVoiceRequest(call_id, request);
       if (!injected) {
-        // Cancel the just-registered pending entry — nothing will resolve it.
-        // .clear() rejects all pending; we can't surgically remove one entry,
-        // so let the Promise time out naturally (not awaited here).
+        // No active container will ever produce a voice_respond for this
+        // call_id — cancel the just-registered pending entry to free it
+        // immediately (instead of letting it linger until waitTimeoutMs).
+        // The cancel rejects pendingPromise with VoiceRespondCancelledError;
+        // we attach a no-op .catch so the unhandled-rejection listener is
+        // not triggered (we don't await it on this code path).
         pendingPromise.catch(() => undefined);
+        deps.voiceRespondManager.cancel(call_id, 'no_active_container');
         logger.info(
           {
             event: 'ask_core_andy_no_active_container',
