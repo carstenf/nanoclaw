@@ -135,10 +135,22 @@ export interface McpStreamDeps {
 // pre-handler and publishes the inputSchema on tools/list so MCP clients
 // (iOS Claude-App, Claude Desktop) see full semantics.
 //
+// `skipSyntheticIds` (optional) opts a tool out of Pitfall-8 chat/iOS
+// synthetic call_id/turn_id wrapping. Set true for tools that carry the
+// REAL Bridge↔NanoClaw call_id and MUST NOT have it overwritten — else
+// (a) cost-ledger attribution breaks, and (b) cross-tool correlation
+// between voice_ask_core (registers Promise on call_id A) and
+// voice_respond (resolves on call_id B) misses every time.
+//
 // Mitigation T-4.5-D (Tampering via malformed args): zod shape validation
 // bounds the set of inputs that reach the handler.
 // -----------------------------------------------------------------------------
-const TOOL_META: Record<string, { description: string; shape: z.ZodRawShape }> =
+interface ToolMeta {
+  description: string;
+  shape: z.ZodRawShape;
+  skipSyntheticIds?: boolean;
+}
+const TOOL_META: Record<string, ToolMeta> =
   {
     'voice_check_calendar': {
       description:
@@ -185,6 +197,7 @@ const TOOL_META: Record<string, { description: string; shape: z.ZodRawShape }> =
       description:
         'Async query to the Slow-Brain — returns instructions_update patch.',
       shape: AskCoreSchema.shape,
+      skipSyntheticIds: true,
     },
     'voice_record_turn_cost': {
       description:
@@ -243,16 +256,19 @@ const TOOL_META: Record<string, { description: string; shape: z.ZodRawShape }> =
       description:
         'Container-agent reasoning trigger — synchronous at /accept. Returns fully-rendered persona instructions string.',
       shape: VoiceTriggersInitSchema.shape,
+      skipSyntheticIds: true,
     },
     'voice_triggers_transcript': {
       description:
         'Container-agent reasoning trigger — per-turn FIFO. Returns instructions_update string or null.',
       shape: VoiceTriggersTranscriptSchema.shape,
+      skipSyntheticIds: true,
     },
     'voice_respond': {
       description:
         'Andy → Voice: deliver the result of a voice_request injected into the existing whatsapp_main container. Args: {call_id, voice_short, discord_long?}. Resolves the pending ask_core Promise.',
       shape: VoiceRespondSchema.shape,
+      skipSyntheticIds: true,
     },
   };
 
@@ -369,23 +385,10 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
     for (const name of deps.registry.listNames()) {
       const meta = TOOL_META[name];
       const description = meta?.description ?? `Voice MCP tool: ${name}`;
-      // Voice-trigger tools are the Bridge↔NanoClaw reasoning interface
-      // (Phase 05.5/05.6) — the Bridge passes real `rtc_*` call_id and a
-      // numeric Realtime turn_id. Synthetic injection (Pitfall 8) MUST NOT
-      // run for these tools or it (a) overwrites the real call_id used for
-      // cost-ledger attribution, and (b) replaces the numeric turn_id with
-      // a string, which fails the `z.number()` schema in
-      // voice_triggers_transcript and breaks every transcript trigger in
-      // production. (Phase 05.6 Plan 01 Task 3 surfaced this.)
-      // Tools that carry the REAL Bridge↔NanoClaw call_id and MUST NOT have
-      // it overwritten by synthetic chat-IDs (else cross-tool correlation
-      // breaks: e.g. voice_ask_core registers a pending Promise on call_id A
-      // and voice_respond resolves on call_id B → matched=false every time).
-      const skipSyntheticIds =
-        name === 'voice_triggers_init' ||
-        name === 'voice_triggers_transcript' ||
-        name === 'voice_ask_core' ||
-        name === 'voice_respond';
+      // Pitfall-8 opt-out: tools carrying the REAL Bridge↔NanoClaw call_id
+      // (voice_triggers_*, voice_ask_core, voice_respond) flag themselves via
+      // TOOL_META.skipSyntheticIds. See ToolMeta jsdoc above for the why.
+      const skipSyntheticIds = meta?.skipSyntheticIds ?? false;
       const handler = async (args: unknown) => {
         // Pitfall 8: every chat/iOS invocation gets synthetic IDs so its
         // idempotency keys are disjoint from live voice calls. Skipped for
