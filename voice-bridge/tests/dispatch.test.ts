@@ -296,7 +296,14 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
 
     expect(callCoreTool).toHaveBeenCalledWith(
       'voice_ask_core',
-      { topic: 'andy', request: 'Was sind eure Oeffnungszeiten?' },
+      // ask_core has injectCallId:true (allowlist.ts) — dispatch wires the
+      // live rtc_* call_id into args so voice-ask-core's voice_respond path
+      // can register the pending Promise on the real bridge call_id.
+      {
+        topic: 'andy',
+        request: 'Was sind eure Oeffnungszeiten?',
+        call_id: 'call_ask1',
+      },
       expect.objectContaining({ timeoutMs: 3000 }),
     )
     expect(emitFunctionCallOutput).toHaveBeenCalledWith(ws, 'fc_ask1', coreResult, log)

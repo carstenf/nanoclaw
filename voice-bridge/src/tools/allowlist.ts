@@ -35,6 +35,14 @@ export interface ToolEntry {
   mutating: boolean
   schema: Record<string, unknown>
   validate: ValidateFunction
+  /**
+   * If true, dispatch.ts injects the live `rtc_*` call_id into the tool args
+   * before forwarding to Core. Required for tools whose Core handler must
+   * correlate back to this voice call (e.g. ask_core → voice_respond
+   * Promise-match). The bot's function_call args don't carry call_id by
+   * default — only the tool's declared schema fields.
+   */
+  injectCallId?: boolean
 }
 
 const ajv = new Ajv({ strict: true })
@@ -50,7 +58,7 @@ const ENTRIES: ToolEntry[] = [
   { name: 'schedule_retry',        mutating: true,  schema: scheduleRetrySchema as Record<string, unknown>,        validate: ajv.compile(scheduleRetrySchema) },
   { name: 'transfer_call',         mutating: true,  schema: transferCallSchema as Record<string, unknown>,         validate: ajv.compile(transferCallSchema) },
   { name: 'confirm_action',        mutating: true,  schema: confirmActionSchema as Record<string, unknown>,        validate: ajv.compile(confirmActionSchema) },
-  { name: 'ask_core',              mutating: false, schema: askCoreSchema as Record<string, unknown>,              validate: ajv.compile(askCoreSchema) },
+  { name: 'ask_core',              mutating: false, schema: askCoreSchema as Record<string, unknown>,              validate: ajv.compile(askCoreSchema),              injectCallId: true },
   { name: 'get_travel_time',       mutating: false, schema: getTravelTimeSchema as Record<string, unknown>,       validate: ajv.compile(getTravelTimeSchema) },
   { name: 'request_outbound_call', mutating: true,  schema: requestOutboundCallSchema as Record<string, unknown>, validate: ajv.compile(requestOutboundCallSchema) },
   { name: 'delete_calendar_entry', mutating: true,  schema: deleteCalendarEntrySchema as Record<string, unknown>, validate: ajv.compile(deleteCalendarEntrySchema) },

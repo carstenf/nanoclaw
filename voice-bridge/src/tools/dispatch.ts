@@ -333,13 +333,13 @@ export async function dispatchTool(
   let mcpStatus: 'ok' | 'err' | 'timeout' | 'not_implemented' = 'ok'
   let resultPayload: unknown
 
-  // For tools whose handler needs to correlate back to this voice call
-  // (ask_core → voice_respond Promise-match), inject the real rtc_* call_id
-  // into the args so nanoclaw's voice-ask-core handler sees it. The bot's
-  // function_call args don't carry call_id — only `{topic, request}` — so
-  // without this injection the handler hits its "not_wired" branch.
+  // Per-tool opt-in via ToolEntry.injectCallId (see allowlist.ts jsdoc): for
+  // tools whose Core handler must correlate back to this voice call (today:
+  // ask_core → voice_respond Promise-match), inject the real rtc_* call_id
+  // into the args. Without it, the handler hits its "not_wired" branch
+  // because the bot's function_call args carry only the tool's schema fields.
   const argsForCore =
-    toolName === 'ask_core' &&
+    entry.injectCallId === true &&
     args !== null &&
     typeof args === 'object' &&
     !Array.isArray(args)
