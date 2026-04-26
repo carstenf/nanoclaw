@@ -1,12 +1,14 @@
 /**
+ * voice-channel/manager.ts
+ *
  * VoiceRespondManager — Promise-correlation between an in-flight ask_core
  * voice request and Andy's reply via the voice_respond MCP-Tool.
  *
  * Flow:
  *   1. voice-ask-core handler (topic='andy', existing-container path) calls
- *      `register(call_id, timeoutMs)` which drops an IPC `voice_request` file
- *      into the whatsapp_main container input/. It then awaits the returned
- *      Promise.
+ *      `register(call_id, timeoutMs)` which drops a VoiceRequestEnvelope IPC
+ *      file into the whatsapp_main container input/. It then awaits the
+ *      returned Promise.
  *   2. Andy (running in whatsapp_main container) processes the request and
  *      calls the voice_respond MCP-Tool with `{call_id, voice_short,
  *      discord_long?}`. The MCP-Tool handler calls `resolve(call_id, ...)`.
@@ -17,7 +19,7 @@
  * Andy does not call voice_respond within `timeoutMs`. The handler in
  * voice-ask-core catches this and falls back to a graceful timeout message.
  */
-import { logger } from './logger.js';
+import { logger } from '../logger.js';
 
 export interface AndyVoicePayload {
   voice_short: string;
@@ -133,7 +135,7 @@ export class VoiceRespondManager {
 
   /** Test/shutdown helper: clear all pending and reject them. */
   clear(reason = 'shutdown'): void {
-    for (const [callId, entry] of this.pending) {
+    for (const [, entry] of this.pending) {
       clearTimeout(entry.timeoutHandle);
       entry.reject(new Error(`voice_respond cleared: ${reason}`));
     }

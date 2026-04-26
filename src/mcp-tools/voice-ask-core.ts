@@ -30,7 +30,7 @@ import type { SkillLoadResult } from './skill-loader.js';
 import {
   type VoiceRespondManager,
   VoiceRespondTimeoutError,
-} from '../voice-respond-manager.js';
+} from '../voice-channel/index.js';
 
 // Input schema: topic must be slug-format to prevent path-traversal
 export const AskCoreSchema = z.object({

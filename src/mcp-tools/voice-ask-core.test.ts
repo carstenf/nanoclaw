@@ -4,7 +4,7 @@ import { BadRequestError } from './voice-on-transcript-turn.js';
 import {
   VoiceRespondManager,
   VoiceRespondTimeoutError,
-} from '../voice-respond-manager.js';
+} from '../voice-channel/index.js';
 
 // Helper: build deps with sensible defaults
 function makeDeps(

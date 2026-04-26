@@ -56,7 +56,7 @@ import { createActiveSessionTracker } from '../channels/active-session-tracker.j
 import { loadSkill } from './skill-loader.js';
 import { callClaudeViaOneCli } from './claude-client.js';
 import { makeVoiceRespond } from './voice-respond.js';
-import { VoiceRespondManager } from '../voice-respond-manager.js';
+import { VoiceRespondManager } from '../voice-channel/index.js';
 import {
   createTask,
   getAllTasks,

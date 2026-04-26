@@ -12,7 +12,7 @@
  */
 import { z } from 'zod';
 import { BadRequestError } from './voice-on-transcript-turn.js';
-import type { VoiceRespondManager } from '../voice-respond-manager.js';
+import type { VoiceRespondManager } from '../voice-channel/index.js';
 import { logger } from '../logger.js';
 
 export const VoiceRespondSchema = z.object({

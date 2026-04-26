@@ -4,6 +4,7 @@ import path from 'path';
 
 import { DATA_DIR, MAX_CONCURRENT_CONTAINERS } from './config.js';
 import { logger } from './logger.js';
+import { buildVoiceRequestEnvelope } from './voice-channel/index.js';
 
 interface QueuedTask {
   id: string;
@@ -203,7 +204,7 @@ export class GroupQueue {
       const tempPath = `${filepath}.tmp`;
       fs.writeFileSync(
         tempPath,
-        JSON.stringify({ type: 'voice_request', call_id: callId, prompt }),
+        JSON.stringify(buildVoiceRequestEnvelope(callId, prompt)),
       );
       fs.renameSync(tempPath, filepath);
       return true;

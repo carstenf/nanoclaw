@@ -317,6 +317,12 @@ function shouldClose(): boolean {
 // `voice_response` output-marker (host then routes to VoiceRespondManager
 // instead of the Discord channel). Andy doesn't have to call voice_respond
 // explicitly — agent-runner does the rerouting transparently.
+//
+// IPC contract: VoiceRequestEnvelope (input) and VoiceResponseMarker (output)
+// shapes are defined in src/voice-channel/protocol.ts on the host side.
+// This file lives in a separate TS project and re-declares the shapes
+// inline (drainIpcInput below + writeOutput in the result path). When you
+// change a field, update both ends.
 let pendingVoiceRequestCallId: string | null = null;
 
 function drainIpcInput(): string[] {

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   VoiceRespondManager,
   VoiceRespondTimeoutError,
-} from './voice-respond-manager.js';
+} from './manager.js';
 
 describe('VoiceRespondManager', () => {
   it('happy path: register → resolve → Promise resolves with payload', async () => {
