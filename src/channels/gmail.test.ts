@@ -60,12 +60,16 @@ describe('GmailChannel', () => {
       expect(ch.name).toBe('gmail');
     });
 
-    it('defaults to unread query when no filter configured', () => {
+    it('defaults to unread, promotions/spam-excluded query when no filter configured', () => {
       const ch = new GmailChannel(makeOpts());
       const query = (
         ch as unknown as { buildQuery: () => string }
       ).buildQuery();
-      expect(query).toBe('is:unread category:primary');
+      // Production excludes promotions + spam (broader than primary-only) so
+      // transactional/calendar mail in Updates/Forums still lands. See
+      // commit 9f310d7 — broadened from `category:primary` to capture
+      // call-confirmations and meeting invites that land outside primary.
+      expect(query).toBe('is:unread -category:promotions -category:spam');
     });
 
     it('defaults with no options provided', () => {

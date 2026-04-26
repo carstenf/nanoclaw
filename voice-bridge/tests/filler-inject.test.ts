@@ -38,11 +38,16 @@ describe('emitFillerPhrase — code-side filler injection (02-14)', () => {
     expect(firstCall.type).toBe('conversation.item.create')
     expect(firstCall.item.type).toBe('message')
     expect(firstCall.item.role).toBe('assistant')
-    expect(firstCall.item.content[0].type).toBe('text')
+    // Current OpenAI Realtime schema: assistant-message content uses
+    // `output_text` (not `text`). Old field name triggers session_update_rejected
+    // — see filler-inject.ts:68 production comment.
+    expect(firstCall.item.content[0].type).toBe('output_text')
     expect(firstCall.item.content[0].text).toContain('Moment, ich frage Andy')
 
     const secondCall = JSON.parse((ws.send as ReturnType<typeof vi.fn>).mock.calls[1][0] as string)
     expect(secondCall.type).toBe('response.create')
+    // Current schema also requires output_modalities (not modalities).
+    expect(secondCall.response.output_modalities).toEqual(['audio'])
   })
 
   it('unknown tool name returns false without sending', async () => {
