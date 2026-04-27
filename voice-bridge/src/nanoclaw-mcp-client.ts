@@ -288,6 +288,24 @@ export class NanoclawMcpClient {
    * envelope as-is so callers can log; never throws on no_main_group, only
    * on transport / timeout errors.
    */
+  /**
+   * voice_send_discord_message — post-call transcript path (open_points
+   * 2026-04-27 #2). Posts a single chunk to the configured channel via
+   * Andy's Discord client. Caller chunks ≤ 2000 chars (Discord limit) and
+   * iterates. Throws on transport/timeout/dedup/allowlist failure;
+   * post-call-transcript caller catches and stops on first failure.
+   */
+  async sendDiscord(
+    args: { channel: string; content: string; call_id?: string },
+    opts: { signal?: AbortSignal } = {},
+  ): Promise<{ status: string }> {
+    return await this.callTool<{ status: string }>(
+      'voice_send_discord_message',
+      args,
+      opts,
+    )
+  }
+
   async wakeUp(
     args: { call_id: string; reason?: 'inbound' | 'outbound' },
     opts: { signal?: AbortSignal } = {},

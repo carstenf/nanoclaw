@@ -22,6 +22,7 @@ import { runGhostScan } from './ghost-scan.js'
 import { clearCall as clearIdempotencyCache } from './idempotency.js'
 import { armHardHangup, type HardHangupHandle } from './silence-monitor.js'
 import { getHangupCallback, getAmdClassifier } from './tools/dispatch.js'
+import { postCallTranscript } from './post-call-transcript.js'
 import type { CoreMcpClient } from './core-mcp-client.js'
 import type { NanoclawMcpClient } from './nanoclaw-mcp-client.js'
 import { OUTBOUND_CALL_MAX_DURATION_MS } from './config.js'
@@ -271,13 +272,43 @@ export function createCallRouter(
           err: e.message,
         })
       })
-      Promise.resolve(ctx.turnLog.close()).catch((e: Error) => {
-        log.warn({
-          event: 'turn_log_close_failed',
-          call_id: callId,
-          err: e.message,
-        })
-      })
+      const turnLogClosed = Promise.resolve(ctx.turnLog.close()).catch(
+        (e: Error) => {
+          log.warn({
+            event: 'turn_log_close_failed',
+            call_id: callId,
+            err: e.message,
+          })
+        },
+      )
+      // open_points 2026-04-27 #2: post-call transcript to Discord. Fire-and-
+      // forget after turnLog.close() so the JSONL has been fully flushed to
+      // disk before postCallTranscript reads it. Channel is configurable via
+      // VOICE_TRANSCRIPT_DISCORD_CHANNEL env (added to .env). Skip when env
+      // is unset (test fixtures, dev) or when no per-call MCP client exists
+      // (legacy call-paths without a NanoclawMcpClient).
+      const transcriptChannel = process.env.VOICE_TRANSCRIPT_DISCORD_CHANNEL
+      const startedAt = ctx.startedAt
+      if (transcriptChannel && ctx.nanoclawMcp) {
+        const mcp = ctx.nanoclawMcp
+        const caseType = ctx.sideband.state.caseType
+        void turnLogClosed.then(() =>
+          postCallTranscript({
+            callId,
+            durationMs: Date.now() - startedAt,
+            caseType,
+            channelId: transcriptChannel,
+            nanoclawMcp: mcp,
+            log,
+          }).catch((e: Error) => {
+            log.warn({
+              event: 'post_call_transcript_uncaught',
+              call_id: callId,
+              err: e.message,
+            })
+          }),
+        )
+      }
       // Notify outbound-router when its call ends so it can mark task done
       // and trigger the next queued task.
       if (factories.onCallEndExtra) {
