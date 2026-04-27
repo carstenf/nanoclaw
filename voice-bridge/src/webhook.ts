@@ -742,6 +742,29 @@ export function registerAcceptRoute(
         })
         instructions = FALLBACK_PERSONA
       } else {
+        // open_points 2026-04-27 #1: fire-and-forget pre-warm. Runs in
+        // parallel to nanoclawMcp.init() so the persona render's 3 ms is
+        // not delayed by the wake-up's MCP round-trip. By the time the
+        // bot finishes greeting Carsten and his first ask_core fires
+        // (~5-10 s later), the main container is up + idle-waiting.
+        // Failure is non-fatal — voice path still works, the next
+        // ask_core just pays cold-spawn latency if needed.
+        nanoclawMcp
+          .wakeUp({ call_id: callId, reason: 'inbound' })
+          .then((r) => {
+            log.info({
+              event: 'voice_wake_up_dispatched',
+              call_id: callId,
+              status: r.status,
+            })
+          })
+          .catch((err) => {
+            log.warn({
+              event: 'voice_wake_up_failed',
+              call_id: callId,
+              err: (err as Error)?.message,
+            })
+          })
         try {
           const r = await nanoclawMcp.init({
             call_id: callId,

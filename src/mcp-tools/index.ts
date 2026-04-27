@@ -36,6 +36,7 @@ import { makeVoiceInsertPriceSnapshot } from './voice-insert-price-snapshot.js';
 import { makeVoiceNotifyUser, TOOL_NAME as VOICE_NOTIFY_USER_TOOL_NAME } from './voice-notify-user.js';
 import { makeVoiceCase2ScheduleRetry, TOOL_NAME as VOICE_CASE_2_RETRY_TOOL_NAME } from './voice-case-2-retry.js';
 import { makeVoiceStartCase2Call, TOOL_NAME as VOICE_START_CASE_2_TOOL_NAME } from './voice-start-case-2-call.js';
+import { makeVoiceWakeUp } from './voice-wake-up.js';
 import {
   makeVoiceTriggersInit,
   TOOL_NAME as VOICE_TRIGGERS_INIT_TOOL_NAME,
@@ -218,6 +219,14 @@ export interface RegistryDeps {
    * index.ts as `(callId, prompt) => queue.sendVoiceRequest(mainJid, ...)`.
    */
   tryInjectVoiceRequest?: (callId: string, prompt: string) => boolean;
+  /**
+   * open_points 2026-04-27 #1: pre-warm the main container at voice /accept
+   * time. Inserts a `<voice_wake_up>` sentinel message into the main group
+   * DB and triggers `enqueueMessageCheck`, so the container spawns if down
+   * or the wake-up turn is absorbed if up. Returns true when scheduled,
+   * false if no main group is registered. Wired in NanoClaw index.ts.
+   */
+  triggerWakeUp?: (callId: string, reason: string) => boolean;
 }
 
 // Phase 05.5 Plan 01 Task 4 (REQ-INFRA-16, D-11): Module-level singleton so
@@ -674,6 +683,20 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     }),
     { mutating: true },
   );
+
+  // voice_wake_up — pre-warm the main container at /accept time. Only
+  // registered when triggerWakeUp dep is provided (production wires it in
+  // src/index.ts; tests can omit).
+  if (deps.triggerWakeUp) {
+    const log = deps.log ?? logger;
+    log.info(
+      { event: 'mcp_tool_registering', tool: 'voice_wake_up' },
+      'registered tool voice_wake_up',
+    );
+    registry.register('voice_wake_up', makeVoiceWakeUp({
+      triggerWakeUp: deps.triggerWakeUp,
+    }), { mutating: false });
+  }
 
   return registry;
 }

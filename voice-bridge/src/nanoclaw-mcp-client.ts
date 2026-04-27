@@ -279,6 +279,27 @@ export class NanoclawMcpClient {
   }
 
   /**
+   * voice_wake_up — open_points 2026-04-27 #1 pre-warm path.
+   * Fired fire-and-forget at /accept time so the existing whatsapp_main
+   * container is up + idle by the time the first ask_core arrives. Server
+   * inserts a `<voice_wake_up />` sentinel in the main group's DB and
+   * triggers the existing message-check pipeline; the host's runAgent
+   * callback suppresses any output for wake-up turns. Returns the server
+   * envelope as-is so callers can log; never throws on no_main_group, only
+   * on transport / timeout errors.
+   */
+  async wakeUp(
+    args: { call_id: string; reason?: 'inbound' | 'outbound' },
+    opts: { signal?: AbortSignal } = {},
+  ): Promise<{ status: string }> {
+    return await this.callTool<{ status: string }>(
+      'voice_wake_up',
+      args,
+      opts,
+    )
+  }
+
+  /**
    * Idempotent close. Mirrors core-mcp-client.ts:175-184 — never throws.
    */
   async close(): Promise<void> {

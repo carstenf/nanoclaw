@@ -109,6 +109,48 @@ const { manager: voiceRespondManager, tryInjectVoiceRequest } =
       queue.sendVoiceRequest(jid, callId, prompt),
   });
 
+/**
+ * open_points 2026-04-27 #1: voice-bridge fires this fire-and-forget at
+ * /accept time so the main container is up + idle by the time the first
+ * ask_core arrives. Inserts a sentinel `<voice_wake_up>` message in the
+ * DB and triggers the existing message-check pipeline. If main container
+ * is up: pipeline absorbs the turn; persona instruction tells Andy to
+ * silently no-op; output suppression in runAgent callback skips
+ * Discord/WhatsApp post (sentinel detection on prompt). If main container
+ * is down: enqueueMessageCheck spawns it. Either way the container ends
+ * up idle-waiting for ask_core within 3-5 s of /accept.
+ */
+function triggerWakeUp(callId: string, reason: string): boolean {
+  const mainEntry = Object.entries(registeredGroups).find(
+    ([, g]) => g.isMain,
+  );
+  if (!mainEntry) return false;
+  const [mainJid, mainGroup] = mainEntry;
+  const sentinel = `<voice_wake_up call_id="${callId}" reason="${reason}" />`;
+  const now = new Date().toISOString();
+  storeMessage({
+    id: `wakeup-${callId}-${Date.now()}`,
+    chat_jid: mainJid,
+    sender: 'voice-bridge',
+    sender_name: 'voice-bridge',
+    content: sentinel,
+    timestamp: now,
+    is_from_me: false,
+    is_bot_message: false,
+  });
+  queue.enqueueMessageCheck(mainJid);
+  logger.info(
+    {
+      event: 'wakeup_sentinel_queued',
+      call_id: callId,
+      reason,
+      main_group: mainGroup.name,
+    },
+    'voice wake-up sentinel queued + enqueueMessageCheck triggered',
+  );
+  return true;
+}
+
 const onecli = new OneCLI({ url: ONECLI_URL });
 
 function ensureOneCLIAgent(jid: string, group: RegisteredGroup): void {
@@ -316,6 +358,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     }, IDLE_TIMEOUT);
   };
 
+  // open_points 2026-04-27 #1: detect a voice wake-up turn so we can
+  // suppress channel.sendMessage even if Andy ignores the persona instruction
+  // and emits something like "ok". The sentinel is inserted into the DB by
+  // triggerWakeUp() above; processGroupMessages reads it via getMessagesSince
+  // and includes it in the formatted prompt. Belt-and-suspenders: persona
+  // says "stay silent", this guard ensures it.
+  const isWakeUpTurn = prompt.includes('<voice_wake_up');
+
   await channel.setTyping?.(chatJid, true);
   let hadError = false;
   let outputSentToUser = false;
@@ -342,6 +392,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
       const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
       logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
+      // Wake-up turn: persona was instructed to stay silent. If something
+      // leaked through anyway, drop it here (open_points 2026-04-27 #1).
+      if (isWakeUpTurn) {
+        if (text) {
+          logger.info(
+            { group: group.name, leaked_chars: text.length },
+            'Suppressing wake-up turn output (persona leak)',
+          );
+        }
+        outputSentToUser = true;
+        return;
+      }
       if (text) {
         await channel.sendMessage(chatJid, text);
         outputSentToUser = true;
@@ -983,6 +1045,7 @@ async function main(): Promise<void> {
     activeSessionTracker,
     tryInjectVoiceRequest,
     voiceRespondManager,
+    triggerWakeUp,
   });
   startMcpServer({
     registry: sharedRegistry,
