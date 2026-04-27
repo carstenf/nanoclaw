@@ -8,8 +8,8 @@
   "properties": {
     "reason": {
       "type": "string",
-      "enum": ["farewell", "silence", "user_request", "error"],
-      "description": "Warum aufgelegt wird. 'farewell' = Anrufer hat sich verabschiedet (REQ-VOICE-14). 'silence' = niemand antwortet nach zwei Silence-Prompten (REQ-VOICE-09). 'user_request' = Anrufer hat explizit aufzulegen verlangt. 'error' = unrecoverable bridge-side problem."
+      "enum": ["farewell", "silence", "user_request", "error", "tool_failure"],
+      "description": "Warum aufgelegt wird. 'farewell' = Anrufer hat sich verabschiedet (REQ-VOICE-14). 'silence' = niemand antwortet nach zwei Silence-Prompten (REQ-VOICE-09). 'user_request' = Anrufer hat explizit aufzulegen verlangt. 'error' = unrecoverable bridge-side problem. 'tool_failure' = ein Tool (z.B. ask_core) hat versagt oder timeoutet, Gespraech kann nicht mehr sinnvoll fortgefuehrt werden."
     }
   }
 }
