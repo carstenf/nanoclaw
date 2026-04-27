@@ -19,7 +19,8 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 | `src/container-runner.ts` | Spawns agent containers with mounts |
 | `src/task-scheduler.ts` | Runs scheduled tasks |
 | `src/db.ts` | SQLite operations |
-| `groups/{name}/CLAUDE.md` | Per-group memory (isolated) |
+| `groups/{name}/CLAUDE.md` | Per-group memory + runtime system prompt (kept lean — Andy reads it on EVERY turn) |
+| `docs/ANDY-ADMIN.md` | Group-management / scheduled-task / admin reference Andy reads on demand (split out 2026-04-27 to slim Discord-Latenz floor) |
 | `container/skills/` | Skills loaded inside agent containers (browser, status, formatting) |
 
 ## Secrets / Credentials / Proxy (OneCLI)
