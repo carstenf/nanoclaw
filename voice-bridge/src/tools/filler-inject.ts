@@ -78,10 +78,25 @@ export async function emitFillerPhrase(
         },
       }),
     )
+    // tool_choice: 'none' — prevents the model from emitting another
+    // function_call during this filler-only response. Without this, while
+    // the original ask_core dispatch is still in flight (e.g. 6-19 s for
+    // Andy reasoning), the model can re-emit the same function_call inside
+    // the filler response. OpenAI then cancels that filler response (it
+    // already has an in-flight tool_call without output), the cancellation
+    // truncates the streaming function_call_arguments, and the bridge sees
+    // a malformed args.done it interprets as `invalid_arguments`. The
+    // model then synthesises an "Andy nicht erreichbar" turn even though
+    // the original tool call eventually answers fine. Restricting the
+    // filler response to `audio + tool_choice: 'none'` removes the race
+    // at the source.
     ws.send(
       JSON.stringify({
         type: 'response.create',
-        response: { output_modalities: ['audio'] },
+        response: {
+          output_modalities: ['audio'],
+          tool_choice: 'none',
+        },
       }),
     )
     log.info({

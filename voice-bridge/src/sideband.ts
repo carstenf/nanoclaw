@@ -119,6 +119,15 @@ export interface SidebandState {
    */
   endCallAudioWaitResolve: (() => void) | null
   /**
+   * function_call ids that belong to a response.done with status="cancelled".
+   * Populated by the response.done handler when a cancelled response is seen.
+   * The function_call_arguments.done handler defers its parse-failure error
+   * emit by one event-loop tick — if its functionCallId is found here, the
+   * emit is skipped (cancelled responses' truncated args are not real bot
+   * errors). Entries are removed on consume.
+   */
+  cancelledFunctionCallIds: Set<string>
+  /**
    * Phase 05.4 Bug-4 fix: Bridge-side silence fallback timer id. Armed on
    * `output_audio_buffer.stopped` (bot just finished) and cleared on
    * `input_audio_buffer.speech_started` (user speaking), `response.created`
@@ -298,6 +307,7 @@ export function openSidebandSession(
     endCallAudioWaitResolve: null,
     // Phase 05.4 Bug-4 fix: armed/cleared by onmessage silence-fallback helpers.
     silenceFallbackTimerId: null,
+    cancelledFunctionCallIds: new Set<string>(),
   }
 
   // Cost-enforcement DI. Production defaults to the real accumulator/core-mcp/
@@ -523,20 +533,54 @@ export function openSidebandSession(
         const toolName =
           typeof parsed.name === 'string' ? parsed.name : ''
 
-        // Parse arguments JSON string — on failure emit invalid_arguments directly
+        // Parse arguments JSON string. On failure we MIGHT be looking at a
+        // cancelled response (OpenAI Realtime can fire response.done with
+        // status="cancelled" right after this args.done event when e.g.
+        // filler-inject's response.create pre-empts an in-flight tool call;
+        // the cancelled response still emits args.done with whatever was
+        // streamed, e.g. `{  \n  "` — truncated). Emitting `invalid_arguments`
+        // for a cancelled call confuses the bot into an "Andy nicht
+        // erreichbar" turn even though the original (first) tool call is
+        // still in flight and would answer fine.
+        //
+        // Strategy: defer the error emit by one event-loop tick. The
+        // response.done handler below maintains state.cancelledFunctionCallIds
+        // — if our function_call_id ends up in there before our deferred
+        // closure runs, we silently skip emit; else we emit as before.
         let parsedArgs: unknown
         try {
           parsedArgs = JSON.parse(parsed.arguments as string)
         } catch {
-          log.warn({
-            event: 'function_call_arguments_parse_failed',
-            call_id: callId,
-            function_call_id: functionCallId,
-            tool_name: toolName,
+          const argsStr =
+            typeof parsed.arguments === 'string' ? parsed.arguments : ''
+          const argsPreview = argsStr.trim().slice(0, 200)
+          setImmediate(() => {
+            if (state.cancelledFunctionCallIds.has(functionCallId)) {
+              log.info({
+                event: 'function_call_arguments_skipped_cancelled',
+                call_id: callId,
+                function_call_id: functionCallId,
+                tool_name: toolName,
+                args_preview: argsPreview,
+              })
+              state.cancelledFunctionCallIds.delete(functionCallId)
+              return
+            }
+            log.warn({
+              event: 'function_call_arguments_parse_failed',
+              call_id: callId,
+              function_call_id: functionCallId,
+              tool_name: toolName,
+              args_preview: argsPreview,
+            })
+            emitFunctionCallOutput(
+              ws,
+              functionCallId,
+              { error: 'invalid_arguments' },
+              log,
+            )
+            emitResponseCreate(ws, log)
           })
-          // Emit error directly without dispatching
-          emitFunctionCallOutput(ws, functionCallId, { error: 'invalid_arguments' }, log)
-          emitResponseCreate(ws, log)
           return
         }
 
@@ -586,6 +630,33 @@ export function openSidebandSession(
       // Single-threaded event loop guarantees check-and-mark atomicity of the
       // `warned` / `enforced` flags below.
       if (parsed?.type === 'response.done') {
+        // Track function_calls that belong to a CANCELLED response so the
+        // function_call_arguments.done handler's deferred error emit can
+        // recognise truncated args coming from cancellation rather than from
+        // a genuine bot-emitted malformed JSON. Cancelled-response args.done
+        // is observed live (e.g. when filler-inject's response.create
+        // pre-empts an in-flight tool call) — without this guard the bot
+        // sees `error: invalid_arguments` and synthesises an "Andy nicht
+        // erreichbar" turn even though the original tool call is still
+        // running and would answer fine.
+        const evtRaw = parsed as {
+          response?: { status?: unknown; output?: unknown }
+        }
+        if (evtRaw?.response?.status === 'cancelled') {
+          const output = Array.isArray(evtRaw.response.output)
+            ? evtRaw.response.output
+            : []
+          for (const item of output) {
+            const it = item as { type?: unknown; call_id?: unknown }
+            if (
+              it?.type === 'function_call' &&
+              typeof it.call_id === 'string' &&
+              it.call_id.length > 0
+            ) {
+              state.cancelledFunctionCallIds.add(it.call_id)
+            }
+          }
+        }
         try {
           const evt = parsed as ResponseDoneEvent
           const usage = evt?.response?.usage

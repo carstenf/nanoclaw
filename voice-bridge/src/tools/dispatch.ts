@@ -218,6 +218,7 @@ export async function dispatchTool(
       tool_name: toolName,
       reason: 'schema_fail',
       ajv_errors: entry.validate.errors,
+      args,
     })
     emitOutput(ws, functionCallId, { error: 'invalid_tool_call' }, log)
     emitCreate(ws, log)

@@ -511,6 +511,78 @@ describe('openSidebandSession — function_call_arguments.done handler (02-11)',
     }
   })
 
+  it('truncated args.done from a CANCELLED response is silently skipped (no invalid_arguments emitted)', async () => {
+    // Live-observed scenario (2026-04-27 rtc_u1_DZLyfuu6...): OpenAI Realtime
+    // emits args.done with whatever was streamed before a response was
+    // cancelled (truncated JSON like `{  \n  "`), then sends response.done
+    // with status="cancelled" ~4 ms later. Without cancellation tracking
+    // the bridge interprets the truncated args as a malformed function_call
+    // and emits `error: invalid_arguments`, which the bot synthesises into
+    // an "Andy nicht erreichbar" turn even though the original (in-flight)
+    // tool call would have answered fine.
+    const ws = new MockWS()
+    ws.readyState = 1
+    const log = mockLog()
+    const dispatchTool = vi.fn()
+
+    openSidebandSession('rtc-fc-cancel', log, {
+      wsFactory: () => ws as unknown as WSType,
+      dispatchTool,
+    })
+    ws.simulateOpen()
+    // 1. args.done arrives with truncated JSON (same shape as live-observed)
+    ws.emit(
+      'message',
+      JSON.stringify({
+        type: 'response.function_call_arguments.done',
+        call_id: 'call_cancelled_xyz',
+        name: 'ask_core',
+        arguments: '{  \n  "',
+      }),
+    )
+    // 2. response.done with status="cancelled" arrives shortly after,
+    //    listing the function_call in its output so the bridge can map
+    //    the call_id to the cancellation. Our handler defers the parse
+    //    error emit by setImmediate so this event lands first.
+    ws.emit(
+      'message',
+      JSON.stringify({
+        type: 'response.done',
+        response: {
+          status: 'cancelled',
+          output: [
+            {
+              type: 'function_call',
+              call_id: 'call_cancelled_xyz',
+              name: 'ask_core',
+            },
+          ],
+        },
+      }),
+    )
+
+    // Flush both microtasks and the setImmediate queue.
+    await new Promise((r) => setImmediate(r))
+
+    // dispatchTool must NOT be called for the truncated/cancelled call.
+    expect(dispatchTool).not.toHaveBeenCalled()
+    // No function_call_output with `invalid_arguments` must have been
+    // emitted — that's the whole point of the cancellation skip.
+    const sent = ws.sent
+    const errorOutput = sent.find((s) => {
+      try {
+        const p = JSON.parse(s)
+        if (p.item?.type !== 'function_call_output') return false
+        const out =
+          typeof p.item.output === 'string' ? JSON.parse(p.item.output) : null
+        return out?.error === 'invalid_arguments'
+      } catch {
+        return false
+      }
+    })
+    expect(errorOutput).toBeUndefined()
+  })
+
   it('unknown event types (e.g. response.done) are still silently ignored when dispatchTool is set', () => {
     const ws = new MockWS()
     const log = mockLog()
