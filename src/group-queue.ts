@@ -155,27 +155,47 @@ export class GroupQueue {
   }
 
   /**
-   * Send a follow-up message to the active container via IPC file.
-   * Returns true if the message was written, false if no active container.
+   * Generic IPC envelope writer (open_points 2026-04-25 22:50 tech-debt
+   * item: deduplicate sendMessage / sendVoiceRequest boilerplate). Atomic
+   * write via tmp-then-rename so the agent-runner never sees a partial
+   * file. Returns true if written, false if no active container or write
+   * failed. `filenameSuffix` becomes part of the filename between the
+   * timestamp and `.json` for grep-ability in IPC dirs (no functional
+   * effect on the agent-runner).
    */
-  sendMessage(groupJid: string, text: string): boolean {
+  private sendIpcEnvelope(
+    groupJid: string,
+    envelope: object,
+    filenameSuffix?: string,
+  ): boolean {
     const state = this.getGroup(groupJid);
     if (!state.active || !state.groupFolder || state.isTaskContainer)
       return false;
-    state.idleWaiting = false; // Agent is about to receive work, no longer idle
+    state.idleWaiting = false;
 
     const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
     try {
       fs.mkdirSync(inputDir, { recursive: true });
-      const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}.json`;
+      const suffix = filenameSuffix
+        ? `-${filenameSuffix}`
+        : `-${Math.random().toString(36).slice(2, 6)}`;
+      const filename = `${Date.now()}${suffix}.json`;
       const filepath = path.join(inputDir, filename);
       const tempPath = `${filepath}.tmp`;
-      fs.writeFileSync(tempPath, JSON.stringify({ type: 'message', text }));
+      fs.writeFileSync(tempPath, JSON.stringify(envelope));
       fs.renameSync(tempPath, filepath);
       return true;
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Send a follow-up message to the active container via IPC file.
+   * Returns true if the message was written, false if no active container.
+   */
+  sendMessage(groupJid: string, text: string): boolean {
+    return this.sendIpcEnvelope(groupJid, { type: 'message', text });
   }
 
   /**
@@ -191,26 +211,12 @@ export class GroupQueue {
     callId: string,
     prompt: string,
   ): boolean {
-    const state = this.getGroup(groupJid);
-    if (!state.active || !state.groupFolder || state.isTaskContainer)
-      return false;
-    state.idleWaiting = false;
-
-    const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
-    try {
-      fs.mkdirSync(inputDir, { recursive: true });
-      const filename = `${Date.now()}-voice-${callId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 24)}.json`;
-      const filepath = path.join(inputDir, filename);
-      const tempPath = `${filepath}.tmp`;
-      fs.writeFileSync(
-        tempPath,
-        JSON.stringify(buildVoiceRequestEnvelope(callId, prompt)),
-      );
-      fs.renameSync(tempPath, filepath);
-      return true;
-    } catch {
-      return false;
-    }
+    const safeId = callId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 24);
+    return this.sendIpcEnvelope(
+      groupJid,
+      buildVoiceRequestEnvelope(callId, prompt),
+      `voice-${safeId}`,
+    );
   }
 
   /**
