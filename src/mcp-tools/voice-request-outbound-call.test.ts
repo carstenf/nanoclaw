@@ -164,4 +164,33 @@ describe('voice_request_outbound_call', () => {
     // Has goal_len instead
     expect(typeof entry.goal_len).toBe('number');
   });
+
+  it('lang: forwarded to bridge POST when set; omitted when undefined', async () => {
+    const mockFetch = makeOkFetch();
+    const handler = makeVoiceRequestOutboundCall({
+      bridgeUrl: 'http://10.0.0.2:4402',
+      fetch: mockFetch,
+      jsonlPath: join(tmpDir, 'out.jsonl'),
+    });
+    await handler({ ...VALID_ARGS, lang: 'it' });
+    const callArgs = mockFetch.mock.calls[0][1] as { body: string };
+    const body = JSON.parse(callArgs.body) as Record<string, unknown>;
+    expect(body.lang).toBe('it');
+
+    mockFetch.mockClear();
+    await handler({ ...VALID_ARGS });
+    const callArgs2 = mockFetch.mock.calls[0][1] as { body: string };
+    const body2 = JSON.parse(callArgs2.body) as Record<string, unknown>;
+    expect('lang' in body2).toBe(false);
+  });
+
+  it('zod: rejects unsupported lang', async () => {
+    const handler = makeVoiceRequestOutboundCall({
+      bridgeUrl: 'http://10.0.0.2:4402',
+      fetch: makeOkFetch(),
+    });
+    await expect(
+      handler({ ...VALID_ARGS, lang: 'fr' }),
+    ).rejects.toThrow(BadRequestError);
+  });
 });

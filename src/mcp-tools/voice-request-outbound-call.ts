@@ -25,6 +25,13 @@ export const RequestOutboundCallSchema = z.object({
   // greeting lines. Optional with empty default so existing callers keep
   // working unchanged.
   counterpart_label: z.string().max(120).default(''),
+  // Phase 06.x multilingual: persona/voice language for THIS outbound call.
+  // Andy decides per call ("Carsten said the restaurant is in Italy" → 'it';
+  // "the lawyer is German" → 'de'; "the contact in London" → 'en'). When
+  // omitted, NanoClaw + Bridge default to 'de'. Validated to the v1 set
+  // (de/en/it) at the schema boundary so an unsupported lang produces a
+  // BadRequestError before hitting the Bridge.
+  lang: z.enum(['de', 'en', 'it']).optional(),
 });
 
 // ---- Deps ----
@@ -81,7 +88,7 @@ export function makeVoiceRequestOutboundCall(
       );
     }
 
-    const { call_id, target_phone, goal, context, report_to_jid } =
+    const { call_id, target_phone, goal, context, report_to_jid, lang } =
       parseResult.data;
 
     const phoneMask = maskPhone(target_phone);
@@ -115,6 +122,7 @@ export function makeVoiceRequestOutboundCall(
           goal,
           context,
           report_to_jid,
+          ...(lang ? { lang } : {}),
         }),
         signal: ctrl.signal,
       });

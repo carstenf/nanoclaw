@@ -22,6 +22,7 @@ You dispatch — you do NOT talk on the phone yourself. A separate voice AI (Son
 | `counterpart_label` | string ≤ 120 chars (optional) | who is being called: `"Restaurant Bella Vista"`, `"Praxis Dr. Müller"`, `"Tante Anke"`. Used by the persona to greet naturally. |
 | `context` | string ≤ 2000 chars (optional) | background the bot should know |
 | `report_to_jid` | string | THIS chat's JID — Discord `dc:<snowflake>` or WhatsApp E.164 |
+| `lang` | `"de"` \| `"en"` \| `"it"` (optional) | persona/voice language for the call. Omit for German (default). Pick from cues — Italian restaurant, English-speaking contact, etc. |
 | `call_id` | string (optional) | UUID for idempotency if Carsten wants re-safe call |
 
 ### Goal-text guidance
@@ -39,15 +40,28 @@ The voice bot reads `goal` as its brief. **Sonnet 4.6 is fully capable of handli
 
 **For restaurant reservations specifically:** include the date in absolute form (YYYY-MM-DD), time (HH:MM), and party size in the `goal` text. The bot handles tolerance negotiation, voicemail detection, and politeness conventions on its own.
 
+### Picking `lang`
+
+Default is `de` (omit the field). Set `lang` only when the called party is unlikely to speak German fluently.
+
+- Italian-named restaurant in Germany (e.g. "Il Giardino" in Munich) → still `de`. The staff almost certainly speaks German; switching to `it` would be jarring.
+- Restaurant or contact actually located abroad — Italian +39, French +33, UK +44 — → use the local language. `+39…` Italian restaurant → `lang: 'it'`. `+44…` UK contact → `lang: 'en'`.
+- Carsten explicitly says "ruf auf Englisch an" / "auf Italienisch" / similar → use that language.
+- When the goal text is in English/Italian, that's a strong signal — match `lang` to it.
+- Unsure? Default to `de` and let Carsten correct. Wrong-lang call wastes everyone's time more than wrong-greeting.
+
+The persona, all SCHWEIGEN nudges, voice tone, and whisper transcription pin to `lang` for the entire call. Goal text doesn't have to be translated — the bot speaks `lang`, the goal is just your brief.
+
 ### Routing examples (alle nutzen DAS GLEICHE Tool)
 
-| User says | counterpart_label | goal |
-|---|---|---|
-| "Rufe Restaurant Bella Vista unter +4917... an und reserviere heute 19:00 für 2" | `"Restaurant Bella Vista"` | `"Tisch reservieren für Carsten heute 2026-04-28 um 19:00 für 2 Personen"` |
-| "Buch Tisch bei Il Giardino, Donnerstag 20:00, 4 Personen, draußen" | `"Restaurant Il Giardino"` | `"Tisch reservieren für Carsten am Donnerstag 2026-05-01 um 20:00 für 4 Personen, draußen"` |
-| "Ruf Zahnarzt an, +49891234567, buche Dienstag 15 Uhr" | `"Zahnarztpraxis"` | `"Termin für Carsten am Dienstag 2026-04-29 um 15:00, falls möglich vormittags als Alternative"` |
-| "Ruf das Eiscafé an und bestell Eis zum Mitnehmen" | `"Eiscafé"` | `"Carsten bestellt 4 Eis zum Mitnehmen, Abholung in 20 Minuten"` |
-| "Frag Audi-Service ob mein Auto fertig ist" | `"Audi-Service"` | `"Bei Audi-Service nachfragen, ob Carstens Wagen abholbereit ist; bei nein nach Termin fragen"` |
+| User says | counterpart_label | goal | lang |
+|---|---|---|---|
+| "Rufe Restaurant Bella Vista unter +4917... an und reserviere heute 19:00 für 2" | `"Restaurant Bella Vista"` | `"Tisch reservieren für Carsten heute 2026-04-28 um 19:00 für 2 Personen"` | omit (de) |
+| "Buch Tisch bei Il Giardino in Mailand +39..., Donnerstag 20:00, 4 Personen" | `"Ristorante Il Giardino"` | `"Tisch reservieren für Carsten am Donnerstag 2026-05-01 um 20:00 für 4 Personen"` | `'it'` |
+| "Ruf Zahnarzt an, +49891234567, buche Dienstag 15 Uhr" | `"Zahnarztpraxis"` | `"Termin für Carsten am Dienstag 2026-04-29 um 15:00, falls möglich vormittags als Alternative"` | omit (de) |
+| "Ring the London hotel +44... about my booking next week" | `"Hotel London"` | `"Carsten asks the hotel to confirm his booking for next week and any room-upgrade options"` | `'en'` |
+| "Ruf das Eiscafé an und bestell Eis zum Mitnehmen" | `"Eiscafé"` | `"Carsten bestellt 4 Eis zum Mitnehmen, Abholung in 20 Minuten"` | omit (de) |
+| "Frag Audi-Service ob mein Auto fertig ist" | `"Audi-Service"` | `"Bei Audi-Service nachfragen, ob Carstens Wagen abholbereit ist; bei nein nach Termin fragen"` | omit (de) |
 
 ## How to find `report_to_jid`
 
