@@ -56,12 +56,21 @@ const VOICE_PERSONAS_DIR = path.resolve(
   'voice-personas',
 );
 
-// Map case_type → overlay filename. Mirrors SKILL.md `case_type-to-overlay`
-// table.
+// Map case_type → overlay filename (relative to the language dir or to the
+// flat skill root for the legacy layout). Mirrors SKILL.md
+// `case_type-to-overlay` table.
 const CASE_OVERLAY_MAP: Record<string, string | null> = {
   case_2: 'overlays/case-2-restaurant-outbound.md',
   case_6b: 'overlays/case-6b-inbound-carsten.md',
 };
+
+// Multilingual layout (Phase 06.x): per-language baselines + overlays under
+// `i18n/{lang}/`. Loader prefers `i18n/{lang}/`, falls back to the flat
+// layout (`baseline.md` + `overlays/...`) so a language without a folder
+// degrades gracefully to the German default content.
+const SUPPORTED_LANGS = ['de', 'en', 'it'] as const;
+type Lang = typeof SUPPORTED_LANGS[number];
+const DEFAULT_LANG: Lang = 'de';
 
 // ---------------------------------------------------------------------------
 // DI seam — kept for tests; default uses fs.readFileSync.
@@ -80,7 +89,7 @@ export interface VoicePersonaSkillFiles {
 
 export interface VoiceAgentInvokerDeps {
   /** Override the skill-files reader. Default: fs.readFileSync from VOICE_PERSONAS_DIR. */
-  loadSkillFiles?: (caseType: string) => VoicePersonaSkillFiles;
+  loadSkillFiles?: (caseType: string, lang?: Lang) => VoicePersonaSkillFiles;
   /** Clock override for latency metrics in tests. */
   now?: () => number;
 }
@@ -88,23 +97,37 @@ export interface VoiceAgentInvokerDeps {
 /**
  * Default skill-files reader. Reads from VOICE_PERSONAS_DIR on the host.
  * Throws if SKILL.md or baseline.md are missing — those are non-recoverable.
+ *
+ * Layout resolution:
+ *   1. `i18n/{lang}/baseline.md` + `i18n/{lang}/overlays/...` (multilingual).
+ *   2. Falls back to flat `baseline.md` + `overlays/...` (legacy DE-only).
+ * This lets Step 2 land the i18n folder structure without breaking the
+ * default DE path before the move is in.
  */
 export function loadVoicePersonaSkillDefault(
   caseType: string,
+  lang: Lang = DEFAULT_LANG,
 ): VoicePersonaSkillFiles {
   const skill = fs.readFileSync(
     path.join(VOICE_PERSONAS_DIR, 'SKILL.md'),
     'utf8',
   );
+
+  const langDir = path.join(VOICE_PERSONAS_DIR, 'i18n', lang);
+  const langBaseline = path.join(langDir, 'baseline.md');
+  const flatBaseline = path.join(VOICE_PERSONAS_DIR, 'baseline.md');
   const baseline = fs.readFileSync(
-    path.join(VOICE_PERSONAS_DIR, 'baseline.md'),
+    fs.existsSync(langBaseline) ? langBaseline : flatBaseline,
     'utf8',
   );
+
   const overlayRel = CASE_OVERLAY_MAP[caseType] ?? null;
   let overlay = '';
   let overlayPath: string | null = null;
   if (overlayRel) {
-    overlayPath = path.join(VOICE_PERSONAS_DIR, overlayRel);
+    const langOverlay = path.join(langDir, overlayRel);
+    const flatOverlay = path.join(VOICE_PERSONAS_DIR, overlayRel);
+    overlayPath = fs.existsSync(langOverlay) ? langOverlay : flatOverlay;
     try {
       overlay = fs.readFileSync(overlayPath, 'utf8');
     } catch {
@@ -116,21 +139,35 @@ export function loadVoicePersonaSkillDefault(
 }
 
 // ---------------------------------------------------------------------------
-// Du/Sie derivation
+// Anrede derivation (lang-aware)
 // ---------------------------------------------------------------------------
+// DE: Du/Sie axis (case-conditional — Carsten=Du, restaurant=Sie).
+// IT: tu/Lei axis (case-conditional — same shape as DE).
+// EN: no T-V distinction; "you" everywhere. Disclosure question form
+//     ("Are you a bot?") still varies, kept as a separate token.
 
 interface AnredeAxis {
-  form: 'Du' | 'Sie';
-  capitalized: string;
-  pronoun: string;
-  disclosure: string;
+  form: string;       // Du / Sie / tu / Lei / you
+  capitalized: string; // Re-ask accusative form (DE: dich/Sie; IT: te/Lei; EN: you)
+  pronoun: string;    // Re-ask nominative form (DE: du/Sie; IT: tu/Lei; EN: you)
+  disclosure: string; // Bot-disclosure question form ("Are you", "Bist du", "Sind Sie", "Sei", "Lei è")
 }
 
-function deriveAnrede(caseType: string): AnredeAxis {
-  if (caseType === 'case_6b') {
-    return { form: 'Du', capitalized: 'dich', pronoun: 'du', disclosure: 'Bist du' };
+function deriveAnrede(caseType: string, lang: Lang): AnredeAxis {
+  if (lang === 'de') {
+    if (caseType === 'case_6b') {
+      return { form: 'Du', capitalized: 'dich', pronoun: 'du', disclosure: 'Bist du' };
+    }
+    return { form: 'Sie', capitalized: 'Sie', pronoun: 'Sie', disclosure: 'Sind Sie' };
   }
-  return { form: 'Sie', capitalized: 'Sie', pronoun: 'Sie', disclosure: 'Sind Sie' };
+  if (lang === 'it') {
+    if (caseType === 'case_6b') {
+      return { form: 'tu', capitalized: 'te', pronoun: 'tu', disclosure: 'Sei' };
+    }
+    return { form: 'Lei', capitalized: 'Lei', pronoun: 'Lei', disclosure: 'Lei è' };
+  }
+  // en — single form, no T-V distinction
+  return { form: 'you', capitalized: 'you', pronoun: 'you', disclosure: 'Are you' };
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +213,47 @@ function deriveGoalAndContext(
   caseType: string,
   direction: string,
   counterpart: string,
+  lang: Lang,
 ): { goal: string; context: string } {
+  if (lang === 'en') {
+    if (caseType === 'case_6b' && direction === 'inbound') {
+      return {
+        goal:
+          'Help Carsten directly via CLI — manage calendar, look up travel times, delegate research, recall memory.',
+        context: 'Inbound call from Carsten via CLI whitelist (case_6b).',
+      };
+    }
+    if (caseType === 'case_2' && direction === 'outbound') {
+      return {
+        goal: 'Book a table on Carstens behalf.',
+        context: `Outbound to ${counterpart} (case_2 restaurant booking).`,
+      };
+    }
+    return {
+      goal: `Resolve the matter with ${counterpart}.`,
+      context: `${direction === 'inbound' ? 'Inbound' : 'Outbound'} (${caseType}).`,
+    };
+  }
+  if (lang === 'it') {
+    if (caseType === 'case_6b' && direction === 'inbound') {
+      return {
+        goal:
+          'Aiutare Carsten direttamente via CLI — gestire il calendario, controllare i tempi di viaggio, delegare ricerche, recuperare la memoria.',
+        context: 'Chiamata in entrata da Carsten via CLI whitelist (case_6b).',
+      };
+    }
+    if (caseType === 'case_2' && direction === 'outbound') {
+      return {
+        goal: 'Prenotare un tavolo per conto di Carsten.',
+        context: `Chiamata in uscita a ${counterpart} (case_2 prenotazione ristorante).`,
+      };
+    }
+    return {
+      goal: `Risolvere la questione con ${counterpart}.`,
+      context: `${direction === 'inbound' ? 'In entrata' : 'In uscita'} (${caseType}).`,
+    };
+  }
+  // de (default)
   if (caseType === 'case_6b' && direction === 'inbound') {
     return {
       goal:
@@ -190,7 +267,6 @@ function deriveGoalAndContext(
       context: `Outbound an ${counterpart} (case_2 Restaurant-Reservierung).`,
     };
   }
-  // Generic fallback — kept short so the persona stays well-formed.
   return {
     goal: `Anliegen mit ${counterpart} klaeren.`,
     context: `${direction === 'inbound' ? 'Inbound' : 'Outbound'} (${caseType}).`,
@@ -211,11 +287,13 @@ export function renderPersona(
   skill: VoicePersonaSkillFiles,
   input: VoiceTriggersInitInput,
 ): string {
-  const anrede = deriveAnrede(input.case_type);
+  const lang: Lang = (input.lang ?? DEFAULT_LANG) as Lang;
+  const anrede = deriveAnrede(input.case_type, lang);
   const { goal, context } = deriveGoalAndContext(
     input.case_type,
     input.call_direction,
     input.counterpart_label,
+    lang,
   );
 
   // 1. Pick the SCHWEIGEN block matching call_direction (drops the other
@@ -307,15 +385,17 @@ export async function defaultInvokeAgent(
   const _loadSkill = deps.loadSkillFiles ?? loadVoicePersonaSkillDefault;
   const now = deps.now ?? (() => Date.now());
   const start = now();
+  const lang: Lang = (input.lang ?? DEFAULT_LANG) as Lang;
 
   let skill: VoicePersonaSkillFiles;
   try {
-    skill = _loadSkill(input.case_type);
+    skill = _loadSkill(input.case_type, lang);
   } catch (err) {
     logger.warn({
       event: 'voice_render_skill_load_failed',
       call_id: input.call_id,
       case_type: input.case_type,
+      lang,
       err: err instanceof Error ? err.message : String(err),
     });
     const e = new Error('agent_unavailable: skill load failed');
@@ -328,6 +408,7 @@ export async function defaultInvokeAgent(
       event: 'voice_render_no_overlay_for_case',
       call_id: input.call_id,
       case_type: input.case_type,
+      lang,
     });
   }
 
@@ -348,8 +429,9 @@ export async function defaultInvokeAgent(
     call_id: input.call_id,
     latency_ms: latency,
     case_type: input.case_type,
+    lang,
     instructions_len: instructions.length,
-    anrede: deriveAnrede(input.case_type).form,
+    anrede: deriveAnrede(input.case_type, lang).form,
   });
 
   return { instructions };

@@ -130,6 +130,50 @@ describe('renderPersona', () => {
     );
     expect(out).toContain('Anrede: Sie'); // non-6b → Sie default
   });
+
+  it('lang=en → "you" form, no T-V distinction, EN goal text', () => {
+    const out = renderPersona(
+      fakeSkill('case_6b'),
+      makeInitInput({ lang: 'en' }),
+    );
+    expect(out).toContain('Anrede: you');
+    expect(out).toContain('Pronomen you');
+    expect(out).toContain('Disclosure Are you');
+    expect(out).toContain('Help Carsten directly via CLI');
+    expect(out).not.toContain('ueber CLI');
+  });
+
+  it('lang=it case_6b → tu-form, IT goal text', () => {
+    const out = renderPersona(
+      fakeSkill('case_6b'),
+      makeInitInput({ lang: 'it' }),
+    );
+    expect(out).toContain('Anrede: tu');
+    expect(out).toContain('Pronomen tu');
+    expect(out).toContain('Re-Ask te');
+    expect(out).toContain('Aiutare Carsten');
+  });
+
+  it('lang=it case_2 → Lei-form, IT goal text', () => {
+    const out = renderPersona(
+      fakeSkill('case_2'),
+      makeInitInput({
+        case_type: 'case_2',
+        call_direction: 'outbound',
+        counterpart_label: 'Bella Vista',
+        lang: 'it',
+      }),
+    );
+    expect(out).toContain('Anrede: Lei');
+    expect(out).toContain('Disclosure Lei è');
+    expect(out).toContain('Prenotare un tavolo');
+  });
+
+  it('lang omitted → defaults to de (back-compat)', () => {
+    const out = renderPersona(fakeSkill('case_6b'), makeInitInput());
+    expect(out).toContain('Anrede: Du');
+    expect(out).toContain('CLI direkt helfen'); // DE goal
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -201,6 +245,28 @@ describe('defaultInvokeAgent', () => {
       loadSkillFiles: fakeSkill,
     });
     expect(r.instructions).not.toContain('AGENT_NOT_WIRED');
+  });
+
+  it('passes lang to the skill-files loader (DI seam contract)', async () => {
+    let capturedLang: string | undefined;
+    await defaultInvokeAgent(makeInitInput({ lang: 'it' }), {
+      loadSkillFiles: (caseType, lang) => {
+        capturedLang = lang;
+        return fakeSkill(caseType);
+      },
+    });
+    expect(capturedLang).toBe('it');
+  });
+
+  it('defaults loader lang to de when input lang is omitted', async () => {
+    let capturedLang: string | undefined;
+    await defaultInvokeAgent(makeInitInput(), {
+      loadSkillFiles: (caseType, lang) => {
+        capturedLang = lang;
+        return fakeSkill(caseType);
+      },
+    });
+    expect(capturedLang).toBe('de');
   });
 });
 

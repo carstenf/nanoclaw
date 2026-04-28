@@ -22,6 +22,11 @@
 // that pass an explicit `invokeAgent` override continue to work; only the
 // default behavior changed.
 //
+// Multilingual (Phase 06.x — 2026-04-28): schema accepts optional `lang`
+// arg ('de' | 'en' | 'it', default 'de'). Renderer + skill loader pick
+// per-language baseline + overlays from `i18n/{lang}/`; Bridge maps lang
+// to OpenAI Realtime voice + transcription.language.
+//
 // REQ-COST-06 (Plan 05.5-05): optional `recordCost` DI captures per-trigger
 // cost in the same voice_record_turn_cost ledger as Realtime turns. The
 // container-agent's `invokeAgent` returns an optional `cost_eur` (defaults
@@ -59,14 +64,23 @@ if (!/^[a-zA-Z0-9_]{1,64}$/.test(TOOL_NAME)) {
 // D-8 locked schema. case_type enum starts with the three overlays in
 // scope for v1 (case_2 outbound restaurant, case_6a / case_6b Carsten).
 // Extend the enum when new overlays land (skill ships them).
+//
+// `lang` (optional, default 'de'): persona/voice language. Supported v1:
+// de (default — works with all current overlays), en, it. The renderer
+// reads from `i18n/{lang}/` and derives anrede/goal text per language.
+// Bridge-side OpenAI Realtime voice + transcription.language map from
+// this field.
 export const VoiceTriggersInitSchema = z.object({
   call_id: z.string().min(1),
   case_type: z.enum(['case_2', 'case_6a', 'case_6b']),
   call_direction: z.enum(['inbound', 'outbound']),
   counterpart_label: z.string().min(1).max(120),
+  lang: z.enum(['de', 'en', 'it']).optional().default('de'),
 });
 
-export type VoiceTriggersInitInput = z.infer<typeof VoiceTriggersInitSchema>;
+// Use the schema's INPUT type (pre-default-application) so callers and
+// fixtures may omit `lang`. Renderer treats it as defaulted to 'de'.
+export type VoiceTriggersInitInput = z.input<typeof VoiceTriggersInitSchema>;
 
 export type VoiceTriggersInitResult =
   | { ok: true; result: { instructions: string } }
