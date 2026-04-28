@@ -411,6 +411,7 @@ export function registerAcceptRoute(
               counterpart_label: String(
                 activeOutbound.case_payload?.restaurant_name ?? 'Counterpart',
               ),
+              ...(activeOutbound.lang ? { lang: activeOutbound.lang } : {}),
             })
             case2Persona = r.instructions
           } catch (err) {

@@ -43,6 +43,9 @@ export const OutboundRequestSchema = z.object({
   // Case-type routing + per-case payload (optional — omit for legacy path).
   case_type: z.enum(['case_2', 'case_6b']).optional(),
   case_payload: z.record(z.string(), z.unknown()).optional(),
+  // Phase 06.x multilingual: persona/voice language Andy picks per call.
+  // Default 'de' applied on the NanoClaw side when omitted.
+  lang: z.enum(['de', 'en', 'it']).optional(),
 })
 
 // ---- Peer-IP check ----
@@ -130,6 +133,7 @@ export function registerOutboundRoute(
       tools_override,
       case_type,
       case_payload,
+      lang,
     } = parse.data
 
     // 4. Enqueue
@@ -145,6 +149,7 @@ export function registerOutboundRoute(
         tools_override,
         case_type,
         case_payload,
+        lang,
       })
     } catch (err) {
       if (err instanceof QueueFullError) {

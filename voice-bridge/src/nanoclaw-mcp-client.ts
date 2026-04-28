@@ -75,6 +75,12 @@ export interface VoiceTriggersInitInput {
   case_type: 'case_2' | 'case_6a' | 'case_6b'
   call_direction: 'inbound' | 'outbound'
   counterpart_label: string
+  /**
+   * Optional persona language (Phase 06.x multilingual). Default 'de' on the
+   * server side. Inbound paths default to 'de' (Carsten = DE); outbound paths
+   * pass it from voice_request_outbound_call args (Andy decides per call).
+   */
+  lang?: 'de' | 'en' | 'it'
 }
 
 export interface VoiceTriggersTranscriptInput {

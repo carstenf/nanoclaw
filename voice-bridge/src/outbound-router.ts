@@ -88,6 +88,12 @@ export interface OutboundTask {
   case_type?: 'case_2' | 'case_6b'
   /** Plan 05-02 Wave 2: extra per-case-type payload carried through to /accept handler (Wave 3 reads this). */
   case_payload?: Record<string, unknown>
+  /**
+   * Phase 06.x multilingual: persona/voice language Andy picks per outbound
+   * call. Threaded into voice_triggers_init at /accept so the per-language
+   * baseline + overlay are rendered. Undefined = NanoClaw-side default 'de'.
+   */
+  lang?: 'de' | 'en' | 'it'
 }
 
 export interface EnqueueRequest {
@@ -104,6 +110,8 @@ export interface EnqueueRequest {
   case_type?: 'case_2' | 'case_6b'
   /** Plan 05-02 Wave 2: extra per-case-type payload. Wave 3 reads this at /accept. */
   case_payload?: Record<string, unknown>
+  /** Phase 06.x multilingual: persona language for the outbound call. */
+  lang?: 'de' | 'en' | 'it'
 }
 
 /**
@@ -462,6 +470,7 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
       // per Plan 05-02 idempotency-key invariant. undefined = legacy path.
       case_type: req.case_type,
       case_payload: req.case_payload,
+      lang: req.lang,
     }
     tasks.set(task.task_id, task)
 
