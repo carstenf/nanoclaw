@@ -46,6 +46,9 @@ export const OutboundRequestSchema = z.object({
   // Phase 06.x multilingual: persona/voice language Andy picks per call.
   // Default 'de' applied on the NanoClaw side when omitted.
   lang: z.enum(['de', 'en', 'it']).optional(),
+  // Step 2B: noun phrase for the called party. Used at /accept to render
+  // a baseline-only outbound persona that addresses the right entity.
+  counterpart_label: z.string().max(120).optional(),
 })
 
 // ---- Peer-IP check ----
@@ -134,6 +137,7 @@ export function registerOutboundRoute(
       case_type,
       case_payload,
       lang,
+      counterpart_label,
     } = parse.data
 
     // 4. Enqueue
@@ -150,6 +154,7 @@ export function registerOutboundRoute(
         case_type,
         case_payload,
         lang,
+        counterpart_label,
       })
     } catch (err) {
       if (err instanceof QueueFullError) {

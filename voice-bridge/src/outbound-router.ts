@@ -94,6 +94,14 @@ export interface OutboundTask {
    * baseline + overlay are rendered. Undefined = NanoClaw-side default 'de'.
    */
   lang?: 'de' | 'en' | 'it'
+  /**
+   * Step 2B: noun phrase identifying the called party ("Restaurant Bella
+   * Vista", "Praxis Dr. Mueller", "Tante Anke"). Threaded into the
+   * voice_triggers_init counterpart_label arg for natural greeting +
+   * addressing in the post-AMD persona. Falls back to
+   * case_payload.restaurant_name (case_2 legacy) and finally 'Counterpart'.
+   */
+  counterpart_label?: string
 }
 
 export interface EnqueueRequest {
@@ -112,6 +120,8 @@ export interface EnqueueRequest {
   case_payload?: Record<string, unknown>
   /** Phase 06.x multilingual: persona language for the outbound call. */
   lang?: 'de' | 'en' | 'it'
+  /** Step 2B: counterpart noun phrase, used by /accept persona render. */
+  counterpart_label?: string
 }
 
 /**
@@ -471,6 +481,7 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
       case_type: req.case_type,
       case_payload: req.case_payload,
       lang: req.lang,
+      counterpart_label: req.counterpart_label,
     }
     tasks.set(task.task_id, task)
 

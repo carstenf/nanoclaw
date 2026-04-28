@@ -365,7 +365,7 @@ describe('POST /accept — Phase 2 full-wiring', () => {
   // /accept fires a proactive response.create on WS.send, and
   // armedForFirstSpeech stays false (the arm-then-fire pattern is case-2-
   // specific now). Test updated accordingly (was: asserted armed=true).
-  it('Test I (Phase 05.4 Block-3): Case-1 default-outbound /accept speak-first (no armedForFirstSpeech arming)', async () => {
+  it('Test I (Step 2A — AMD always-on): non-case-2 outbound /accept fires NO speak-first response.create (AMD classifier prompt in scope until onHuman verdict)', async () => {
     // No fake timers needed — my edit replaced the outbound setTimeout with a
     // synchronous state assignment. Test asserts on the sync state after /accept
     // completes. Fake timers caused the test to hang under real-timer-dependent
@@ -443,11 +443,11 @@ describe('POST /accept — Phase 2 full-wiring', () => {
           }),
         })
         expect(res.statusCode).toBe(200)
-        // Phase 05.4 Block-3: Case-1 non-case-2 outbound — armedForFirstSpeech
-        // stays false (arming is case-2-only now).
+        // Step 2A — AMD always-on: every outbound (incl. case_type !== 'case_2',
+        // here case_type='case_1_default') routes through the AMD classifier
+        // prompt at /accept. No speak-first response.create is fired; the
+        // onHuman callback issues response.create after AMD verdict.
         expect(sidebandState.armedForFirstSpeech).toBe(false)
-        // Speak-first: a response.create event was sent on the sideband WS so
-        // the model opens with its persona-directed greeting.
         const createCalls = (sendSpy as ReturnType<typeof vi.fn>).mock.calls
           .map((c) => {
             try {
@@ -457,7 +457,7 @@ describe('POST /accept — Phase 2 full-wiring', () => {
             }
           })
           .filter((m): m is { type: string } => m?.type === 'response.create')
-        expect(createCalls.length).toBeGreaterThanOrEqual(1)
+        expect(createCalls.length).toBe(0)
       } finally {
         await app.close()
       }

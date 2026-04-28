@@ -59,8 +59,14 @@ const VOICE_PERSONAS_DIR = path.resolve(
 // Map case_type → overlay filename (relative to the language dir or to the
 // flat skill root for the legacy layout). Mirrors SKILL.md
 // `case_type-to-overlay` table.
+//
+// Step 2B (open_points 2026-04-28): the case_2 entry was removed —
+// case-2-restaurant-outbound.md was deleted across all i18n folders. Every
+// outbound now renders baseline-only with goal + counterpart_label driving
+// the call. case_2 keeps its enum value for backwards compat until Step 3
+// rename pass; the renderer treats it as "no overlay → baseline only" the
+// same as case_6a.
 const CASE_OVERLAY_MAP: Record<string, string | null> = {
-  case_2: 'overlays/case-2-restaurant-outbound.md',
   case_6b: 'overlays/case-6b-inbound-carsten.md',
 };
 

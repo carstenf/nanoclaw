@@ -88,8 +88,15 @@ export function makeVoiceRequestOutboundCall(
       );
     }
 
-    const { call_id, target_phone, goal, context, report_to_jid, lang } =
-      parseResult.data;
+    const {
+      call_id,
+      target_phone,
+      goal,
+      context,
+      report_to_jid,
+      lang,
+      counterpart_label,
+    } = parseResult.data;
 
     const phoneMask = maskPhone(target_phone);
     const phoneHash = crypto
@@ -123,6 +130,9 @@ export function makeVoiceRequestOutboundCall(
           context,
           report_to_jid,
           ...(lang ? { lang } : {}),
+          ...(counterpart_label && counterpart_label.length > 0
+            ? { counterpart_label }
+            : {}),
         }),
         signal: ctrl.signal,
       });

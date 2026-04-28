@@ -367,7 +367,6 @@ export function registerAcceptRoute(
       // speak-first mode and could narrate into a voicemail box. Step 2A
       // closes that hole by treating every outbound as needing AMD before
       // any bot-audio is allowed; the persona swap fires after onHuman.
-      const isCase2 = activeOutbound.case_type === 'case_2'
 
       // Honor per-call override envelope (Spike-A / Wave 3):
       //   persona_override — use verbatim as the post-AMD persona
@@ -387,47 +386,57 @@ export function registerAcceptRoute(
       // Initial /accept instructions = AMD classifier prompt for ALL outbound.
       const outboundInstructions: string = CASE2_AMD_CLASSIFIER_PROMPT
 
-      // Pre-render the post-AMD persona. Source priority:
-      //   1. case_type='case_2' → render via voice-personas skill (existing
-      //      path; case_2 overlay still ships restaurant decision-rules until
-      //      Step 2B unifies on baseline-only outbound).
-      //   2. persona_override (legacy Spike-A / Wave 3) → use verbatim.
-      //   3. neither → FALLBACK_PERSONA (REQ-DIR-18).
-      // Step 2B will fold (1) and (3) into a single skill render path.
+      // Pre-render the post-AMD persona. Step 2B unified path: every outbound
+      // renders a baseline-only persona via the voice-personas skill (the
+      // case-2 restaurant overlay was deleted; the generic outbound persona
+      // is the baseline addressing `counterpart_label` with the goal text
+      // Andy supplied). Source priority:
+      //   1. nanoclawMcp.init render → baseline-only outbound persona.
+      //   2. persona_override (legacy Spike-A / Wave 3) → wins over render
+      //      when explicitly supplied; preserved for tests + backward compat.
+      //   3. render failure or no MCP client → FALLBACK_PERSONA (REQ-DIR-18).
+      // counterpart_label resolution: top-level activeOutbound.counterpart_label
+      // first (Andy's voice_request_outbound_call arg), then case_2 legacy
+      // restaurant_name in case_payload, finally 'Counterpart'.
+      const resolvedCounterpartLabel = String(
+        activeOutbound.counterpart_label ??
+          (activeOutbound.case_payload?.restaurant_name as string | undefined) ??
+          'Counterpart',
+      )
       let postAmdPersona: string = FALLBACK_PERSONA
-      if (isCase2) {
-        if (!nanoclawMcp) {
-          log.error({
-            event: 'container_agent_mode_but_client_missing',
+      if (hasPersonaOverride) {
+        postAmdPersona = activeOutbound.persona_override as string
+      } else if (!nanoclawMcp) {
+        log.error({
+          event: 'container_agent_mode_but_client_missing',
+          call_id: callId,
+        })
+        postAmdPersona = FALLBACK_PERSONA
+      } else {
+        // case_type passed as 'case_2' for any outbound (the only outbound
+        // case in v1; the overlay file is gone so render is baseline-only
+        // regardless of case_type). Step 3 will rename the enum value to
+        // 'case_outbound' once the migration cycle is past the live PASS gate.
+        const initCaseType: 'case_2' = 'case_2'
+        try {
+          const r = await nanoclawMcp.init({
             call_id: callId,
+            case_type: initCaseType,
+            call_direction: 'outbound',
+            counterpart_label: resolvedCounterpartLabel,
+            ...(activeOutbound.lang ? { lang: activeOutbound.lang } : {}),
+          })
+          postAmdPersona = r.instructions
+        } catch (err) {
+          log.warn({
+            event: 'container_agent_init_failed',
+            call_id: callId,
+            case_type: initCaseType,
+            err: (err as Error)?.message,
           })
           postAmdPersona = FALLBACK_PERSONA
-        } else {
-          try {
-            const r = await nanoclawMcp.init({
-              call_id: callId,
-              case_type: 'case_2',
-              call_direction: 'outbound',
-              counterpart_label: String(
-                activeOutbound.case_payload?.restaurant_name ?? 'Counterpart',
-              ),
-              ...(activeOutbound.lang ? { lang: activeOutbound.lang } : {}),
-            })
-            postAmdPersona = r.instructions
-          } catch (err) {
-            log.warn({
-              event: 'container_agent_init_failed',
-              call_id: callId,
-              case_type: 'case_2',
-              err: (err as Error)?.message,
-            })
-            postAmdPersona = FALLBACK_PERSONA
-          }
         }
-      } else if (hasPersonaOverride) {
-        postAmdPersona = activeOutbound.persona_override as string
       }
-      // (else stays at FALLBACK_PERSONA initialised above.)
 
       // Outbound tool list: base allowlist minus 3 Case-6-specific tools that
       // make no sense for an outbound bot, plus amd_result. tools_override (if
@@ -591,11 +600,16 @@ export function registerAcceptRoute(
         call_id: callId,
         task_id: activeOutbound.task_id,
         case_type: activeOutbound.case_type ?? null,
-        persona_source: isCase2
-          ? 'skill_render'
-          : hasPersonaOverride
-            ? 'persona_override'
-            : 'fallback',
+        // Step 2B: persona_source reflects which branch produced postAmdPersona.
+        // 'skill_render' = baseline-only outbound persona via voice-personas;
+        // 'persona_override' = caller-supplied verbatim string (Spike-A/Wave 3);
+        // 'fallback' = FALLBACK_PERSONA (MCP missing or render failure).
+        persona_source: hasPersonaOverride
+          ? 'persona_override'
+          : postAmdPersona === FALLBACK_PERSONA
+            ? 'fallback'
+            : 'skill_render',
+        counterpart_label: resolvedCounterpartLabel,
         tools_count: toolsPayloadOut.length,
         tools_override: hasToolsOverride,
       })
@@ -641,30 +655,18 @@ export function registerAcceptRoute(
           tools_count: toolsPayloadOut.length,
           schema_compile_ok: true,
           sideband_opened: true,
-          persona_selected: isCase2 ? 'case_2_amd' : 'outbound',
+          persona_selected: 'outbound_amd',
           outbound_task_id: activeOutbound.task_id,
         })
-        if (isCase2) {
-          // Case-2: NO proactive requestResponse — AMD classifier must fire first.
-          // Wire ctxRef so the onHuman callback (closure above) can reach sideband.
-          // armedForFirstSpeech stays false; the onHuman closure requests
-          // response.create + flips create_response:true explicitly post-AMD verdict.
-          ctxRef = ctx
-        } else {
-          // Phase 05.4 Block-3: Case-1 / Case-6b outbound — speak-first per
-          // REQ-VOICE-04 (auto_create_response=true). Fire a synchronous
-          // response.create so the model opens with its persona-directed
-          // greeting ("NanoClaw im Auftrag von Carsten…"). Subsequent turns
-          // are handled natively by server_vad + create_response:true.
-          // armedForFirstSpeech stays false (the whole arm-then-fire pattern
-          // is case-2-specific now).
-          requestResponse(ctx.sideband.state, log)
-          log.info({
-            event: 'outbound_speak_first',
-            call_id: callId,
-            outbound: true,
-          })
-        }
+        // Step 2A — AMD always-on: NO proactive requestResponse for any
+        // outbound. The AMD classifier prompt is in scope; the onHuman
+        // closure fires response.create + flips create_response:true post
+        // verdict. Wire ctxRef so the closure reaches sideband. The legacy
+        // speak-first else-branch (Case-6b outbound) is dead since /accept
+        // now always pushes CASE2_AMD_CLASSIFIER_PROMPT — proactive
+        // requestResponse would either be silenced by the detection-mode
+        // prompt or break it.
+        ctxRef = ctx
       } catch (e: unknown) {
         const err = e as Error
         log.error({

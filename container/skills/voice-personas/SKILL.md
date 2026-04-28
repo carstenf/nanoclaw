@@ -29,8 +29,10 @@ the `lang` arg passed to `voice_triggers_init`; default `lang='de'`.
 | File | Purpose |
 |---|---|
 | `i18n/{de,en,it}/baseline.md` | Universal baseline (~515 tokens). Identity, ROLE, PERSONALITY, REFERENCE PRONUNCIATIONS, INSTRUCTIONS/RULES, CONVERSATION FLOW, SAFETY & ESCALATION. Holds all `{{...}}` placeholders. |
-| `i18n/{de,en,it}/overlays/case-2-restaurant-outbound.md` | Case-2 overlay — outbound restaurant reservation. TASK + DECISION RULES + CLARIFYING-QUESTION ANSWERS + HOLD-MUSIC HANDLING. |
 | `i18n/{de,en,it}/overlays/case-6b-inbound-carsten.md` | Case-6b overlay — inbound from Carsten (CLI whitelist). TASK + calendar / travel-time / ASK_CORE / END_CALL hard-rule. |
+
+**Outbound (case_2 / generic) renders baseline-only (Step 2B 2026-04-28).**
+The case-2 restaurant overlay was deleted; the call brief now flows in via the `goal` placeholder Andy supplied to `voice_request_outbound_call`, and `counterpart_label` addresses the right entity. Sonnet/Realtime is fully capable of handling restaurant reservations, doctor appointments, callbacks, and generic inquiries straight from the goal text. If a future case demands scripted decision rules (e.g. legal-style negotiations), introduce a new overlay file rather than reviving the case-2 one.
 
 Languages supported v1: `de` (default), `en`, `it`. Adding a new overlay or
 case_type means adding it for EVERY supported language — the loader has a
@@ -59,8 +61,8 @@ Paths are relative to `i18n/{lang}/`.
 
 | `case_type` | Overlay file |
 |---|---|
-| `case_2` | `overlays/case-2-restaurant-outbound.md` |
 | `case_6b` | `overlays/case-6b-inbound-carsten.md` |
+| `case_2` | none — baseline only (Step 2B). Restaurant overlay was deleted; goal text drives the brief. |
 | (any other) | none — baseline only, log warning |
 
 ## Placeholders
