@@ -71,34 +71,49 @@ import { setAmdClassifier } from './tools/dispatch.js'
 // is orphaned but observable).
 // ---------------------------------------------------------------------------
 
-type Case2OnVoicemailActiveOutbound = {
+type OutboundOnVoicemailActiveOutbound = {
   task_id: string
   target_phone: string
+  /**
+   * Step 2D: counterpart_label threaded into voicemail handler so the
+   * notify_user message names the right entity ("Voicemail erkannt bei
+   * Tante Anke" rather than the case_2-specific "...bei Restaurant ...").
+   */
+  counterpart_label?: string
 }
 
-type Case2OnVoicemailCoreClient = {
+type OutboundOnVoicemailCoreClient = {
   callTool: (
     name: string,
     args: Record<string, unknown>,
   ) => Promise<unknown>
 }
 
-type Case2OnVoicemailOpenAI = {
+type OutboundOnVoicemailOpenAI = {
   realtime: { calls: { hangup: (callId: string) => Promise<unknown> } }
 }
 
-export interface BuildCase2OnVoicemailHandlerParams {
+/**
+ * Step 2D: renamed from BuildCase2OnVoicemailHandlerParams. The handler now
+ * runs for every outbound (Step 2A — AMD always-on), not just case_2.
+ */
+export interface BuildOutboundOnVoicemailHandlerParams {
   callId: string
-  activeOutbound: Case2OnVoicemailActiveOutbound
+  activeOutbound: OutboundOnVoicemailActiveOutbound
   casePayload: Record<string, unknown>
-  coreMcpForAmd: Case2OnVoicemailCoreClient | null
-  openai: Case2OnVoicemailOpenAI
+  coreMcpForAmd: OutboundOnVoicemailCoreClient | null
+  openai: OutboundOnVoicemailOpenAI
   log: Logger
   setAmdClassifier: (c: null) => void
 }
 
-export function buildCase2OnVoicemailHandler(
-  params: BuildCase2OnVoicemailHandlerParams,
+/**
+ * Build the AMD onVoicemail callback for any outbound call. Step 2D rename
+ * from buildCase2OnVoicemailHandler — Step 2A made AMD universal, so the
+ * voicemail path runs for case_2 + generic outbound alike.
+ */
+export function buildOutboundOnVoicemailHandler(
+  params: BuildOutboundOnVoicemailHandlerParams,
 ): (reason: AmdVoicemailReason) => Promise<void> {
   const { callId, activeOutbound, casePayload, coreMcpForAmd, openai, log } =
     params
@@ -109,6 +124,23 @@ export function buildCase2OnVoicemailHandler(
   // enforces review of any expansion).
   const amdReasonToPrevOutcome = (_r: AmdVoicemailReason): 'voicemail' =>
     'voicemail'
+
+  // Step 2D: resolve a non-restaurant-biased label for the notify_user text.
+  // counterpart_label (Andy's voice_request_outbound_call arg) wins, then
+  // case_2's restaurant_name (legacy compat), finally the masked phone.
+  const resolvedLabel = (() => {
+    if (
+      typeof activeOutbound.counterpart_label === 'string' &&
+      activeOutbound.counterpart_label.length > 0
+    ) {
+      return activeOutbound.counterpart_label
+    }
+    const restaurantName = casePayload.restaurant_name
+    if (typeof restaurantName === 'string' && restaurantName.length > 0) {
+      return restaurantName
+    }
+    return activeOutbound.target_phone
+  })()
 
   return async function onVoicemail(reason: AmdVoicemailReason): Promise<void> {
     log.info({
@@ -173,7 +205,7 @@ export function buildCase2OnVoicemailHandler(
       try {
         await coreMcpForAmd.callTool('voice_notify_user', {
           urgency: 'info',
-          text: `Voicemail erkannt bei ${String(casePayload.restaurant_name ?? 'Restaurant')} (${reason}). Nächster Versuch in Kürze.`,
+          text: `Voicemail erkannt bei ${resolvedLabel} (${reason}). Naechster Versuch in Kuerze.`,
           call_id: callId,
         })
       } catch (e: unknown) {
@@ -583,12 +615,13 @@ export function registerAcceptRoute(
             }
           },
           // Factory extracted for unit-testability — see
-          // buildCase2OnVoicemailHandler + webhook-case-2-voicemail.test.ts.
-          onVoicemail: buildCase2OnVoicemailHandler({
+          // buildOutboundOnVoicemailHandler + webhook-case-2-voicemail.test.ts.
+          onVoicemail: buildOutboundOnVoicemailHandler({
             callId,
             activeOutbound: {
               task_id: activeOutbound.task_id,
               target_phone: activeOutbound.target_phone,
+              counterpart_label: activeOutbound.counterpart_label,
             },
             casePayload,
             coreMcpForAmd,

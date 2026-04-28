@@ -12,14 +12,14 @@
 // transcript_cue) map to prev_outcome='voicemail' (RESEARCH §4.3).
 //
 // Approach: Task 2 GREEN extracts the onVoicemail closure into an exported
-// factory function `buildCase2OnVoicemailHandler` from webhook.ts so it is
+// factory function `buildOutboundOnVoicemailHandler` from webhook.ts so it is
 // unit-testable. This test file imports that factory; before GREEN lands it
 // does not exist, so the import failure is the RED gate.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Logger } from 'pino'
 import { z } from 'zod'
 import type { AmdVoicemailReason } from '../src/amd-classifier.js'
-import { buildCase2OnVoicemailHandler } from '../src/webhook.js'
+import { buildOutboundOnVoicemailHandler } from '../src/webhook.js'
 
 // ---- zod schema replica ----------------------------------------------------
 // Keep in sync with src/mcp-tools/voice-case-2-retry.ts:36-44.
@@ -103,14 +103,14 @@ function buildHandler(opts: {
 
   const openai = {
     realtime: { calls: { hangup: hangupMock } },
-  } as unknown as Parameters<typeof buildCase2OnVoicemailHandler>[0]['openai']
+  } as unknown as Parameters<typeof buildOutboundOnVoicemailHandler>[0]['openai']
 
-  const handler = buildCase2OnVoicemailHandler({
+  const handler = buildOutboundOnVoicemailHandler({
     callId,
     activeOutbound,
     casePayload,
     coreMcpForAmd: coreMcpForAmd as unknown as Parameters<
-      typeof buildCase2OnVoicemailHandler
+      typeof buildOutboundOnVoicemailHandler
     >[0]['coreMcpForAmd'],
     openai,
     log,
