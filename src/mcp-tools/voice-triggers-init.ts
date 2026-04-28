@@ -76,6 +76,12 @@ export const VoiceTriggersInitSchema = z.object({
   call_direction: z.enum(['inbound', 'outbound']),
   counterpart_label: z.string().min(1).max(120),
   lang: z.enum(['de', 'en', 'it']).optional().default('de'),
+  // Step 2B+ patch: outbound goal text from voice_request_outbound_call.
+  // Threaded into the {{goal}} placeholder so the bot sees the actual call
+  // brief instead of the hardcoded restaurant default. Optional — inbound
+  // and case_2 legacy callers (no goal in init) keep working with the
+  // case-specific defaults from deriveGoalAndContext.
+  goal: z.string().max(500).optional(),
 });
 
 // Use the schema's INPUT type (pre-default-application) so callers and

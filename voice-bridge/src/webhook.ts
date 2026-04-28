@@ -461,6 +461,9 @@ export function registerAcceptRoute(
             call_direction: 'outbound',
             counterpart_label: resolvedCounterpartLabel,
             ...(activeOutbound.lang ? { lang: activeOutbound.lang } : {}),
+            ...(activeOutbound.goal && activeOutbound.goal.length > 0
+              ? { goal: activeOutbound.goal }
+              : {}),
           })
           postAmdPersona = r.instructions
         } catch (err) {

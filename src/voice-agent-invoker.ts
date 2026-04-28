@@ -297,12 +297,19 @@ export function renderPersona(
 ): string {
   const lang: Lang = (input.lang ?? DEFAULT_LANG) as Lang;
   const anrede = deriveAnrede(input.case_type, lang);
-  const { goal, context } = deriveGoalAndContext(
+  const derived = deriveGoalAndContext(
     input.case_type,
     input.call_direction,
     input.counterpart_label,
     lang,
   );
+  // Step 2B patch: prefer the caller-supplied goal text over the case-derived
+  // default. voice_request_outbound_call's `goal` arg flows from Andy
+  // verbatim, so the bot reads the actual brief ("Sag Carsten X" / "Buch
+  // Tisch fuer Y") instead of the hardcoded "Tisch reservieren ..." default
+  // that lingered after the case_2 overlay was deleted.
+  const goal = input.goal && input.goal.length > 0 ? input.goal : derived.goal;
+  const context = derived.context;
 
   // 1. Pick the SCHWEIGEN block matching call_direction (drops the other
   //    block entirely). Done on baseline before placeholder substitution

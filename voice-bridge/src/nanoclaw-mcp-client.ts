@@ -81,6 +81,14 @@ export interface VoiceTriggersInitInput {
    * pass it from voice_request_outbound_call args (Andy decides per call).
    */
   lang?: 'de' | 'en' | 'it'
+  /**
+   * Step 2B+ patch: outbound goal text Andy supplied to
+   * voice_request_outbound_call. Threaded into the {{goal}} persona placeholder
+   * so the bot reads the actual brief ("Sag Carsten X") instead of the
+   * hardcoded restaurant default that lingered after the case_2 overlay was
+   * deleted. Optional — inbound paths omit it.
+   */
+  goal?: string
 }
 
 export interface VoiceTriggersTranscriptInput {
