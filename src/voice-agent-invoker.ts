@@ -164,7 +164,9 @@ function deriveAnrede(caseType: string, lang: Lang): AnredeAxis {
     if (caseType === 'case_6b') {
       return { form: 'tu', capitalized: 'te', pronoun: 'tu', disclosure: 'Sei' };
     }
-    return { form: 'Lei', capitalized: 'Lei', pronoun: 'Lei', disclosure: 'Lei è' };
+    // ASCII apostrophe for `è` keeps IT files round-trip-safe over MCP/JSON
+    // (matches the rest of the IT prose: "puo'", "cosi'", "piu'", "e'").
+    return { form: 'Lei', capitalized: 'Lei', pronoun: 'Lei', disclosure: "Lei e'" };
   }
   // en — single form, no T-V distinction
   return { form: 'you', capitalized: 'you', pronoun: 'you', disclosure: 'Are you' };

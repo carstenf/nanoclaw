@@ -165,7 +165,7 @@ describe('renderPersona', () => {
       }),
     );
     expect(out).toContain('Anrede: Lei');
-    expect(out).toContain('Disclosure Lei è');
+    expect(out).toContain("Disclosure Lei e'");
     expect(out).toContain('Prenotare un tavolo');
   });
 
