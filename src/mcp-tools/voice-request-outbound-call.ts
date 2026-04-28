@@ -19,6 +19,12 @@ export const RequestOutboundCallSchema = z.object({
   goal: z.string().min(1).max(500),
   context: z.string().max(2000).default(''),
   report_to_jid: z.string().min(1),
+  // open_points 2026-04-28 Step 1 (Case 1+2 merge): label of the entity
+  // we're calling (e.g. "Restaurant Pizzeria Romano", "Praxis Dr. Müller",
+  // "Tante Anke"). Used by the persona renderer for natural address +
+  // greeting lines. Optional with empty default so existing callers keep
+  // working unchanged.
+  counterpart_label: z.string().max(120).default(''),
 });
 
 // ---- Deps ----
