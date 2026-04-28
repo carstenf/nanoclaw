@@ -359,17 +359,20 @@ export function registerAcceptRoute(
     if (isOutbound && activeOutbound) {
       outboundRouter?.bindOpenaiCallId(activeOutbound.task_id, callId)
 
-      // Case-2 AMD branch — when case_type='case_2', use CASE2_AMD_CLASSIFIER_PROMPT
-      // as initial instructions and add amd_result inline to the tools list
-      // (Bridge-internal, NOT in allowlist.ts). Drop 3 Case-6-specific tools
-      // that are irrelevant for restaurant reservations (15 - 3 + 1 = 13 tools).
+      // §201-StGB invariant (open_points 2026-04-28 Step 2A — AMD always-on):
+      // EVERY outbound call routes through the AMD classifier prompt at
+      // /accept. Pre-Step-2A this gate fired only for case_type='case_2',
+      // which left voice_request_outbound_call (Andy's unified outbound
+      // entry that ships no case_type) unprotected — the model entered
+      // speak-first mode and could narrate into a voicemail box. Step 2A
+      // closes that hole by treating every outbound as needing AMD before
+      // any bot-audio is allowed; the persona swap fires after onHuman.
       const isCase2 = activeOutbound.case_type === 'case_2'
 
       // Honor per-call override envelope (Spike-A / Wave 3):
-      //   persona_override — use verbatim as instructions
+      //   persona_override — use verbatim as the post-AMD persona
       //   tools_override   — REPLACE the default allowlist for THIS call only
-      // When neither is present and it's not Case-2, the standard outbound
-      // path runs unchanged.
+      // amd_result is appended unconditionally (non-negotiable AMD invariant).
       const hasPersonaOverride =
         typeof activeOutbound.persona_override === 'string' &&
         activeOutbound.persona_override.length > 0
@@ -377,33 +380,28 @@ export function registerAcceptRoute(
         Array.isArray(activeOutbound.tools_override) &&
         activeOutbound.tools_override.length > 0
 
-      let outboundInstructions: string
-      let toolsPayloadOut: Array<{ type: 'function'; name: string; description?: string; parameters: Record<string, unknown> }>
-      // ctxRef is populated after router.startCall() inside the Case-2 branch.
-      // Declared at outbound-block scope so the onHuman closure can capture it.
+      // ctxRef is populated after router.startCall() and read by the onHuman
+      // closure to push the post-AMD persona via session.update.
       let ctxRef: { sideband: { state: Parameters<typeof updateInstructions>[0] } } | null = null
-      // Case-2 only: pre-rendered post-AMD persona for the onHuman swap.
-      // Rendered synchronously at /accept via nanoclawMcp.init so the AMD
-      // verdict can apply it without a synchronous render at verdict time.
-      let case2Persona: string | null = null
 
+      // Initial /accept instructions = AMD classifier prompt for ALL outbound.
+      const outboundInstructions: string = CASE2_AMD_CLASSIFIER_PROMPT
+
+      // Pre-render the post-AMD persona. Source priority:
+      //   1. case_type='case_2' → render via voice-personas skill (existing
+      //      path; case_2 overlay still ships restaurant decision-rules until
+      //      Step 2B unifies on baseline-only outbound).
+      //   2. persona_override (legacy Spike-A / Wave 3) → use verbatim.
+      //   3. neither → FALLBACK_PERSONA (REQ-DIR-18).
+      // Step 2B will fold (1) and (3) into a single skill render path.
+      let postAmdPersona: string = FALLBACK_PERSONA
       if (isCase2) {
-        // Case-2 outbound: CASE2_AMD_CLASSIFIER_PROMPT as initial /accept
-        // instructions so the model stays in detection-mode pre-verdict
-        // (§201 StGB AMD-gate, Plan 05-03 T-05-03-01). The post-AMD persona
-        // is rendered NOW via nanoclawMcp.init and cached in case2Persona;
-        // the onHuman callback below applies it via updateInstructions.
-        outboundInstructions = CASE2_AMD_CLASSIFIER_PROMPT
-
-        // Pre-render Case-2 conversation persona via container-agent
-        // (REQ-DIR-19, REQ-DIR-13: voice-personas skill is single SoT).
-        // On render failure → FALLBACK_PERSONA (REQ-DIR-18 fallback exception).
         if (!nanoclawMcp) {
           log.error({
             event: 'container_agent_mode_but_client_missing',
             call_id: callId,
           })
-          case2Persona = FALLBACK_PERSONA
+          postAmdPersona = FALLBACK_PERSONA
         } else {
           try {
             const r = await nanoclawMcp.init({
@@ -415,7 +413,7 @@ export function registerAcceptRoute(
               ),
               ...(activeOutbound.lang ? { lang: activeOutbound.lang } : {}),
             })
-            case2Persona = r.instructions
+            postAmdPersona = r.instructions
           } catch (err) {
             log.warn({
               event: 'container_agent_init_failed',
@@ -423,59 +421,77 @@ export function registerAcceptRoute(
               case_type: 'case_2',
               err: (err as Error)?.message,
             })
-            case2Persona = FALLBACK_PERSONA
+            postAmdPersona = FALLBACK_PERSONA
           }
         }
+      } else if (hasPersonaOverride) {
+        postAmdPersona = activeOutbound.persona_override as string
+      }
+      // (else stays at FALLBACK_PERSONA initialised above.)
 
-        // Case-2 tool list: base allowlist minus 3 Case-6-specific tools + amd_result.
-        // Net count: 15 - 3 + 1 = 13 (under REQ-TOOLS-09 cap of 15).
-        const CASE2_EXCLUDED = new Set(['voice_search_competitors', 'voice_get_practice_profile', 'voice_get_contract', 'search_competitors', 'get_practice_profile', 'get_contract'])
-        const baseTools = getAllowlist()
-          .filter((e: ToolEntry) => !CASE2_EXCLUDED.has(e.name))
-          .map((e: ToolEntry) => {
-            const desc = (e.schema as { description?: unknown }).description
-            return {
-              type: 'function' as const,
-              name: e.name,
-              ...(typeof desc === 'string' && desc.length > 0 ? { description: desc } : {}),
-              parameters: e.schema,
-            }
-          })
-        // amd_result: Bridge-internal only, declared inline here.
-        // T-05-03-07: NOT added to allowlist.ts; compile-time REQ-TOOLS-09 guard still passes.
-        const amdResultTool = {
-          type: 'function' as const,
-          name: 'amd_result',
-          description: 'Bridge-internal AMD verdict tool. Emit when you determine human or voicemail.',
-          parameters: {
-            type: 'object',
-            properties: {
-              verdict: { type: 'string', enum: ['human', 'voicemail', 'silence'] },
-            },
-            required: ['verdict'],
-            additionalProperties: false,
-          },
-        }
-        toolsPayloadOut = [...baseTools, amdResultTool]
-
-        // Register AMD classifier for this call so dispatch.ts can route amd_result.
-        const casePayload = (activeOutbound.case_payload ?? {}) as Record<string, unknown>
-        const coreMcpForAmd = NANOCLAW_VOICE_MCP_URL
-          ? new NanoclawMcpClient({
-              url: new URL(NANOCLAW_VOICE_MCP_URL),
-              bearer: NANOCLAW_VOICE_MCP_TOKEN,
+      // Outbound tool list: base allowlist minus 3 Case-6-specific tools that
+      // make no sense for an outbound bot, plus amd_result. tools_override (if
+      // supplied) replaces the allowlist; amd_result is still appended.
+      const OUTBOUND_EXCLUDED = new Set(['voice_search_competitors', 'voice_get_practice_profile', 'voice_get_contract', 'search_competitors', 'get_practice_profile', 'get_contract'])
+      const baseTools = hasToolsOverride
+        ? (activeOutbound.tools_override as Array<{
+            name: string
+            description?: string
+            parameters: Record<string, unknown>
+          }>).map((t) => ({
+            type: 'function' as const,
+            name: t.name,
+            ...(typeof t.description === 'string' && t.description.length > 0
+              ? { description: t.description }
+              : {}),
+            parameters: t.parameters,
+          }))
+        : getAllowlist()
+            .filter((e: ToolEntry) => !OUTBOUND_EXCLUDED.has(e.name))
+            .map((e: ToolEntry) => {
+              const desc = (e.schema as { description?: unknown }).description
+              return {
+                type: 'function' as const,
+                name: e.name,
+                ...(typeof desc === 'string' && desc.length > 0 ? { description: desc } : {}),
+                parameters: e.schema,
+              }
             })
-          : null
+      // amd_result: Bridge-internal only, declared inline here.
+      // T-05-03-07: NOT added to allowlist.ts; compile-time REQ-TOOLS-09 guard still passes.
+      const amdResultTool = {
+        type: 'function' as const,
+        name: 'amd_result',
+        description: 'Bridge-internal AMD verdict tool. Emit when you determine human or voicemail.',
+        parameters: {
+          type: 'object',
+          properties: {
+            verdict: { type: 'string', enum: ['human', 'voicemail', 'silence'] },
+          },
+          required: ['verdict'],
+          additionalProperties: false,
+        },
+      }
+      const toolsPayloadOut: Array<{ type: 'function'; name: string; description?: string; parameters: Record<string, unknown> }> = [...baseTools, amdResultTool]
 
-        const classifier = createAmdClassifier({
-          callId,
-          log,
-          onHuman: () => {
-            // Verdict: human — swap to the persona pre-rendered at /accept via
-            // nanoclawMcp.init (case2Persona). The render is synchronous-at-
-            // /accept so onHuman applies it without a render round-trip; on
-            // render failure case2Persona is FALLBACK_PERSONA (REQ-DIR-18).
-            const persona = case2Persona ?? FALLBACK_PERSONA
+      // Register AMD classifier for this call so dispatch.ts can route amd_result.
+      const casePayload = (activeOutbound.case_payload ?? {}) as Record<string, unknown>
+      const coreMcpForAmd = NANOCLAW_VOICE_MCP_URL
+        ? new NanoclawMcpClient({
+            url: new URL(NANOCLAW_VOICE_MCP_URL),
+            bearer: NANOCLAW_VOICE_MCP_TOKEN,
+          })
+        : null
+
+      const classifier = createAmdClassifier({
+        callId,
+        log,
+        onHuman: () => {
+          // Verdict: human — swap to the persona pre-rendered at /accept.
+          // postAmdPersona is sourced per the priority list above and
+          // guaranteed to be a valid persona string (FALLBACK_PERSONA worst-
+          // case per REQ-DIR-18).
+          const persona = postAmdPersona
             log.info({
               event: 'case_2_amd_human_verdict',
               call_id: callId,
@@ -570,59 +586,19 @@ export function registerAcceptRoute(
         })
         setAmdClassifier(classifier)
 
-        log.info({
-          event: 'case_2_amd_branch_active',
-          call_id: callId,
-          task_id: activeOutbound.task_id,
-          tools_count: toolsPayloadOut.length,
-        })
-      } else {
-        // Non-Case-2 outbound. Bridge no longer renders personas (REQ-DIR-13:
-        // voice-personas skill in nanoclaw is the single SoT). Two valid
-        // sources for instructions: explicit persona_override pushed by the
-        // caller, or FALLBACK_PERSONA (REQ-DIR-18) when none is supplied.
-        if (hasPersonaOverride) {
-          outboundInstructions = activeOutbound.persona_override as string
-        } else {
-          log.warn({
-            event: 'outbound_no_persona_source',
-            call_id: callId,
-            task_id: activeOutbound.task_id,
-          })
-          outboundInstructions = FALLBACK_PERSONA
-        }
-        toolsPayloadOut = hasToolsOverride
-          ? (activeOutbound.tools_override as Array<{
-              name: string
-              description?: string
-              parameters: Record<string, unknown>
-            }>).map((t) => ({
-              type: 'function' as const,
-              name: t.name,
-              ...(typeof t.description === 'string' && t.description.length > 0
-                ? { description: t.description }
-                : {}),
-              parameters: t.parameters,
-            }))
-          : getAllowlist().map((e: ToolEntry) => {
-              const desc = (e.schema as { description?: unknown }).description
-              return {
-                type: 'function' as const,
-                name: e.name,
-                ...(typeof desc === 'string' && desc.length > 0 ? { description: desc } : {}),
-                parameters: e.schema,
-              }
-            })
-        log.info({
-          event: 'outbound_override_active',
-          call_id: callId,
-          task_id: activeOutbound.task_id,
-          persona_override: hasPersonaOverride,
-          tools_override_count: hasToolsOverride
-            ? (activeOutbound.tools_override as unknown[]).length
-            : 0,
-        })
-      }
+      log.info({
+        event: 'case_2_amd_branch_active',
+        call_id: callId,
+        task_id: activeOutbound.task_id,
+        case_type: activeOutbound.case_type ?? null,
+        persona_source: isCase2
+          ? 'skill_render'
+          : hasPersonaOverride
+            ? 'persona_override'
+            : 'fallback',
+        tools_count: toolsPayloadOut.length,
+        tools_override: hasToolsOverride,
+      })
 
       // Phase 05.4 Block-5: per-call sideband event trace at REQ-INFRA-05 /
       // REQ-VOICE-10 path `~/nanoclaw/voice-container/runs/turns-{call_id}
@@ -639,7 +615,9 @@ export function registerAcceptRoute(
       // greets on call connect, counterpart responds, native server_vad drives
       // subsequent turns. Eliminates the Q2-silent-pickup hang class.
       const callLang: CallLang = (activeOutbound.lang ?? 'de') as CallLang
-      const audioForAccept = buildAudioConfig(callLang, { case2AmdGate: isCase2 })
+      // §201 invariant (Step 2A): every outbound is AMD-gated. Param name
+      // still reads `case2AmdGate` until the Step 3 cleanup rename pass.
+      const audioForAccept = buildAudioConfig(callLang, { case2AmdGate: true })
       try {
         await openai.realtime.calls.accept(callId, {
           type: 'realtime',

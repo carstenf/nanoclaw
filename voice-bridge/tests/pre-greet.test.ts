@@ -251,7 +251,7 @@ function makeFakeOutboundRouter(task: OutboundTask | null) {
   }
 }
 
-describe('maybeInjectPreGreet — Case-2 bypass (Plan 05-03 Task 3)', () => {
+describe('maybeInjectPreGreet — outbound bypass (Step 2A — AMD always-on)', () => {
   it('pre-greet-test 1: case_type=case_2 → returns immediately with pre_greet_skipped log', async () => {
     const { handle, ws } = makeFakeSideband(true)
     const callTool = vi.fn()
@@ -281,11 +281,49 @@ describe('maybeInjectPreGreet — Case-2 bypass (Plan 05-03 Task 3)', () => {
     // Should NOT call Core MCP (early return)
     expect(callTool).not.toHaveBeenCalled()
     expect(ws.send).not.toHaveBeenCalled()
-    // Should log pre_greet_skipped with reason case_2_amd_branch
+    // Step 2A: skip reason generalised to outbound_amd_branch.
     expect(log.info).toHaveBeenCalledWith(
       expect.objectContaining({
         event: 'pre_greet_skipped',
-        reason: 'case_2_amd_branch',
+        reason: 'outbound_amd_branch',
+      }),
+    )
+  })
+
+  it('Step 2A regression: case_type undefined outbound → pre-greet ALSO skipped (AMD always-on)', async () => {
+    const { handle, ws } = makeFakeSideband(true)
+    const callTool = vi.fn()
+    const log = makeLog()
+    const task: OutboundTask = {
+      task_id: 'task-generic-outbound',
+      target_phone: '+49123456',
+      goal: 'test',
+      context: 'test',
+      report_to_jid: 'jid@test',
+      created_at: Date.now(),
+      status: 'active',
+      // case_type undefined — exact shape of voice_request_outbound_call POST.
+    }
+    const outboundRouter = makeFakeOutboundRouter(task)
+
+    await maybeInjectPreGreet({
+      callId: 'rtc_generic',
+      sideband: handle,
+      coreClient: { callTool },
+      log,
+      budgetMs: 2000,
+      readyWaitMs: 100,
+      outboundRouter: outboundRouter as never,
+    })
+
+    // Slow-Brain MUST NOT fire — AMD classifier prompt is in scope at /accept.
+    expect(callTool).not.toHaveBeenCalled()
+    expect(ws.send).not.toHaveBeenCalled()
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'pre_greet_skipped',
+        reason: 'outbound_amd_branch',
+        case_type: null,
       }),
     )
   })

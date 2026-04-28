@@ -802,7 +802,7 @@ describe('POST /accept — Case-2 outbound branch (05-03 Task 3)', () => {
     }
   })
 
-  it('accept-test 2: case_type=undefined (Case-6b outbound) → amd_result NOT in tools; instructions = OUTBOUND_PERSONA', async () => {
+  it('accept-test 2: case_type=undefined outbound → AMD always-on (Step 2A §201 fix): amd_result IS in tools; instructions = CASE2_AMD_CLASSIFIER_PROMPT', async () => {
     const outboundRouter = makeCase2OutboundRouter(undefined)
     await new Promise((r) => setTimeout(r, 10))
 
@@ -854,12 +854,15 @@ describe('POST /accept — Case-2 outbound branch (05-03 Task 3)', () => {
       expect(res.statusCode).toBe(200)
       expect(acceptSpy).toHaveBeenCalledTimes(1)
       const [_callId, session] = acceptSpy.mock.calls[0]
-      // Tools must NOT include amd_result (Case-6b path)
+      // Step 2A §201 invariant: every outbound (incl. case_type=undefined,
+      // i.e. voice_request_outbound_call without explicit case marker) is
+      // AMD-gated at /accept. Tools list contains amd_result; instructions
+      // are the AMD classifier prompt; the post-AMD persona is FALLBACK or
+      // (when persona_override set) the override — applied via session.update
+      // by the onHuman callback, not at /accept.
       const toolNames = (session.tools as Array<{ name: string }>).map((t) => t.name)
-      expect(toolNames).not.toContain('amd_result')
-      // Instructions must be the outbound persona (contains NanoClaw, Carsten)
-      expect(session.instructions).toContain('NanoClaw')
-      expect(session.instructions).not.toBe(CASE2_AMD_CLASSIFIER_PROMPT)
+      expect(toolNames).toContain('amd_result')
+      expect(session.instructions).toBe(CASE2_AMD_CLASSIFIER_PROMPT)
     } finally {
       await app.close()
     }

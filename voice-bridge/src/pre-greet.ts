@@ -42,10 +42,10 @@ export interface MaybeInjectPreGreetOpts {
   /** Polling interval while waiting for sideband ready. Default 50ms. */
   pollMs?: number
   /**
-   * Optional outbound router to check case_type. If the active task has
-   * case_type='case_2', pre-greet is skipped entirely (the AMD classifier
-   * branch in /accept handles first-utterance gating). No Slow-Brain RPC
-   * racing with classifier prompt.
+   * Optional outbound router. When ANY outbound task is active (Step 2A —
+   * AMD always-on), pre-greet is skipped entirely; the AMD classifier
+   * branch in /accept governs first-utterance gating for every outbound.
+   * Pre-greet remains live for inbound calls (no active outbound task).
    */
   outboundRouter?: OutboundRouter
 }
@@ -58,15 +58,17 @@ export async function maybeInjectPreGreet(
   const pollMs = opts.pollMs ?? 50
   const t0 = Date.now()
 
-  // Plan 05-03 AMD-handoff invariant: Case-2 branch skips pre-greet entirely.
-  // /accept already set CASE2_AMD_CLASSIFIER_PROMPT as instructions; firing
-  // Slow-Brain pre-greet would race with it and break AMD.
+  // Step 2A — AMD always-on: skip pre-greet for ANY active outbound task.
+  // /accept already pushed CASE2_AMD_CLASSIFIER_PROMPT as instructions for
+  // every outbound; firing Slow-Brain pre-greet would race with it and break
+  // AMD. Inbound calls (no active outbound task) still receive pre-greet.
   const activeTask = opts.outboundRouter?.getActiveTask?.() ?? null
-  if (activeTask?.case_type === 'case_2') {
+  if (activeTask) {
     opts.log.info({
       event: 'pre_greet_skipped',
       call_id: opts.callId,
-      reason: 'case_2_amd_branch',
+      reason: 'outbound_amd_branch',
+      case_type: activeTask.case_type ?? null,
     })
     return
   }
