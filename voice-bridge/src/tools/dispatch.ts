@@ -19,10 +19,10 @@ import { appendFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { getEntry } from './allowlist.js'
 import {
-  callCoreTool as _callCoreTool,
-  CoreMcpTimeoutError,
-  CoreMcpError,
-} from '../core-mcp-client.js'
+  callNanoclawTool as _callCoreTool,
+  NanoclawMcpTimeoutError,
+  NanoclawMcpError,
+} from '../nanoclaw-mcp-client.js'
 import { invokeIdempotent } from '../idempotency.js'
 import {
   emitFunctionCallOutput as _emitFunctionCallOutput,
@@ -89,8 +89,8 @@ export function getHangupCallback(): ((callId: string) => Promise<void>) | null 
 }
 
 export interface DispatchOpts {
-  /** DI: override callCoreTool for tests */
-  callCoreTool?: (
+  /** DI: override callNanoclawTool for tests */
+  callNanoclawTool?: (
     name: string,
     args: unknown,
     opts: { timeoutMs: number },
@@ -145,7 +145,7 @@ export async function dispatchTool(
   log: Logger,
   opts: DispatchOpts = {},
 ): Promise<void> {
-  const callCore = opts.callCoreTool ?? _callCoreTool
+  const callCore = opts.callNanoclawTool ?? _callCoreTool
   const emitOutput = opts.emitFunctionCallOutput ?? _emitFunctionCallOutput
   const emitCreate = opts.emitResponseCreate ?? _emitResponseCreate
   const emitFiller = opts.emitFiller ?? _emitFillerPhrase
@@ -380,7 +380,7 @@ export async function dispatchTool(
   } catch (e: unknown) {
     const latency = Date.now() - t0
 
-    if (e instanceof CoreMcpTimeoutError) {
+    if (e instanceof NanoclawMcpTimeoutError) {
       mcpStatus = 'timeout'
       log.warn({
         event: 'tool_dispatch_timeout',
@@ -390,14 +390,14 @@ export async function dispatchTool(
         latency_ms: latency,
       })
       emitOutput(ws, functionCallId, { error: 'tool_timeout' }, log)
-    } else if (e instanceof CoreMcpError) {
+    } else if (e instanceof NanoclawMcpError) {
       mcpStatus = 'err'
       log.warn({
         event: 'tool_dispatch_mcp_error',
         call_id: callId,
         turn_id: turnId,
         tool_name: toolName,
-        status: e.status,
+        code: e.code,
         latency_ms: latency,
       })
       emitOutput(ws, functionCallId, { error: 'tool_unavailable' }, log)

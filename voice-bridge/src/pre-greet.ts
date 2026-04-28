@@ -19,8 +19,8 @@ import { updateInstructions } from './sideband.js'
 import type { OutboundRouter } from './outbound-router.js'
 
 // Phase 05.6 cleanup: legacy slow-brain.ts deleted. CoreClientLike was the
-// duck-typed CoreMcpClient shape used here for the pre-greet RPC. Inlined to
-// avoid a dependency on the deleted file. Both CoreMcpClient and any future
+// duck-typed NanoclawMcpClient shape used here for the pre-greet RPC. Inlined to
+// avoid a dependency on the deleted file. Both NanoclawMcpClient and any future
 // per-call MCP client satisfy this shape via structural typing.
 export interface CoreClientLike {
   callTool: (

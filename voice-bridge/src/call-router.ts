@@ -23,7 +23,6 @@ import { clearCall as clearIdempotencyCache } from './idempotency.js'
 import { armHardHangup, type HardHangupHandle } from './silence-monitor.js'
 import { getHangupCallback, getAmdClassifier } from './tools/dispatch.js'
 import { postCallTranscript } from './post-call-transcript.js'
-import type { CoreMcpClient } from './core-mcp-client.js'
 import type { NanoclawMcpClient } from './nanoclaw-mcp-client.js'
 import { OUTBOUND_CALL_MAX_DURATION_MS } from './config.js'
 
@@ -60,7 +59,7 @@ export interface CallContext {
    * Optional — undefined when NANOCLAW_VOICE_MCP_URL is unset (dev/test) or
    * in test fixtures that don't need MCP plumbing.
    */
-  coreMcp?: CoreMcpClient
+  coreMcp?: NanoclawMcpClient
   /**
    * Per-call NanoclawMcpClient. Constructed at /accept (webhook.ts) when
    * NANOCLAW_VOICE_MCP_URL is configured. The endCall() finalizer closes it
@@ -85,7 +84,7 @@ export interface CallContext {
  * leave this unset — null passthrough = no instrumentation.
  */
 export interface StartCallOpts {
-  coreMcp?: CoreMcpClient
+  coreMcp?: NanoclawMcpClient
   /**
    * Optional NanoclawMcpClient for transcript-trigger fire-and-forget.
    * webhook.ts /accept passes this when NANOCLAW_VOICE_MCP_URL is configured;

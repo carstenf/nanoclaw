@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Logger } from 'pino'
 import type { WebSocket as WSType } from 'ws'
 import { dispatchTool } from '../src/tools/dispatch.js'
-import { CoreMcpTimeoutError, CoreMcpError } from '../src/core-mcp-client.js'
+import { NanoclawMcpTimeoutError, NanoclawMcpError } from '../src/nanoclaw-mcp-client.js'
 import { clearCall as clearIdempotencyCache } from '../src/idempotency.js'
 
 function makeLog(): Logger {
@@ -26,13 +26,13 @@ function makeMockWS() {
 }
 
 function makeOpts(overrides: {
-  callCoreTool?: ReturnType<typeof vi.fn>
+  callNanoclawTool?: ReturnType<typeof vi.fn>
   emitFunctionCallOutput?: ReturnType<typeof vi.fn>
   emitResponseCreate?: ReturnType<typeof vi.fn>
   dispatchTimeoutMs?: number
 } = {}) {
   return {
-    callCoreTool: overrides.callCoreTool ?? vi.fn().mockResolvedValue({ slots: [] }),
+    callNanoclawTool: overrides.callNanoclawTool ?? vi.fn().mockResolvedValue({ slots: [] }),
     emitFunctionCallOutput: overrides.emitFunctionCallOutput ?? vi.fn().mockReturnValue(true),
     emitResponseCreate: overrides.emitResponseCreate ?? vi.fn().mockReturnValue(true),
     dispatchTimeoutMs: overrides.dispatchTimeoutMs ?? 3000,
@@ -41,14 +41,14 @@ function makeOpts(overrides: {
 }
 
 describe('tools/dispatch — async MCP-forward (02-11)', () => {
-  it('happy-path check_calendar: calls callCoreTool with voice. prefix and emits output + response.create', async () => {
+  it('happy-path check_calendar: calls callNanoclawTool with voice. prefix and emits output + response.create', async () => {
     const ws = makeMockWS()
     const log = makeLog()
     const coreResult = { slots: [{ start: '09:00', end: '09:30' }] }
-    const callCoreTool = vi.fn().mockResolvedValue(coreResult)
+    const callNanoclawTool = vi.fn().mockResolvedValue(coreResult)
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
-    const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
+    const opts = makeOpts({ callNanoclawTool, emitFunctionCallOutput, emitResponseCreate })
 
     await dispatchTool(
       ws,
@@ -62,7 +62,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     )
 
     // Must use voice. prefix
-    expect(callCoreTool).toHaveBeenCalledWith(
+    expect(callNanoclawTool).toHaveBeenCalledWith(
       'voice_check_calendar',
       { date: '2026-05-01', duration_minutes: 30 },
       expect.objectContaining({ timeoutMs: 3000 }),
@@ -78,17 +78,17 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)
   })
 
-  it('rejects unknown tool name — emits invalid_tool_call, no callCoreTool', async () => {
+  it('rejects unknown tool name — emits invalid_tool_call, no callNanoclawTool', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi.fn()
+    const callNanoclawTool = vi.fn()
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
-    const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
+    const opts = makeOpts({ callNanoclawTool, emitFunctionCallOutput, emitResponseCreate })
 
     await dispatchTool(ws, 'c2', 't2', 'fc_002', 'unknown_tool_xyz', {}, log, opts)
 
-    expect(callCoreTool).not.toHaveBeenCalled()
+    expect(callNanoclawTool).not.toHaveBeenCalled()
     expect(emitFunctionCallOutput).toHaveBeenCalledWith(
       ws,
       'fc_002',
@@ -98,18 +98,18 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)
   })
 
-  it('rejects schema-fail args — emits invalid_tool_call, no callCoreTool', async () => {
+  it('rejects schema-fail args — emits invalid_tool_call, no callNanoclawTool', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi.fn()
+    const callNanoclawTool = vi.fn()
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
-    const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
+    const opts = makeOpts({ callNanoclawTool, emitFunctionCallOutput, emitResponseCreate })
 
     // create_calendar_entry requires title + start + end_time, omitting them
     await dispatchTool(ws, 'c3', 't3', 'fc_003', 'create_calendar_entry', { title: 'x' }, log, opts)
 
-    expect(callCoreTool).not.toHaveBeenCalled()
+    expect(callNanoclawTool).not.toHaveBeenCalled()
     expect(emitFunctionCallOutput).toHaveBeenCalledWith(
       ws,
       'fc_003',
@@ -118,13 +118,13 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     )
   })
 
-  it('not_implemented (search_hotels) — emits not_implemented without callCoreTool (Phase 6 scope)', async () => {
+  it('not_implemented (search_hotels) — emits not_implemented without callNanoclawTool (Phase 6 scope)', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi.fn()
+    const callNanoclawTool = vi.fn()
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
-    const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
+    const opts = makeOpts({ callNanoclawTool, emitFunctionCallOutput, emitResponseCreate })
 
     // Bridge allowlist does not include search_hotels yet — this is an
     // invalid_tool_call at allowlist level, emitting invalid_tool_call not
@@ -142,7 +142,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
       opts,
     )
 
-    expect(callCoreTool).not.toHaveBeenCalled()
+    expect(callNanoclawTool).not.toHaveBeenCalled()
     // invalid_tool_call emitted because search_hotels is not in the Bridge
     // allowlist (even though it's in TOOL_TO_CORE_MCP map as null).
     expect(emitFunctionCallOutput).toHaveBeenCalledWith(
@@ -158,10 +158,10 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     const ws = makeMockWS()
     const log = makeLog()
     const coreResult = { ok: false, error: 'not_configured' }
-    const callCoreTool = vi.fn().mockResolvedValue(coreResult)
+    const callNanoclawTool = vi.fn().mockResolvedValue(coreResult)
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
-    const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
+    const opts = makeOpts({ callNanoclawTool, emitFunctionCallOutput, emitResponseCreate })
 
     await dispatchTool(
       ws,
@@ -176,7 +176,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
 
     // Core MCP invoked with voice_search_competitors prefix — no longer
     // short-circuited with not_implemented.
-    expect(callCoreTool).toHaveBeenCalledWith(
+    expect(callNanoclawTool).toHaveBeenCalledWith(
       'voice_search_competitors',
       { category: 'physiotherapy', criteria: { zip: '80339' } },
       expect.objectContaining({ timeoutMs: expect.any(Number) }),
@@ -190,13 +190,13 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)
   })
 
-  it('CoreMcpTimeoutError — emits tool_timeout', async () => {
+  it('NanoclawMcpTimeoutError — emits tool_timeout', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi.fn().mockRejectedValue(new CoreMcpTimeoutError())
+    const callNanoclawTool = vi.fn().mockRejectedValue(new NanoclawMcpTimeoutError())
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
-    const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
+    const opts = makeOpts({ callNanoclawTool, emitFunctionCallOutput, emitResponseCreate })
 
     await dispatchTool(
       ws,
@@ -218,13 +218,13 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)
   })
 
-  it('CoreMcpError (HTTP 5xx) — emits tool_unavailable', async () => {
+  it('NanoclawMcpError (HTTP 5xx) — emits tool_unavailable', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi.fn().mockRejectedValue(new CoreMcpError(503, 'service unavailable'))
+    const callNanoclawTool = vi.fn().mockRejectedValue(new NanoclawMcpError(503, 'service unavailable'))
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
-    const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
+    const opts = makeOpts({ callNanoclawTool, emitFunctionCallOutput, emitResponseCreate })
 
     await dispatchTool(
       ws,
@@ -249,10 +249,10 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
   it('generic network error — emits tool_unavailable', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
+    const callNanoclawTool = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
-    const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
+    const opts = makeOpts({ callNanoclawTool, emitFunctionCallOutput, emitResponseCreate })
 
     await dispatchTool(
       ws,
@@ -274,14 +274,14 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)
   })
 
-  it('happy-path ask_core: calls callCoreTool with voice_ask_core prefix (02-12)', async () => {
+  it('happy-path ask_core: calls callNanoclawTool with voice_ask_core prefix (02-12)', async () => {
     const ws = makeMockWS()
     const log = makeLog()
     const coreResult = { answer: 'Montag bis Freitag 9-18 Uhr' }
-    const callCoreTool = vi.fn().mockResolvedValue(coreResult)
+    const callNanoclawTool = vi.fn().mockResolvedValue(coreResult)
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
-    const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
+    const opts = makeOpts({ callNanoclawTool, emitFunctionCallOutput, emitResponseCreate })
 
     await dispatchTool(
       ws,
@@ -294,7 +294,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
       opts,
     )
 
-    expect(callCoreTool).toHaveBeenCalledWith(
+    expect(callNanoclawTool).toHaveBeenCalledWith(
       'voice_ask_core',
       // ask_core has injectCallId:true (allowlist.ts) — dispatch wires the
       // live rtc_* call_id into args so voice-ask-core's voice_respond path
@@ -310,14 +310,14 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     expect(emitResponseCreate).toHaveBeenCalledWith(ws, log)
   })
 
-  it('happy-path get_travel_time: calls callCoreTool with voice_get_travel_time prefix (02-12)', async () => {
+  it('happy-path get_travel_time: calls callNanoclawTool with voice_get_travel_time prefix (02-12)', async () => {
     const ws = makeMockWS()
     const log = makeLog()
     const coreResult = { duration_text: '12 Minuten', duration_seconds: 720 }
-    const callCoreTool = vi.fn().mockResolvedValue(coreResult)
+    const callNanoclawTool = vi.fn().mockResolvedValue(coreResult)
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
-    const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
+    const opts = makeOpts({ callNanoclawTool, emitFunctionCallOutput, emitResponseCreate })
 
     await dispatchTool(
       ws,
@@ -330,7 +330,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
       opts,
     )
 
-    expect(callCoreTool).toHaveBeenCalledWith(
+    expect(callNanoclawTool).toHaveBeenCalledWith(
       'voice_get_travel_time',
       { origin: 'Marienplatz, Munich', destination: 'Schwabing, Munich', mode: 'transit' },
       expect.objectContaining({ timeoutMs: 3000 }),
@@ -342,14 +342,14 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
   it('JSONL file gets a tool_dispatch_done entry for successful dispatch', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
+    const callNanoclawTool = vi.fn().mockResolvedValue({ ok: true })
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
 
     // Use /tmp for JSONL output in test
     const fs = await import('node:fs/promises')
     const tmpPath = `/tmp/dispatch-test-${Date.now()}.jsonl`
-    const opts = makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate })
+    const opts = makeOpts({ callNanoclawTool, emitFunctionCallOutput, emitResponseCreate })
     opts.jsonlPath = tmpPath
 
     await dispatchTool(
@@ -380,12 +380,12 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
 
   // --- Plan 02-14: filler-inject DI tests ---
 
-  it('ask_core dispatch: emitFiller called BEFORE callCoreTool (fire-and-forget)', async () => {
+  it('ask_core dispatch: emitFiller called BEFORE callNanoclawTool (fire-and-forget)', async () => {
     const ws = makeMockWS()
     const log = makeLog()
     const callOrder: string[] = []
-    const callCoreTool = vi.fn().mockImplementation(async () => {
-      callOrder.push('callCoreTool')
+    const callNanoclawTool = vi.fn().mockImplementation(async () => {
+      callOrder.push('callNanoclawTool')
       return { answer: 'test' }
     })
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
@@ -395,7 +395,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
       return true
     })
     const opts = {
-      ...makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate }),
+      ...makeOpts({ callNanoclawTool, emitFunctionCallOutput, emitResponseCreate }),
       emitFiller,
     }
 
@@ -412,21 +412,21 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
 
     expect(emitFiller).toHaveBeenCalledTimes(1)
     expect(emitFiller).toHaveBeenCalledWith(ws, 'ask_core', 'call_f1', log)
-    expect(callCoreTool).toHaveBeenCalled()
-    // emitFiller was awaited before callCoreTool
+    expect(callNanoclawTool).toHaveBeenCalled()
+    // emitFiller was awaited before callNanoclawTool
     expect(callOrder[0]).toBe('emitFiller')
-    expect(callOrder[1]).toBe('callCoreTool')
+    expect(callOrder[1]).toBe('callNanoclawTool')
   })
 
   it('check_calendar dispatch: emitFiller NOT called for non-filler tool', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi.fn().mockResolvedValue({ slots: [] })
+    const callNanoclawTool = vi.fn().mockResolvedValue({ slots: [] })
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
     const emitFiller = vi.fn().mockResolvedValue(true)
     const opts = {
-      ...makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate }),
+      ...makeOpts({ callNanoclawTool, emitFunctionCallOutput, emitResponseCreate }),
       emitFiller,
     }
 
@@ -442,7 +442,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     )
 
     expect(emitFiller).not.toHaveBeenCalled()
-    expect(callCoreTool).toHaveBeenCalled()
+    expect(callNanoclawTool).toHaveBeenCalled()
   })
 
   // -------- Plan 03-13: end_call (bridge-internal hangup) --------
@@ -450,12 +450,12 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
   it('end_call farewell: invokes hangupCall(callId), emits ok output, no MCP, no response.create', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi.fn()
+    const callNanoclawTool = vi.fn()
     const hangupCall = vi.fn().mockResolvedValue(undefined)
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
     const opts = {
-      ...makeOpts({ callCoreTool, emitFunctionCallOutput, emitResponseCreate }),
+      ...makeOpts({ callNanoclawTool, emitFunctionCallOutput, emitResponseCreate }),
       hangupCall,
     }
 
@@ -471,7 +471,7 @@ describe('tools/dispatch — async MCP-forward (02-11)', () => {
     )
 
     expect(hangupCall).toHaveBeenCalledWith('rtc_farewell_1')
-    expect(callCoreTool).not.toHaveBeenCalled()
+    expect(callNanoclawTool).not.toHaveBeenCalled()
     expect(emitFunctionCallOutput).toHaveBeenCalledWith(
       ws,
       'fc_e1',
@@ -660,11 +660,11 @@ describe('tools/dispatch — Phase-4 TOOLS smoke (04-03)', () => {
   ]
 
   for (const c of cases) {
-    it(`${c.toolName} routes to callCoreTool('${c.coreName}')`, async () => {
+    it(`${c.toolName} routes to callNanoclawTool('${c.coreName}')`, async () => {
       const ws = makeMockWS()
       const log = makeLog()
-      const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
-      const opts = makeOpts({ callCoreTool })
+      const callNanoclawTool = vi.fn().mockResolvedValue({ ok: true })
+      const opts = makeOpts({ callNanoclawTool })
 
       await dispatchTool(
         ws,
@@ -677,8 +677,8 @@ describe('tools/dispatch — Phase-4 TOOLS smoke (04-03)', () => {
         opts,
       )
 
-      expect(callCoreTool).toHaveBeenCalledTimes(1)
-      expect(callCoreTool).toHaveBeenCalledWith(
+      expect(callNanoclawTool).toHaveBeenCalledTimes(1)
+      expect(callNanoclawTool).toHaveBeenCalledWith(
         c.coreName,
         expect.objectContaining(c.args),
         expect.objectContaining({ timeoutMs: expect.any(Number) }),
@@ -700,7 +700,7 @@ describe('tools/dispatch — amd_result Case-2 handler (05-03)', () => {
   it('dispatch-test 1: Case-2 session + amd_result verdict=human → classifier.onAmdResult called; Core MCP NOT invoked', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi.fn()
+    const callNanoclawTool = vi.fn()
     const hangupCall = vi.fn().mockResolvedValue(undefined)
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
@@ -726,13 +726,13 @@ describe('tools/dispatch — amd_result Case-2 handler (05-03)', () => {
       'amd_result',
       { verdict: 'human' },
       log,
-      { callCoreTool, emitFunctionCallOutput, emitResponseCreate, hangupCall, jsonlPath: '/dev/null' },
+      { callNanoclawTool, emitFunctionCallOutput, emitResponseCreate, hangupCall, jsonlPath: '/dev/null' },
     )
 
     // Classifier.onAmdResult called with 'human'
     expect(fakeClassifier.onAmdResult).toHaveBeenCalledWith('human')
     // Core MCP NOT invoked (bridge-internal)
-    expect(callCoreTool).not.toHaveBeenCalled()
+    expect(callNanoclawTool).not.toHaveBeenCalled()
     // hangup NOT called for human verdict (human → persona swap, not hangup)
     expect(hangupCall).not.toHaveBeenCalled()
   })
@@ -740,7 +740,7 @@ describe('tools/dispatch — amd_result Case-2 handler (05-03)', () => {
   it('dispatch-test 2: Case-2 session + amd_result verdict=voicemail → classifier.onAmdResult called', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi.fn()
+    const callNanoclawTool = vi.fn()
     const hangupCall = vi.fn().mockResolvedValue(undefined)
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
 
@@ -764,17 +764,17 @@ describe('tools/dispatch — amd_result Case-2 handler (05-03)', () => {
       'amd_result',
       { verdict: 'voicemail' },
       log,
-      { callCoreTool, emitFunctionCallOutput, hangupCall, jsonlPath: '/dev/null' },
+      { callNanoclawTool, emitFunctionCallOutput, hangupCall, jsonlPath: '/dev/null' },
     )
 
     expect(fakeClassifier.onAmdResult).toHaveBeenCalledWith('voicemail')
-    expect(callCoreTool).not.toHaveBeenCalled()
+    expect(callNanoclawTool).not.toHaveBeenCalled()
   })
 
   it('dispatch-test 3: Non-Case-2 session (no classifier registered) + amd_result → rejected as invalid_tool_call', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi.fn()
+    const callNanoclawTool = vi.fn()
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
 
@@ -789,10 +789,10 @@ describe('tools/dispatch — amd_result Case-2 handler (05-03)', () => {
       'amd_result',
       { verdict: 'human' },
       log,
-      { callCoreTool, emitFunctionCallOutput, emitResponseCreate, jsonlPath: '/dev/null' },
+      { callNanoclawTool, emitFunctionCallOutput, emitResponseCreate, jsonlPath: '/dev/null' },
     )
 
-    expect(callCoreTool).not.toHaveBeenCalled()
+    expect(callNanoclawTool).not.toHaveBeenCalled()
     // Rejected as invalid_tool_call (defense: amd_result is Case-2 only)
     expect(emitFunctionCallOutput).toHaveBeenCalledWith(
       ws,
@@ -813,13 +813,13 @@ describe('tools/dispatch — A12 idempotency gate (04-02)', () => {
   it('A12: wraps mutating tool (create_calendar_entry) via invokeIdempotent — second identical (call,turn,tool,args) hits cache', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi
+    const callNanoclawTool = vi
       .fn()
       .mockResolvedValue({ ok: true, id: 'evt_1' })
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
     const opts = makeOpts({
-      callCoreTool,
+      callNanoclawTool,
       emitFunctionCallOutput,
       emitResponseCreate,
     })
@@ -835,7 +835,7 @@ describe('tools/dispatch — A12 idempotency gate (04-02)', () => {
     await dispatchTool(ws, 'c1', 't1', 'fc2', 'create_calendar_entry', args, log, opts)
 
     // Core MCP invoked exactly once for identical (call,turn,tool,args)
-    expect(callCoreTool).toHaveBeenCalledTimes(1)
+    expect(callNanoclawTool).toHaveBeenCalledTimes(1)
     // Both dispatches still emit a function_call_output (second from cached result)
     expect(emitFunctionCallOutput).toHaveBeenCalledTimes(2)
     expect(emitResponseCreate).toHaveBeenCalledTimes(2)
@@ -848,11 +848,11 @@ describe('tools/dispatch — A12 idempotency gate (04-02)', () => {
   it('A12: does NOT wrap read-only tool (check_calendar) — two identical calls hit core twice', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi.fn().mockResolvedValue({ ok: true, slots: [] })
+    const callNanoclawTool = vi.fn().mockResolvedValue({ ok: true, slots: [] })
     const emitFunctionCallOutput = vi.fn().mockReturnValue(true)
     const emitResponseCreate = vi.fn().mockReturnValue(true)
     const opts = makeOpts({
-      callCoreTool,
+      callNanoclawTool,
       emitFunctionCallOutput,
       emitResponseCreate,
     })
@@ -863,16 +863,16 @@ describe('tools/dispatch — A12 idempotency gate (04-02)', () => {
     await dispatchTool(ws, 'c2', 't1', 'fc2', 'check_calendar', args, log, opts)
 
     // Read-only tools bypass idempotency cache — each call hits Core
-    expect(callCoreTool).toHaveBeenCalledTimes(2)
+    expect(callNanoclawTool).toHaveBeenCalledTimes(2)
   })
 
   it('A12: different args for same mutating tool = separate Core invocations (no collision)', async () => {
     const ws = makeMockWS()
     const log = makeLog()
-    const callCoreTool = vi
+    const callNanoclawTool = vi
       .fn()
       .mockResolvedValue({ ok: true, id: 'evt_x' })
-    const opts = makeOpts({ callCoreTool })
+    const opts = makeOpts({ callNanoclawTool })
 
     await dispatchTool(
       ws,
@@ -905,6 +905,6 @@ describe('tools/dispatch — A12 idempotency gate (04-02)', () => {
       opts,
     )
 
-    expect(callCoreTool).toHaveBeenCalledTimes(2)
+    expect(callNanoclawTool).toHaveBeenCalledTimes(2)
   })
 })

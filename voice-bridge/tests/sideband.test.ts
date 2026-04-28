@@ -654,12 +654,12 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
     const ws = new MockWS()
     const log = mockLog()
     const acc = makeMockAccumulator()
-    const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
+    const callNanoclawTool = vi.fn().mockResolvedValue({ ok: true })
     const sendDiscordAlert = vi.fn().mockResolvedValue(undefined)
     openSidebandSession('rtc-cost-1', log, {
       wsFactory: () => ws as unknown as WSType,
       costAccumulator: acc,
-      callCoreTool,
+      callNanoclawTool,
       sendDiscordAlert,
       capPerCallEur: 1.0,
       softWarnFraction: 0.8,
@@ -676,7 +676,7 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
 
     await new Promise((r) => setImmediate(r))
     // Core record_turn_cost fire-and-forget
-    expect(callCoreTool).toHaveBeenCalledWith(
+    expect(callNanoclawTool).toHaveBeenCalledWith(
       'voice_record_turn_cost',
       expect.objectContaining({
         call_id: 'rtc-cost-1',
@@ -696,12 +696,12 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
     const ws = new MockWS()
     const log = mockLog()
     const acc = makeMockAccumulator()
-    const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
+    const callNanoclawTool = vi.fn().mockResolvedValue({ ok: true })
     const sendDiscordAlert = vi.fn().mockResolvedValue(undefined)
     openSidebandSession('rtc-warn', log, {
       wsFactory: () => ws as unknown as WSType,
       costAccumulator: acc,
-      callCoreTool,
+      callNanoclawTool,
       sendDiscordAlert,
       capPerCallEur: 1.0,
       softWarnFraction: 0.8,
@@ -732,7 +732,7 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
     ws.readyState = 1
     const log = mockLog()
     const acc = makeMockAccumulator()
-    const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
+    const callNanoclawTool = vi.fn().mockResolvedValue({ ok: true })
     const sendDiscordAlert = vi.fn().mockResolvedValue(undefined)
     const setTimeoutFn = vi.fn((fn: () => void, _ms: number) => {
       fn()
@@ -741,7 +741,7 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
     openSidebandSession('rtc-stop', log, {
       wsFactory: () => ws as unknown as WSType,
       costAccumulator: acc,
-      callCoreTool,
+      callNanoclawTool,
       sendDiscordAlert,
       capPerCallEur: 1.0,
       softWarnFraction: 0.8,
@@ -784,7 +784,7 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
     expect(hardStopMsgs.length).toBe(1)
 
     // Core finalize_call_cost with terminated_by=cost_cap_call
-    const finalizeCalls = callCoreTool.mock.calls.filter(
+    const finalizeCalls = callNanoclawTool.mock.calls.filter(
       (c) => c[0] === 'voice_finalize_call_cost',
     )
     expect(finalizeCalls.length).toBe(1)
@@ -803,11 +803,11 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
     const ws = new MockWS()
     const log = mockLog()
     const acc = makeMockAccumulator()
-    const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
+    const callNanoclawTool = vi.fn().mockResolvedValue({ ok: true })
     openSidebandSession('rtc-close', log, {
       wsFactory: () => ws as unknown as WSType,
       costAccumulator: acc,
-      callCoreTool,
+      callNanoclawTool,
       caseType: 'case_6b',
     })
     ws.simulateOpen()
@@ -815,7 +815,7 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
 
     await new Promise((r) => setImmediate(r))
 
-    const finalizeCalls = callCoreTool.mock.calls.filter(
+    const finalizeCalls = callNanoclawTool.mock.calls.filter(
       (c) => c[0] === 'voice_finalize_call_cost',
     )
     expect(finalizeCalls.length).toBe(1)
@@ -832,11 +832,11 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
     ws.readyState = 1
     const log = mockLog()
     const acc = makeMockAccumulator()
-    const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
+    const callNanoclawTool = vi.fn().mockResolvedValue({ ok: true })
     openSidebandSession('rtc-dup', log, {
       wsFactory: () => ws as unknown as WSType,
       costAccumulator: acc,
-      callCoreTool,
+      callNanoclawTool,
       capPerCallEur: 1.0,
       softWarnFraction: 0.8,
       farewellTtsHoldMs: 4000,
@@ -849,7 +849,7 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
     await new Promise((r) => setImmediate(r))
 
     // Only one finalize — from the hard-stop path, not from session.closed
-    const finalizeCalls = callCoreTool.mock.calls.filter(
+    const finalizeCalls = callNanoclawTool.mock.calls.filter(
       (c) => c[0] === 'voice_finalize_call_cost',
     )
     expect(finalizeCalls.length).toBe(1)
@@ -862,11 +862,11 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
     const ws = new MockWS()
     const log = mockLog()
     const acc = makeMockAccumulator()
-    const callCoreTool = vi.fn().mockResolvedValue({ ok: true })
+    const callNanoclawTool = vi.fn().mockResolvedValue({ ok: true })
     openSidebandSession('rtc-empty', log, {
       wsFactory: () => ws as unknown as WSType,
       costAccumulator: acc,
-      callCoreTool,
+      callNanoclawTool,
     })
     ws.simulateOpen()
     ws.emit('message', JSON.stringify({ type: 'response.done', response: {} }))
@@ -874,6 +874,6 @@ describe('openSidebandSession — response.done cost hook (04-02 Task 3)', () =>
     await new Promise((r) => setImmediate(r))
 
     expect(acc.add).not.toHaveBeenCalled()
-    expect(callCoreTool).not.toHaveBeenCalled()
+    expect(callNanoclawTool).not.toHaveBeenCalled()
   })
 })

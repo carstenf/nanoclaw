@@ -55,7 +55,7 @@ describe('cost/gate — constants locked per plan', () => {
   })
 })
 
-describe('cost/gate.checkCostCaps — DI: callCoreTool injected', () => {
+describe('cost/gate.checkCostCaps — DI: callNanoclawTool injected', () => {
   const envBackup: Record<string, string | undefined> = {}
   beforeEach(() => {
     envBackup.CORE_MCP_URL = process.env.CORE_MCP_URL
@@ -66,11 +66,11 @@ describe('cost/gate.checkCostCaps — DI: callCoreTool injected', () => {
   })
 
   it('today=2.50, month=10 → allow', async () => {
-    const callCoreTool = vi.fn().mockResolvedValue({
+    const callNanoclawTool = vi.fn().mockResolvedValue({
       ok: true,
       result: { today_eur: 2.5, month_eur: 10, suspended: false },
     })
-    const res = await checkCostCaps(mockLog(), { callCoreTool })
+    const res = await checkCostCaps(mockLog(), { callNanoclawTool })
     expect(res.decision).toBe('allow')
     expect(res.today_eur).toBeCloseTo(2.5, 5)
     expect(res.month_eur).toBeCloseTo(10, 5)
@@ -78,37 +78,37 @@ describe('cost/gate.checkCostCaps — DI: callCoreTool injected', () => {
   })
 
   it('today=3.00, month=10 → reject_daily', async () => {
-    const callCoreTool = vi.fn().mockResolvedValue({
+    const callNanoclawTool = vi.fn().mockResolvedValue({
       ok: true,
       result: { today_eur: 3.0, month_eur: 10, suspended: false },
     })
-    const res = await checkCostCaps(mockLog(), { callCoreTool })
+    const res = await checkCostCaps(mockLog(), { callNanoclawTool })
     expect(res.decision).toBe('reject_daily')
   })
 
   it('today=0, month=25 → reject_monthly', async () => {
-    const callCoreTool = vi.fn().mockResolvedValue({
+    const callNanoclawTool = vi.fn().mockResolvedValue({
       ok: true,
       result: { today_eur: 0, month_eur: 25.0, suspended: false },
     })
-    const res = await checkCostCaps(mockLog(), { callCoreTool })
+    const res = await checkCostCaps(mockLog(), { callNanoclawTool })
     expect(res.decision).toBe('reject_monthly')
   })
 
   it('suspended=true → reject_suspended (even if sums are below caps)', async () => {
-    const callCoreTool = vi.fn().mockResolvedValue({
+    const callNanoclawTool = vi.fn().mockResolvedValue({
       ok: true,
       result: { today_eur: 0, month_eur: 0, suspended: true },
     })
-    const res = await checkCostCaps(mockLog(), { callCoreTool })
+    const res = await checkCostCaps(mockLog(), { callNanoclawTool })
     expect(res.decision).toBe('reject_suspended')
     expect(res.suspended).toBe(true)
   })
 
   it('Core unreachable → fail-open allow, logs cost_gate_core_unreachable', async () => {
-    const callCoreTool = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
+    const callNanoclawTool = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
     const log = mockLog()
-    const res = await checkCostCaps(log, { callCoreTool })
+    const res = await checkCostCaps(log, { callNanoclawTool })
     expect(res.decision).toBe('allow')
     const warnCalls = (log.warn as ReturnType<typeof vi.fn>).mock.calls
     expect(
@@ -117,9 +117,9 @@ describe('cost/gate.checkCostCaps — DI: callCoreTool injected', () => {
   })
 
   it('malformed Core response (missing result) → fail-open allow', async () => {
-    const callCoreTool = vi.fn().mockResolvedValue({ ok: false })
+    const callNanoclawTool = vi.fn().mockResolvedValue({ ok: false })
     const log = mockLog()
-    const res = await checkCostCaps(log, { callCoreTool })
+    const res = await checkCostCaps(log, { callNanoclawTool })
     expect(res.decision).toBe('allow')
   })
 

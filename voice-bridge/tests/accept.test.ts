@@ -1107,7 +1107,7 @@ describe('POST /accept — Case-2 outbound branch (05-03 Task 3)', () => {
 })
 
 // Plan 04-02 Task 3: /accept-time cost gate integration.
-// Fetch is stubbed so the gate's callCoreTool returns a controlled payload
+// Fetch is stubbed so the gate's callNanoclawTool returns a controlled payload
 // without a real Core server. Decisions = reject_daily / reject_monthly /
 // reject_suspended → openai.realtime.calls.reject(callId, { status_code: 503 })
 //
@@ -1118,7 +1118,7 @@ describe('POST /accept — Case-2 outbound branch (05-03 Task 3)', () => {
 // longer match — the SDK handshake fails, cost-gate fail-opens to `allow`,
 // and the reject assertion fires zero times. Equivalent coverage exists at
 // the unit-test level in voice-bridge/src/cost/gate.test.ts (DI mock of
-// callCoreTool returns the reject-triggering payload) and at the v2-client
+// callNanoclawTool returns the reject-triggering payload) and at the v2-client
 // integration level in voice-bridge/src/core-mcp-client.test.ts (real MCP
 // server handles protocol). Rewriting these 3 tests to drive the webhook
 // against a real ephemeral MCP server is a separate hardening task —

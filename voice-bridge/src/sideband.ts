@@ -39,9 +39,9 @@ import {
   SOFT_WARN_FRACTION as DEFAULT_SOFT_WARN_FRACTION,
 } from './cost/gate.js'
 import {
-  callCoreTool as defaultCallCoreTool,
-  CoreMcpClient,
-} from './core-mcp-client.js'
+  callNanoclawTool as defaultCallCoreTool,
+  NanoclawMcpClient,
+} from './nanoclaw-mcp-client.js'
 import { sendDiscordAlert as defaultSendDiscordAlert } from './alerts.js'
 
 /** Cost-hard-stop: farewell hold before ws.close. */
@@ -192,8 +192,8 @@ export interface SidebandOpenOpts {
   apiKey?: string
   /** Accumulator DI (production default → src/cost/accumulator.ts). */
   costAccumulator?: CostAccumulatorLike
-  /** Core MCP client DI (production default → src/core-mcp-client.ts callCoreTool). */
-  callCoreTool?: (
+  /** Core MCP client DI (production default → src/core-mcp-client.ts callNanoclawTool). */
+  callNanoclawTool?: (
     name: string,
     args: unknown,
     opts: { timeoutMs: number },
@@ -256,7 +256,7 @@ export interface SidebandOpenOpts {
    * server-side sessions Map leak. Null/undefined in tests and when
    * CORE_MCP_URL is unset.
    */
-  coreMcp?: CoreMcpClient
+  coreMcp?: NanoclawMcpClient
   /**
    * Spike-A trace path — when set, every raw sideband message is appended
    * (one JSON object per line) to this file. The `response.audio.delta` event
@@ -319,7 +319,7 @@ export function openSidebandSession(
     ((defaultAccumulator.costOfResponseDone as unknown) as (
       evt: ResponseDoneEvent,
     ) => number)
-  const callCoreToolFn = opts.callCoreTool ?? defaultCallCoreTool
+  const callCoreToolFn = opts.callNanoclawTool ?? defaultCallCoreTool
   const sendDiscordAlertFn = opts.sendDiscordAlert ?? defaultSendDiscordAlert
   const capPerCallEur = opts.capPerCallEur ?? DEFAULT_CAP_PER_CALL_EUR
   const softWarnFraction = opts.softWarnFraction ?? DEFAULT_SOFT_WARN_FRACTION
@@ -842,7 +842,7 @@ export function openSidebandSession(
     log.info({ event: 'sideband_closed', call_id: callId })
     // Close the per-call MCP session so the server-side sessions Map doesn't
     // leak one session per call. Fire-and-forget with try/catch so a close
-    // failure logs but doesn't block other teardown steps. CoreMcpClient.close()
+    // failure logs but doesn't block other teardown steps. NanoclawMcpClient.close()
     // is idempotent — safe to call even if the session was never opened.
     const coreClient = opts.coreMcp
     if (coreClient) {

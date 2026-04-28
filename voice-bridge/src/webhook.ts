@@ -34,8 +34,7 @@ import { getAllowlist, type ToolEntry } from './tools/allowlist.js'
 import type { CallRouter } from './call-router.js'
 import type { OutboundRouter } from './outbound-router.js'
 import { maybeInjectPreGreet } from './pre-greet.js'
-import { CoreMcpClient } from './core-mcp-client.js'
-import type { NanoclawMcpClient } from './nanoclaw-mcp-client.js'
+import { NanoclawMcpClient } from './nanoclaw-mcp-client.js'
 import type { CoreClientLike } from './pre-greet.js'
 import { enableAutoResponseCreate, requestResponse, updateInstructions } from './sideband.js'
 import {
@@ -459,7 +458,10 @@ export function registerAcceptRoute(
         // Register AMD classifier for this call so dispatch.ts can route amd_result.
         const casePayload = (activeOutbound.case_payload ?? {}) as Record<string, unknown>
         const coreMcpForAmd = NANOCLAW_VOICE_MCP_URL
-          ? new CoreMcpClient(new URL(NANOCLAW_VOICE_MCP_URL), NANOCLAW_VOICE_MCP_TOKEN)
+          ? new NanoclawMcpClient({
+              url: new URL(NANOCLAW_VOICE_MCP_URL),
+              bearer: NANOCLAW_VOICE_MCP_TOKEN,
+            })
           : null
 
         const classifier = createAmdClassifier({
@@ -797,13 +799,16 @@ export function registerAcceptRoute(
         parameters: e.schema,
       }
     })
-    // Per-call MCP session: construct the CoreMcpClient BEFORE router.startCall()
+    // Per-call MCP session: construct the NanoclawMcpClient BEFORE router.startCall()
     // so it flows through to openSidebandSession's ws.on('close') finalizer,
     // which calls coreMcp.close() on hangup. Without this, the server-side
     // sessions Map leaks one session per call. Transport points at the
     // nanoclaw-voice MCP server (port 3201) — see core-mcp-client.ts header.
     const coreMcp = NANOCLAW_VOICE_MCP_URL
-      ? new CoreMcpClient(new URL(NANOCLAW_VOICE_MCP_URL), NANOCLAW_VOICE_MCP_TOKEN)
+      ? new NanoclawMcpClient({
+          url: new URL(NANOCLAW_VOICE_MCP_URL),
+          bearer: NANOCLAW_VOICE_MCP_TOKEN,
+        })
       : undefined
     try {
       await openai.realtime.calls.accept(callId, {
@@ -838,7 +843,7 @@ export function registerAcceptRoute(
 
       // Fire-and-forget pre-greet injection (<2000ms budget, fallback to
       // FALLBACK_PERSONA on timeout or no instructions returned; never blocks
-      // accept-handler return). Adapt the per-call CoreMcpClient into the
+      // accept-handler return). Adapt the per-call NanoclawMcpClient into the
       // CoreClientLike shape pre-greet expects.
       const coreClient: CoreClientLike = coreMcp
         ? {

@@ -15,7 +15,7 @@
 // bypassing the daily/monthly cap (single-user system, JSONL is the audit
 // trail of last resort).
 import type { Logger } from 'pino'
-import { callCoreTool as _callCoreTool } from '../core-mcp-client.js'
+import { callNanoclawTool as _callCoreTool } from '../nanoclaw-mcp-client.js'
 
 export const CAP_PER_CALL_EUR = 1.0
 export const CAP_DAILY_EUR = 3.0
@@ -48,8 +48,8 @@ export class CostCapExceededError extends Error {
 export interface CheckCostCapsOpts {
   /** Gate timeout (ms). Default 2000 — must finish before the /accept SLA. */
   gateTimeoutMs?: number
-  /** DI: override callCoreTool for tests. */
-  callCoreTool?: (
+  /** DI: override callNanoclawTool for tests. */
+  callNanoclawTool?: (
     name: string,
     args: unknown,
     opts: { timeoutMs: number },
@@ -61,7 +61,7 @@ export async function checkCostCaps(
   opts: CheckCostCapsOpts = {},
 ): Promise<GateResult> {
   const timeoutMs = opts.gateTimeoutMs ?? 2000
-  const callCore = opts.callCoreTool ?? _callCoreTool
+  const callCore = opts.callNanoclawTool ?? _callCoreTool
 
   let res: unknown
   try {

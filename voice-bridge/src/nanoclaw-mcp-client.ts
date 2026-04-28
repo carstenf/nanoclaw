@@ -161,24 +161,24 @@ export class NanoclawMcpClient {
   }
 
   /**
-   * Generic tool-call helper. Mirrors core-mcp-client.ts:119-173 (timeout
-   * detection, isError unwrap, JSON-parse of content[0].text).
+   * Generic tool-call helper. Public entry-point for callers that need to
+   * invoke arbitrary tools without going through the typed wrapper methods
+   * (init/transcript/wakeUp/sendDiscord). Used by tools/dispatch.ts to
+   * forward the bot's function_call payloads to NanoClaw Core.
    *
    * Surfaces:
    *   - NanoclawMcpTimeoutError on SDK timeout / abort.
    *   - NanoclawMcpError on isError tool result or transport failure.
    */
-  private async callTool<T>(
+  async callTool<T>(
     name: string,
     args: unknown,
-    opts: { signal?: AbortSignal } = {},
+    opts: { signal?: AbortSignal; timeoutMs?: number } = {},
   ): Promise<T> {
     try {
       // ensureConnected() lives inside the try block so transport-level
       // failures (DNS, ECONNREFUSED, fetch TypeError) surface as
       // NanoclawMcpError — preserving the public error-class contract.
-      // Differs from core-mcp-client.ts where the same line lives outside
-      // the catch (legacy CoreMcpError mapping). See Plan 05.5-03 Task 1.
       await this.ensureConnected()
       const c = this.client!
       const result = (await c.callTool(
@@ -187,7 +187,10 @@ export class NanoclawMcpClient {
           arguments: (args as Record<string, unknown>) ?? {},
         },
         undefined,
-        { timeout: this.timeoutMs, signal: opts.signal },
+        {
+          timeout: opts.timeoutMs ?? this.timeoutMs,
+          signal: opts.signal,
+        },
       )) as {
         content?: Array<{ type: string; text?: string }>
         isError?: boolean
