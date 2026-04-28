@@ -35,6 +35,7 @@ import { makeVoiceSearchCompetitors } from './voice-search-competitors.js';
 import { makeVoiceInsertPriceSnapshot } from './voice-insert-price-snapshot.js';
 import { makeVoiceNotifyUser, TOOL_NAME as VOICE_NOTIFY_USER_TOOL_NAME } from './voice-notify-user.js';
 import { makeVoiceCase2ScheduleRetry, TOOL_NAME as VOICE_CASE_2_RETRY_TOOL_NAME } from './voice-case-2-retry.js';
+import { makeVoiceOutboundScheduleRetry, TOOL_NAME as VOICE_OUTBOUND_RETRY_TOOL_NAME } from './voice-outbound-retry.js';
 import { makeVoiceStartCase2Call, TOOL_NAME as VOICE_START_CASE_2_TOOL_NAME } from './voice-start-case-2-call.js';
 import { makeVoiceWakeUp } from './voice-wake-up.js';
 import {
@@ -641,6 +642,20 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       getDatabase,
       scheduleRetry: (args) => registry.invoke('voice_schedule_retry', args),
       jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-case-2-retry.jsonl` : undefined,
+    }),
+    { mutating: true },
+  );
+
+  // Step 2C (open_points 2026-04-28): voice_outbound_schedule_retry — generic
+  // retry-scheduling for ANY outbound voicemail. Thin wrapper around
+  // voice_case_2_schedule_retry that synthesises calendar_date (today,
+  // Europe/Berlin) and a fresh idempotency_key per attempt. Step 3 will
+  // collapse case_2 + generic into one canonical retry tool.
+  registry.register(
+    VOICE_OUTBOUND_RETRY_TOOL_NAME,
+    makeVoiceOutboundScheduleRetry({
+      scheduleCase2Retry: (args) =>
+        registry.invoke(VOICE_CASE_2_RETRY_TOOL_NAME, args),
     }),
     { mutating: true },
   );

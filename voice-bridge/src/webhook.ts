@@ -126,12 +126,14 @@ export function buildCase2OnVoicemailHandler(
         err: (e as Error)?.message,
       })
     }
-    // voice_case_2_schedule_retry + voice_notify_user via Core MCP
+    // Schedule a retry via Core MCP. Step 2C (open_points 2026-04-28):
+    //   - case_2 booking with calendar_date + idempotency_key in case_payload
+    //     → voice_case_2_schedule_retry (chains to original booking digest).
+    //   - any other outbound (voice_request_outbound_call without case-2
+    //     metadata) → voice_outbound_schedule_retry (synthesises today's
+    //     calendar_date + a fresh idempotency_key per attempt).
+    // Both share the same 5/15/45/120-min ladder + 5/day cap.
     if (coreMcpForAmd) {
-      // Fail-fast if required zod-schema fields are missing from casePayload.
-      // casePayload.requested_date + idempotency_key are MANDATORY per Phase 5 D-7.
-      // Empty-string fallback would fail zod .length(64).regex(/^[0-9a-f]{64}$/)
-      // at Core with -32602 — the exact symptom this plan fixes.
       const calendarDateRaw = casePayload.requested_date
       const idempotencyKeyRaw = casePayload.idempotency_key
       const calendarDate =
@@ -142,15 +144,9 @@ export function buildCase2OnVoicemailHandler(
         typeof idempotencyKeyRaw === 'string' && idempotencyKeyRaw.length > 0
           ? idempotencyKeyRaw
           : ''
-      if (!calendarDate || !idempotencyKey) {
-        log.warn({
-          event: 'case_2_schedule_retry_missing_fields',
-          call_id: callId,
-          has_calendar_date: Boolean(calendarDate),
-          has_idempotency_key: Boolean(idempotencyKey),
-        })
-      } else {
-        try {
+      const isCase2Retry = Boolean(calendarDate && idempotencyKey)
+      try {
+        if (isCase2Retry) {
           await coreMcpForAmd.callTool('voice_case_2_schedule_retry', {
             call_id: callId,
             target_phone: activeOutbound.target_phone,
@@ -158,13 +154,21 @@ export function buildCase2OnVoicemailHandler(
             prev_outcome: amdReasonToPrevOutcome(reason),
             idempotency_key: idempotencyKey,
           })
-        } catch (e: unknown) {
-          log.warn({
-            event: 'case_2_schedule_retry_failed',
+        } else {
+          await coreMcpForAmd.callTool('voice_outbound_schedule_retry', {
             call_id: callId,
-            err: (e as Error)?.message,
+            target_phone: activeOutbound.target_phone,
+            prev_outcome: amdReasonToPrevOutcome(reason),
           })
         }
+      } catch (e: unknown) {
+        log.warn({
+          event: isCase2Retry
+            ? 'case_2_schedule_retry_failed'
+            : 'outbound_schedule_retry_failed',
+          call_id: callId,
+          err: (e as Error)?.message,
+        })
       }
       try {
         await coreMcpForAmd.callTool('voice_notify_user', {

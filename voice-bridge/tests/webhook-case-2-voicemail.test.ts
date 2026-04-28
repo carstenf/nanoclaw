@@ -242,24 +242,22 @@ describe('webhook onVoicemail — voice_case_2_schedule_retry arg construction (
     })
     await fx.handler('amd_result')
 
-    // retry MUST NOT be called at all
-    const retryCalls = fx.callToolMock.mock.calls.filter(
+    // Step 2C: case_2 retry NOT called (missing idempotency_key) — instead
+    // voice_outbound_schedule_retry kicks in for the generic path.
+    const case2RetryCalls = fx.callToolMock.mock.calls.filter(
       (c) => c[0] === 'voice_case_2_schedule_retry',
     )
-    expect(retryCalls).toHaveLength(0)
-
-    // warn log with explicit event + has_* booleans
-    expect(fx.logWarn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: 'case_2_schedule_retry_missing_fields',
-        call_id: 'test_call',
-        has_calendar_date: true,
-        has_idempotency_key: false,
-      }),
+    expect(case2RetryCalls).toHaveLength(0)
+    const outboundRetryCalls = fx.callToolMock.mock.calls.filter(
+      (c) => c[0] === 'voice_outbound_schedule_retry',
     )
+    expect(outboundRetryCalls).toHaveLength(1)
+    const args = outboundRetryCalls[0][1] as Record<string, unknown>
+    expect(args.target_phone).toBe('+491708036426')
+    expect(args.prev_outcome).toBe('voicemail')
   })
 
-  it('test 5b: missing casePayload.requested_date → skip retry; log case_2_schedule_retry_missing_fields', async () => {
+  it('test 5b: missing casePayload.requested_date → falls back to voice_outbound_schedule_retry (Step 2C)', async () => {
     const fx = buildHandler({
       casePayloadOverride: {
         // requested_date intentionally absent
@@ -269,22 +267,17 @@ describe('webhook onVoicemail — voice_case_2_schedule_retry arg construction (
     })
     await fx.handler('cadence_cue')
 
-    const retryCalls = fx.callToolMock.mock.calls.filter(
+    const case2RetryCalls = fx.callToolMock.mock.calls.filter(
       (c) => c[0] === 'voice_case_2_schedule_retry',
     )
-    expect(retryCalls).toHaveLength(0)
-
-    expect(fx.logWarn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: 'case_2_schedule_retry_missing_fields',
-        call_id: 'test_call',
-        has_calendar_date: false,
-        has_idempotency_key: true,
-      }),
+    expect(case2RetryCalls).toHaveLength(0)
+    const outboundRetryCalls = fx.callToolMock.mock.calls.filter(
+      (c) => c[0] === 'voice_outbound_schedule_retry',
     )
+    expect(outboundRetryCalls).toHaveLength(1)
   })
 
-  it('test 5c: empty-string idempotency_key is treated as missing (prevents zod-invalid args reaching Core)', async () => {
+  it('test 5c: empty-string idempotency_key is treated as missing → voice_outbound_schedule_retry (Step 2C)', async () => {
     const fx = buildHandler({
       casePayloadOverride: {
         requested_date: '2026-04-21',
@@ -294,15 +287,13 @@ describe('webhook onVoicemail — voice_case_2_schedule_retry arg construction (
     })
     await fx.handler('silence_mailbox')
 
-    const retryCalls = fx.callToolMock.mock.calls.filter(
+    const case2RetryCalls = fx.callToolMock.mock.calls.filter(
       (c) => c[0] === 'voice_case_2_schedule_retry',
     )
-    expect(retryCalls).toHaveLength(0)
-    expect(fx.logWarn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: 'case_2_schedule_retry_missing_fields',
-        has_idempotency_key: false,
-      }),
+    expect(case2RetryCalls).toHaveLength(0)
+    const outboundRetryCalls = fx.callToolMock.mock.calls.filter(
+      (c) => c[0] === 'voice_outbound_schedule_retry',
     )
+    expect(outboundRetryCalls).toHaveLength(1)
   })
 })

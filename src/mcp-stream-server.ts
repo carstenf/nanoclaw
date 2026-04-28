@@ -88,6 +88,7 @@ import { OnTranscriptTurnSchema } from './mcp-tools/voice-on-transcript-turn.js'
 import { VoiceNotifyUserSchema } from './mcp-tools/voice-notify-user.js';
 import { VoiceStartCase2CallSchema } from './mcp-tools/voice-start-case-2-call.js';
 import { VoiceCase2ScheduleRetrySchema } from './mcp-tools/voice-case-2-retry.js';
+import { VoiceOutboundScheduleRetrySchema } from './mcp-tools/voice-outbound-retry.js';
 import { VoiceTriggersInitSchema } from './mcp-tools/voice-triggers-init.js';
 import { VoiceTriggersTranscriptSchema } from './mcp-tools/voice-triggers-transcript.js';
 import { VoiceRespondSchema } from './mcp-tools/voice-respond.js';
@@ -251,6 +252,11 @@ const TOOL_META: Record<string, ToolMeta> =
       description:
         'Schedule a Case-2 retry with ladder (5/15/45/120 min) and daily cap of 5.',
       shape: VoiceCase2ScheduleRetrySchema.shape,
+    },
+    'voice_outbound_schedule_retry': {
+      description:
+        'Generic outbound retry with the same 5/15/45/120-min ladder and 5/day cap. Use for any outbound voicemail; no calendar_date or idempotency_key required.',
+      shape: VoiceOutboundScheduleRetrySchema.shape,
     },
     'voice_triggers_init': {
       description:
