@@ -327,8 +327,9 @@ export const SESSION_CONFIG = {
       },
       // User-transcription — emits conversation.item.input_audio_transcription
       // .completed events on the sideband WS (required for Slow-Brain push and
-      // AMD VAD-fallback human verdict). language='de' pinned to prevent
-      // whisper auto-detect from misrouting German restaurant names.
+      // AMD VAD-fallback human verdict). language pinned per call (default 'de'
+      // to prevent whisper auto-detect from misrouting German restaurant names).
+      // Phase 06.x multilingual: per-call language picked via buildAudioConfig.
       // gpt-4o-mini-transcribe chosen over whisper-1 for FLEURS WER at 8kHz
       // telephony; we only consume `.completed` events (no `.delta` consumer).
       // Cost note: higher per-minute rate than whisper-1 — verify
@@ -337,4 +338,53 @@ export const SESSION_CONFIG = {
     },
     output: { voice: 'cedar' as const },
   },
+}
+
+// ---------------------------------------------------------------------------
+// Phase 06.x multilingual — per-language voice + transcription overrides.
+// ---------------------------------------------------------------------------
+//
+// `cedar` is multilingual-trained and has been validated for DE; it is the
+// safe default across all three v1 languages. To pick a different voice for
+// EN / IT (e.g. a more native-sounding `marin` for EN), set
+// `OPENAI_REALTIME_VOICE_{DE,EN,IT}` in voice-bridge .env — value is forwarded
+// verbatim to the OpenAI Realtime session.
+//
+// `transcription.language` mirrors the persona language so whisper does not
+// auto-detect (auto-detect occasionally misroutes proper nouns when there is
+// only one short utterance).
+
+export type CallLang = 'de' | 'en' | 'it'
+
+const VOICE_BY_LANG: Record<CallLang, string> = {
+  de: process.env.OPENAI_REALTIME_VOICE_DE ?? 'cedar',
+  en: process.env.OPENAI_REALTIME_VOICE_EN ?? 'cedar',
+  it: process.env.OPENAI_REALTIME_VOICE_IT ?? 'cedar',
+}
+
+/**
+ * Build the per-call `audio` block for `openai.realtime.calls.accept`.
+ * Picks `voice` + `transcription.language` from `lang` (default 'de').
+ * Optional Case-2 AMD-gate forces `create_response:false` so the bot stays
+ * silent until the classifier produces a verdict (§201 StGB invariant).
+ */
+export function buildAudioConfig(
+  lang: CallLang = 'de',
+  opts: { case2AmdGate?: boolean } = {},
+): typeof SESSION_CONFIG.audio {
+  const baseInput = SESSION_CONFIG.audio.input
+  const turnDetection = opts.case2AmdGate
+    ? { ...baseInput.turn_detection, create_response: false }
+    : baseInput.turn_detection
+  return {
+    input: {
+      ...baseInput,
+      turn_detection: turnDetection,
+      transcription: {
+        ...baseInput.transcription,
+        language: lang,
+      },
+    },
+    output: { voice: VOICE_BY_LANG[lang] },
+  } as typeof SESSION_CONFIG.audio
 }

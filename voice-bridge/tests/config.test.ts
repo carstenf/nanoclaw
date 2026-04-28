@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { SESSION_CONFIG, IDLE_TIMEOUT_MS } from '../src/config.js'
+import { SESSION_CONFIG, IDLE_TIMEOUT_MS, buildAudioConfig } from '../src/config.js'
 
 /**
  * Regression guard for Plan 05.1-02 defect #3 — Realtime ASR upgrade.
@@ -65,5 +65,50 @@ describe('SESSION_CONFIG idle_timeout (Plan 05.3-05a D-3)', () => {
 
   it('invariant preserved: type=server_vad', () => {
     expect(SESSION_CONFIG.audio.input.turn_detection.type).toBe('server_vad')
+  })
+})
+
+/**
+ * Phase 06.x multilingual — buildAudioConfig picks `voice` and
+ * `transcription.language` per-call from the lang arg, defaults to 'de',
+ * and forces `create_response:false` only when the Case-2 AMD-gate flag
+ * is set (§201 StGB invariant).
+ */
+describe('buildAudioConfig (Phase 06.x multilingual)', () => {
+  it('default lang=de → voice cedar, transcription.language=de, create_response=true', () => {
+    const a = buildAudioConfig()
+    expect(a.output.voice).toBe('cedar')
+    expect(a.input.transcription.language).toBe('de')
+    expect(a.input.turn_detection.create_response).toBe(true)
+  })
+
+  it('lang=en → transcription.language=en (default voice cedar unless overridden)', () => {
+    const a = buildAudioConfig('en')
+    expect(a.input.transcription.language).toBe('en')
+    // voice falls back to cedar default unless OPENAI_REALTIME_VOICE_EN env is set
+    expect(typeof a.output.voice).toBe('string')
+  })
+
+  it('lang=it → transcription.language=it', () => {
+    const a = buildAudioConfig('it')
+    expect(a.input.transcription.language).toBe('it')
+  })
+
+  it('case2AmdGate=true forces create_response=false (§201 invariant)', () => {
+    const a = buildAudioConfig('de', { case2AmdGate: true })
+    expect(a.input.turn_detection.create_response).toBe(false)
+  })
+
+  it('case2AmdGate=false keeps create_response=true (REQ-VOICE-04 default)', () => {
+    const a = buildAudioConfig('de', { case2AmdGate: false })
+    expect(a.input.turn_detection.create_response).toBe(true)
+  })
+
+  it('preserves SESSION_CONFIG turn_detection invariants (type, threshold, idle_timeout)', () => {
+    const a = buildAudioConfig('en')
+    expect(a.input.turn_detection.type).toBe('server_vad')
+    expect(
+      (a.input.turn_detection as { idle_timeout_ms: number }).idle_timeout_ms,
+    ).toBe(10000)
   })
 })

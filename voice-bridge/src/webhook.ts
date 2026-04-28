@@ -25,10 +25,12 @@ import type { Logger } from 'pino'
 import {
   CARSTEN_CLI_NUMBER,
   SESSION_CONFIG,
+  buildAudioConfig,
   buildTracePath,
   FALLBACK_PERSONA,
   NANOCLAW_VOICE_MCP_URL,
   NANOCLAW_VOICE_MCP_TOKEN,
+  type CallLang,
 } from './config.js'
 import { getAllowlist, type ToolEntry } from './tools/allowlist.js'
 import type { CallRouter } from './call-router.js'
@@ -636,18 +638,8 @@ export function registerAcceptRoute(
       // the REQ-VOICE-04 default (`create_response:true`) + speak-first — bot
       // greets on call connect, counterpart responds, native server_vad drives
       // subsequent turns. Eliminates the Q2-silent-pickup hang class.
-      const audioForAccept = isCase2
-        ? {
-            ...SESSION_CONFIG.audio,
-            input: {
-              ...SESSION_CONFIG.audio.input,
-              turn_detection: {
-                ...SESSION_CONFIG.audio.input.turn_detection,
-                create_response: false,
-              },
-            },
-          }
-        : SESSION_CONFIG.audio
+      const callLang: CallLang = (activeOutbound.lang ?? 'de') as CallLang
+      const audioForAccept = buildAudioConfig(callLang, { case2AmdGate: isCase2 })
       try {
         await openai.realtime.calls.accept(callId, {
           type: 'realtime',
@@ -812,12 +804,15 @@ export function registerAcceptRoute(
         })
       : undefined
     try {
+      // Inbound is currently Carsten-only (case_6b) → DE always. Routed
+      // through buildAudioConfig for symmetry; future case_6a (non-Carsten
+      // inbound) can pass a different lang here once detected.
       await openai.realtime.calls.accept(callId, {
         type: 'realtime',
         model: SESSION_CONFIG.model,
         instructions,
         tools: toolsPayload,
-        audio: SESSION_CONFIG.audio,
+        audio: buildAudioConfig('de'),
       } as unknown as Parameters<typeof openai.realtime.calls.accept>[1])
       // Phase 05.4 Block-5: inbound trace at REQ-INFRA-05 / REQ-VOICE-10
       // path. §201-redaction identical to outbound (audio.delta → delta_bytes
