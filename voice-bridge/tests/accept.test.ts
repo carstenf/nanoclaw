@@ -335,6 +335,7 @@ describe('POST /accept — Phase 2 full-wiring', () => {
       'get_contract',
       'get_practice_profile',
       'get_travel_time',
+      'notify_user',
       'request_outbound_call',
       'schedule_retry',
       'search_competitors',

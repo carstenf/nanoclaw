@@ -72,6 +72,7 @@ const TOOL_TO_CORE_MCP: Record<string, string | null> = {
   get_travel_time: 'voice_get_travel_time',
   end_call: null, // bridge-internal — handled before MCP forward
   set_language: 'voice_set_language',
+  notify_user: 'voice_notify_user',
 }
 
 // Bridge-internal hangup callback. Wired by buildApp at startup with

@@ -30,6 +30,7 @@ import deleteCalendarEntrySchema from './schemas/delete_calendar_entry.json' wit
 import updateCalendarEntrySchema from './schemas/update_calendar_entry.json' with { type: 'json' }
 import endCallSchema from './schemas/end_call.json' with { type: 'json' }
 import setLanguageSchema from './schemas/set_language.json' with { type: 'json' }
+import notifyUserSchema from './schemas/notify_user.json' with { type: 'json' }
 
 export interface ToolEntry {
   name: string
@@ -70,15 +71,20 @@ const ENTRIES: ToolEntry[] = [
   // systems. injectCallId so the NanoClaw handler reads the per-call active
   // whitelist via the gateway.
   { name: 'set_language',          mutating: false, schema: setLanguageSchema as Record<string, unknown>,          validate: ajv.compile(setLanguageSchema), injectCallId: true },
+  // Phase 06.x outcome reporting: bot calls notify_user BEFORE end_call to
+  // report success / decline / decision-needed back to Carsten in the main
+  // chat group (Discord priority, WhatsApp if active session). injectCallId
+  // so voice_notify_user logs correlate with the call.
+  { name: 'notify_user',           mutating: true,  schema: notifyUserSchema as Record<string, unknown>,           validate: ajv.compile(notifyUserSchema),           injectCallId: true },
 ]
 
 // REQ-TOOLS-09 ceiling guard — fires at module load.
 // Cap was 15 in Phase 5 (REQ-TOOLS-09 original). Phase 06.x added
-// set_language for mid-call language switching → cap raised to 16. Any
-// further additions need an architectural review (model-attention budget
-// degrades with too many tools).
-if (ENTRIES.length > 16) {
-  throw new Error(`REQ-TOOLS-09 ceiling 16 exceeded: ${ENTRIES.length}`)
+// set_language (16) and notify_user (17) for mid-call language switching
+// + outcome reporting. Any further additions need an architectural review
+// (model-attention budget degrades with too many tools).
+if (ENTRIES.length > 17) {
+  throw new Error(`REQ-TOOLS-09 ceiling 17 exceeded: ${ENTRIES.length}`)
 }
 
 const REGISTRY = new Map(ENTRIES.map((e) => [e.name, e]))

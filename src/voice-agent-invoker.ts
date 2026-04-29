@@ -372,6 +372,10 @@ export function renderPersona(
     anrede_pronoun: anrede.pronoun,
     anrede_disclosure: anrede.disclosure,
     lang_switch_block,
+    // Phone-bot identifies with the same name Carsten uses for the WhatsApp/
+    // Discord agent (Andy). Sourced from ASSISTANT_NAME env at process start;
+    // hardcoded fallback "Andy" matches .env default.
+    assistant_name: process.env.ASSISTANT_NAME ?? 'Andy',
   };
 
   for (const [token, value] of Object.entries(subs)) {

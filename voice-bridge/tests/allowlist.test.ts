@@ -7,25 +7,26 @@ import {
 } from '../src/tools/allowlist.js'
 
 describe('tools/allowlist — REQ-TOOLS registry (D-07, D-08)', () => {
-  it('exposes exactly 16 entries (Phase 5 set + Phase 06.x set_language)', () => {
+  it('exposes exactly 17 entries (Phase 5 set + Phase 06.x set_language + notify_user)', () => {
     const entries = getAllowlist()
-    expect(entries.length).toBe(16)
+    expect(entries.length).toBe(17)
   })
 
-  it('enforces the REQ-TOOLS-09 ceiling of 16 at module load (Phase 06.x raised from 15)', () => {
+  it('enforces the REQ-TOOLS-09 ceiling of 17 at module load (Phase 06.x raised from 15→16→17)', () => {
     const entries = getAllowlist()
-    expect(entries.length).toBeLessThanOrEqual(16)
+    expect(entries.length).toBeLessThanOrEqual(17)
   })
 
-  it('marks exactly 9 tools as mutating (D-05 + request_outbound_call + delete/update_calendar_entry + end_call)', () => {
+  it('marks exactly 10 tools as mutating (D-05 + request_outbound_call + delete/update_calendar_entry + end_call + notify_user)', () => {
     const entries = getAllowlist()
     const mutating = entries.filter((e: ToolEntry) => e.mutating)
-    expect(mutating.length).toBe(9)
+    expect(mutating.length).toBe(10)
     expect(mutating.map((e) => e.name).sort()).toEqual([
       'confirm_action',
       'create_calendar_entry',
       'delete_calendar_entry',
       'end_call',
+      'notify_user',
       'request_outbound_call',
       'schedule_retry',
       'send_discord_message',

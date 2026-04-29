@@ -42,8 +42,9 @@ describe('voice_set_language', () => {
     expect(r.ok).toBe(true);
     expect(r.result.lang).toBe('en');
     expect(r.result.instructions.length).toBeGreaterThan(100);
-    // English baseline content present:
-    expect(r.result.instructions).toContain('NanoClaw');
+    // English baseline content present (assistant_name placeholder
+    // resolved — default is 'Andy'):
+    expect(r.result.instructions).toContain('Andy');
     expect(r.result.instructions.toLowerCase()).toContain('english');
     // Active lang in gateway updated:
     expect(getActiveLang('rtc_test_1')).toBe('en');
