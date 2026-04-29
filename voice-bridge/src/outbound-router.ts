@@ -102,6 +102,13 @@ export interface OutboundTask {
    * case_payload.restaurant_name (case_2 legacy) and finally 'Counterpart'.
    */
   counterpart_label?: string
+  /**
+   * Mid-call language switch whitelist (Phase 06.x). Andy supplies a 1-5
+   * element subset of supported langs (de/en/it) — bot may switch only
+   * within this set via voice_set_language(lang) tool. Empty/undefined =
+   * no mid-call switching.
+   */
+  lang_whitelist?: ('de' | 'en' | 'it')[]
 }
 
 export interface EnqueueRequest {
@@ -122,6 +129,8 @@ export interface EnqueueRequest {
   lang?: 'de' | 'en' | 'it'
   /** Step 2B: counterpart noun phrase, used by /accept persona render. */
   counterpart_label?: string
+  /** Mid-call language switch whitelist (Phase 06.x). */
+  lang_whitelist?: ('de' | 'en' | 'it')[]
 }
 
 /**
@@ -482,6 +491,7 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
       case_payload: req.case_payload,
       lang: req.lang,
       counterpart_label: req.counterpart_label,
+      lang_whitelist: req.lang_whitelist,
     }
     tasks.set(task.task_id, task)
 

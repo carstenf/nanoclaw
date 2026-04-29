@@ -89,6 +89,7 @@ import { VoiceNotifyUserSchema } from './mcp-tools/voice-notify-user.js';
 import { VoiceStartCase2CallSchema } from './mcp-tools/voice-start-case-2-call.js';
 import { VoiceCase2ScheduleRetrySchema } from './mcp-tools/voice-case-2-retry.js';
 import { VoiceOutboundScheduleRetrySchema } from './mcp-tools/voice-outbound-retry.js';
+import { VoiceSetLanguageSchema } from './mcp-tools/voice-set-language.js';
 import { VoiceTriggersInitSchema } from './mcp-tools/voice-triggers-init.js';
 import { VoiceTriggersTranscriptSchema } from './mcp-tools/voice-triggers-transcript.js';
 import { VoiceRespondSchema } from './mcp-tools/voice-respond.js';
@@ -257,6 +258,12 @@ const TOOL_META: Record<string, ToolMeta> =
       description:
         'Generic outbound retry with the same 5/15/45/120-min ladder and 5/day cap. Use for any outbound voicemail; no calendar_date or idempotency_key required.',
       shape: VoiceOutboundScheduleRetrySchema.shape,
+    },
+    'voice_set_language': {
+      description:
+        'Mid-call language switch. Validates lang ∈ per-call lang_whitelist (Phase 06.x). Returns re-rendered persona instructions; the Bridge applies via two-step session.update (audio + instructions).',
+      shape: VoiceSetLanguageSchema.shape,
+      skipSyntheticIds: true,
     },
     'voice_triggers_init': {
       description:

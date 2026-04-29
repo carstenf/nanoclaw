@@ -29,6 +29,7 @@ import requestOutboundCallSchema from './schemas/request_outbound_call.json' wit
 import deleteCalendarEntrySchema from './schemas/delete_calendar_entry.json' with { type: 'json' }
 import updateCalendarEntrySchema from './schemas/update_calendar_entry.json' with { type: 'json' }
 import endCallSchema from './schemas/end_call.json' with { type: 'json' }
+import setLanguageSchema from './schemas/set_language.json' with { type: 'json' }
 
 export interface ToolEntry {
   name: string
@@ -64,11 +65,20 @@ const ENTRIES: ToolEntry[] = [
   { name: 'delete_calendar_entry', mutating: true,  schema: deleteCalendarEntrySchema as Record<string, unknown>, validate: ajv.compile(deleteCalendarEntrySchema) },
   { name: 'update_calendar_entry', mutating: true,  schema: updateCalendarEntrySchema as Record<string, unknown>, validate: ajv.compile(updateCalendarEntrySchema) },
   { name: 'end_call',              mutating: true,  schema: endCallSchema as Record<string, unknown>,              validate: ajv.compile(endCallSchema) },
+  // Phase 06.x mid-call language switch. mutating:false because the tool
+  // mutates only voice-channel internal state (per-call lang) — not external
+  // systems. injectCallId so the NanoClaw handler reads the per-call active
+  // whitelist via the gateway.
+  { name: 'set_language',          mutating: false, schema: setLanguageSchema as Record<string, unknown>,          validate: ajv.compile(setLanguageSchema), injectCallId: true },
 ]
 
 // REQ-TOOLS-09 ceiling guard — fires at module load.
-if (ENTRIES.length > 15) {
-  throw new Error(`REQ-TOOLS-09 ceiling 15 exceeded: ${ENTRIES.length}`)
+// Cap was 15 in Phase 5 (REQ-TOOLS-09 original). Phase 06.x added
+// set_language for mid-call language switching → cap raised to 16. Any
+// further additions need an architectural review (model-attention budget
+// degrades with too many tools).
+if (ENTRIES.length > 16) {
+  throw new Error(`REQ-TOOLS-09 ceiling 16 exceeded: ${ENTRIES.length}`)
 }
 
 const REGISTRY = new Map(ENTRIES.map((e) => [e.name, e]))

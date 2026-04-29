@@ -36,6 +36,7 @@ import { makeVoiceInsertPriceSnapshot } from './voice-insert-price-snapshot.js';
 import { makeVoiceNotifyUser, TOOL_NAME as VOICE_NOTIFY_USER_TOOL_NAME } from './voice-notify-user.js';
 import { makeVoiceCase2ScheduleRetry, TOOL_NAME as VOICE_CASE_2_RETRY_TOOL_NAME } from './voice-case-2-retry.js';
 import { makeVoiceOutboundScheduleRetry, TOOL_NAME as VOICE_OUTBOUND_RETRY_TOOL_NAME } from './voice-outbound-retry.js';
+import { makeVoiceSetLanguage, TOOL_NAME as VOICE_SET_LANGUAGE_TOOL_NAME } from './voice-set-language.js';
 import { makeVoiceStartCase2Call, TOOL_NAME as VOICE_START_CASE_2_TOOL_NAME } from './voice-start-case-2-call.js';
 import { makeVoiceWakeUp } from './voice-wake-up.js';
 import {
@@ -658,6 +659,17 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
         registry.invoke(VOICE_CASE_2_RETRY_TOOL_NAME, args),
     }),
     { mutating: true },
+  );
+
+  // Phase 06.x: voice_set_language — mid-call language switch tool. mutating
+  // is false because the only state mutated is the per-call gateway entry
+  // (voice-channel internal); no external system writes happen. The tool
+  // validates lang ∈ per-call lang_whitelist server-side so an off-whitelist
+  // bot call is rejected even with valid args.
+  registry.register(
+    VOICE_SET_LANGUAGE_TOOL_NAME,
+    makeVoiceSetLanguage(),
+    { mutating: false },
   );
 
   // Phase 5 Plan 05-01 (SEED-001) / Plan 05-02 Task 5: voice_notify_user — channel-agnostic routing.

@@ -51,7 +51,10 @@
 
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import WebSocket from 'ws'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // ---- Probe marker constants (APFEL/BIRNE) ----
 // APFEL = Mode A marker word; BIRNE = Mode B marker word. If the probe

@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "description": "Switch the call's persona language mid-call. Allowed lang values are constrained server-side by the per-call lang_whitelist Andy set at voice_request_outbound_call time. Off-whitelist switches are rejected with lang_not_in_whitelist; the call keeps the current language.",
+  "properties": {
+    "lang": {
+      "type": "string",
+      "enum": ["de", "en", "it"],
+      "description": "Target language code: 'de' (German), 'en' (English), 'it' (Italian)."
+    }
+  },
+  "required": ["lang"],
+  "additionalProperties": false
+}

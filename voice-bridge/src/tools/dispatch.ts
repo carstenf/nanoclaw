@@ -71,6 +71,7 @@ const TOOL_TO_CORE_MCP: Record<string, string | null> = {
   ask_core: 'voice_ask_core',
   get_travel_time: 'voice_get_travel_time',
   end_call: null, // bridge-internal — handled before MCP forward
+  set_language: 'voice_set_language',
 }
 
 // Bridge-internal hangup callback. Wired by buildApp at startup with
@@ -118,6 +119,17 @@ export interface DispatchOpts {
   /** Plan 03-13: per-call hangup override (tests). Production uses module-level
    *  callback wired via `setHangupCallback`. */
   hangupCall?: (callId: string) => Promise<void>
+  /**
+   * Phase 06.x: post-MCP hook for set_language. Bridge applies the new
+   * persona + voice + transcription.language via two-step session.update
+   * (audio first, then instructions per Q7 atomicity mitigation). Returns
+   * true on successful apply, false on no-op (e.g. sideband not ready).
+   */
+  applyLanguageSwitch?: (
+    callId: string,
+    instructions: string,
+    lang: 'de' | 'en' | 'it',
+  ) => Promise<boolean>
 }
 
 function appendJsonl(path: string, entry: Record<string, unknown>): void {
@@ -364,6 +376,35 @@ export async function dispatchTool(
       core_name: coreName,
       latency_ms: latency,
     })
+
+    // Phase 06.x: set_language post-MCP — apply the new persona +
+    // voice + transcription.language to the live session via the
+    // applyLanguageSwitch callback (which lives in webhook.ts because it
+    // owns per-call sideband state). Two-step session.update (audio first,
+    // then instructions) per Q7 atomicity mitigation.
+    if (toolName === 'set_language' && opts.applyLanguageSwitch) {
+      const r = (result ?? {}) as {
+        ok?: boolean
+        result?: { instructions?: string; lang?: 'de' | 'en' | 'it' }
+      }
+      if (
+        r.ok === true &&
+        r.result &&
+        typeof r.result.instructions === 'string' &&
+        (r.result.lang === 'de' || r.result.lang === 'en' || r.result.lang === 'it')
+      ) {
+        try {
+          await opts.applyLanguageSwitch(callId, r.result.instructions, r.result.lang)
+        } catch (err: unknown) {
+          log.warn({
+            event: 'set_language_apply_failed',
+            call_id: callId,
+            err: (err as Error)?.message,
+          })
+        }
+      }
+    }
+
     emitOutput(ws, functionCallId, result, log)
     emitCreate(ws, log)
 

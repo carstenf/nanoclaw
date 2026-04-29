@@ -282,6 +282,58 @@ function deriveGoalAndContext(
 }
 
 // ---------------------------------------------------------------------------
+// Mid-call language switch (Phase 06.x)
+// ---------------------------------------------------------------------------
+
+const LANG_NAME_BY_LANG: Record<Lang, Record<Lang, string>> = {
+  de: { de: 'Deutsch', en: 'Englisch', it: 'Italienisch' },
+  en: { de: 'German', en: 'English', it: 'Italian' },
+  it: { de: 'tedesco', en: 'inglese', it: 'italiano' },
+};
+
+/**
+ * Render the lang-switch instruction block for a baseline. Replaces the
+ * pre-Phase-06.x hard "NEVER speak another language" rule with a soft
+ * whitelist-aware policy:
+ *
+ *   - empty/single-element whitelist → bot stays in the starting lang and
+ *     politely declines off-lang counterparts.
+ *   - 2+ langs in the whitelist → bot may switch via voice_set_language(lang)
+ *     when the counterpart answers consistently in another whitelist lang.
+ *     Off-whitelist langs → polite refusal in the current lang.
+ */
+function buildLangSwitchBlock(
+  active: Lang,
+  whitelist: readonly Lang[] | undefined,
+): string {
+  const switchable = (whitelist ?? []).filter((l) => l !== active);
+  const names = LANG_NAME_BY_LANG[active];
+
+  if (switchable.length === 0) {
+    if (active === 'de') {
+      return 'Sprich durchgaengig Deutsch. Bei fremdsprachigem Counterpart antworte hoeflich: "Entschuldigung, ich kann Sie aktuell nur auf Deutsch betreuen."';
+    }
+    if (active === 'en') {
+      return 'Stay in English throughout. If the counterpart speaks another language, reply politely: "I\'m sorry, I can only help you in English right now."';
+    }
+    return 'Mantieni l\'italiano per tutta la chiamata. Se l\'interlocutore parla un\'altra lingua, rispondi cortesemente: "Mi dispiace, al momento posso assisterLa solo in italiano."';
+  }
+
+  const switchableNames = switchable
+    .map((l) => names[l])
+    .join(active === 'de' ? ' oder ' : active === 'en' ? ' or ' : ' o ');
+  const switchableCodes = switchable.join('/');
+
+  if (active === 'de') {
+    return `Du startest auf Deutsch. Erlaubte Sprachen fuer einen Wechsel: ${switchableNames} (${switchableCodes}). Wenn der Counterpart durchgehend in einer dieser Sprachen antwortet, ruf das Werkzeug \`voice_set_language\` mit dem entsprechenden Sprach-Code auf — die Persona wird in der neuen Sprache neu geladen. Bei einer Sprache AUSSERHALB der Liste antworte hoeflich auf Deutsch, dass du nur Deutsch oder die erlaubten Sprachen sprichst.`;
+  }
+  if (active === 'en') {
+    return `You start in English. Allowed switch languages: ${switchableNames} (${switchableCodes}). If the counterpart consistently answers in one of these, call the \`voice_set_language\` tool with the matching language code — the persona reloads in the new language. For a language OUTSIDE the list, politely answer in English that you only handle English or the allowed languages.`;
+  }
+  return `Inizi in italiano. Lingue consentite per il cambio: ${switchableNames} (${switchableCodes}). Se l'interlocutore risponde costantemente in una di queste, chiama lo strumento \`voice_set_language\` con il codice di lingua corrispondente — la persona viene ricaricata nella nuova lingua. Per una lingua FUORI dalla lista, rispondi cortesemente in italiano che gestisci solo l'italiano o le lingue consentite.`;
+}
+
+// ---------------------------------------------------------------------------
 // Renderer
 // ---------------------------------------------------------------------------
 
@@ -325,6 +377,7 @@ export function renderPersona(
   }
 
   // 3. Substitute baseline placeholders.
+  const lang_switch_block = buildLangSwitchBlock(lang, input.lang_whitelist);
   const subs: Record<string, string> = {
     goal,
     context,
@@ -334,6 +387,7 @@ export function renderPersona(
     anrede_capitalized: anrede.capitalized,
     anrede_pronoun: anrede.pronoun,
     anrede_disclosure: anrede.disclosure,
+    lang_switch_block,
   };
 
   for (const [token, value] of Object.entries(subs)) {

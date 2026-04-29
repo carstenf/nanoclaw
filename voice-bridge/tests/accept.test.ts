@@ -339,6 +339,7 @@ describe('POST /accept — Phase 2 full-wiring', () => {
       'schedule_retry',
       'search_competitors',
       'send_discord_message',
+      'set_language',
       'transfer_call',
       'update_calendar_entry',
     ])

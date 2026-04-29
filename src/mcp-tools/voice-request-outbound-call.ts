@@ -32,6 +32,14 @@ export const RequestOutboundCallSchema = z.object({
   // (de/en/it) at the schema boundary so an unsupported lang produces a
   // BadRequestError before hitting the Bridge.
   lang: z.enum(['de', 'en', 'it']).optional(),
+  // Mid-call language switch: variable whitelist Andy supplies per call so
+  // the bot may switch sprachen mid-call only within this set. Pulled from
+  // Carstens Hindsight memory ("travel-mode" entries — z.B. in Italien:
+  // [de,en,it]). Empty/omitted → no mid-call switching allowed (legacy
+  // single-lang behaviour). The whitelist is enforced server-side in the
+  // voice_set_language MCP tool — the bot cannot exceed it even with bad
+  // tool args.
+  lang_whitelist: z.array(z.enum(['de', 'en', 'it'])).max(5).optional(),
 });
 
 // ---- Deps ----
@@ -96,6 +104,7 @@ export function makeVoiceRequestOutboundCall(
       report_to_jid,
       lang,
       counterpart_label,
+      lang_whitelist,
     } = parseResult.data;
 
     const phoneMask = maskPhone(target_phone);
@@ -132,6 +141,9 @@ export function makeVoiceRequestOutboundCall(
           ...(lang ? { lang } : {}),
           ...(counterpart_label && counterpart_label.length > 0
             ? { counterpart_label }
+            : {}),
+          ...(lang_whitelist && lang_whitelist.length > 0
+            ? { lang_whitelist }
             : {}),
         }),
         signal: ctrl.signal,

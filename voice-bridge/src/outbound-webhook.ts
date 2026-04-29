@@ -49,6 +49,11 @@ export const OutboundRequestSchema = z.object({
   // Step 2B: noun phrase for the called party. Used at /accept to render
   // a baseline-only outbound persona that addresses the right entity.
   counterpart_label: z.string().max(120).optional(),
+  // Mid-call language switch: variable whitelist Andy supplies per call.
+  // Empty/omitted → bot stays in starting lang. Threaded into the
+  // voice_triggers_init args so the renderer + active-call gateway both
+  // see the allowed switch-set.
+  lang_whitelist: z.array(z.enum(['de', 'en', 'it'])).max(5).optional(),
 })
 
 // ---- Peer-IP check ----
@@ -138,6 +143,7 @@ export function registerOutboundRoute(
       case_payload,
       lang,
       counterpart_label,
+      lang_whitelist,
     } = parse.data
 
     // 4. Enqueue
@@ -155,6 +161,7 @@ export function registerOutboundRoute(
         case_payload,
         lang,
         counterpart_label,
+        lang_whitelist,
       })
     } catch (err) {
       if (err instanceof QueueFullError) {

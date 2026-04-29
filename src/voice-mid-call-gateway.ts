@@ -30,11 +30,40 @@
 
 import { logger } from './logger.js';
 
-// Module-level active-call set. Process-local — sufficient for single-process
-// NanoClaw deploy (REQ-INFRA-16: idle-timeout 30min, single container per
-// group). If NanoClaw ever scales to multi-process voice handling, this
-// becomes a shared store (Redis/SQLite); flagged as future-work.
-const activeCalls = new Set<string>();
+// Module-level active-call state. Process-local — sufficient for single-
+// process NanoClaw deploy (REQ-INFRA-16: idle-timeout 30min, single
+// container per group). If NanoClaw ever scales to multi-process voice
+// handling, this becomes a shared store (Redis/SQLite); flagged as
+// future-work.
+//
+// Phase 06.x mid-call language switch: state is now a Map<callId, ActiveCallState>
+// so voice_set_language can look up the per-call lang + whitelist by call_id
+// and reject switches that exceed Andy's variable whitelist.
+export type CallLang = 'de' | 'en' | 'it';
+
+export interface ActiveCallState {
+  /** Currently-active persona language for this call. */
+  lang: CallLang;
+  /**
+   * Allowed langs the bot may switch to mid-call via voice_set_language.
+   * Empty array = no mid-call switching (legacy single-lang call).
+   */
+  lang_whitelist: CallLang[];
+  /**
+   * Render context captured at /accept time so voice_set_language can
+   * re-render the persona with a new lang while keeping case_type,
+   * counterpart_label, call_direction and goal constant. Without this the
+   * mid-call language switch would lose the call brief.
+   */
+  render_ctx: {
+    case_type: 'case_2' | 'case_6a' | 'case_6b';
+    call_direction: 'inbound' | 'outbound';
+    counterpart_label: string;
+    goal?: string;
+  };
+}
+
+const activeCalls = new Map<string, ActiveCallState>();
 
 export interface ToolMeta {
   /**
@@ -86,17 +115,44 @@ export function checkMidCallMutation(
 }
 
 /**
- * Register a call_id as active. Called from `voice_triggers_init` handler
- * entry — the call is considered active from /accept until
- * `voice_finalize_call_cost` deregisters it.
+ * Register a call_id as active with its starting lang + whitelist. Called
+ * from `voice_triggers_init` handler entry — the call is considered active
+ * from /accept until `voice_finalize_call_cost` deregisters it.
+ *
+ * Defaults: lang='de', lang_whitelist=[] (no mid-call switching). When the
+ * caller supplies neither, behaviour matches pre-Phase-06.x (single-lang
+ * call locked to DE).
  */
-export function registerActiveCall(call_id: string): void {
-  activeCalls.add(call_id);
-  logger.info({ event: 'mid_call_gateway_call_registered', call_id });
+export function registerActiveCall(
+  call_id: string,
+  opts: {
+    lang?: CallLang;
+    lang_whitelist?: CallLang[];
+    render_ctx?: ActiveCallState['render_ctx'];
+  } = {},
+): void {
+  activeCalls.set(call_id, {
+    lang: opts.lang ?? 'de',
+    lang_whitelist: opts.lang_whitelist ?? [],
+    // Default render_ctx is a generic outbound case_2 — sufficient for the
+    // legacy mid-call-mutation gateway use case where render_ctx isn't read.
+    // Phase 06.x mid-call language switch always supplies a real ctx.
+    render_ctx: opts.render_ctx ?? {
+      case_type: 'case_2',
+      call_direction: 'outbound',
+      counterpart_label: 'Counterpart',
+    },
+  });
+  logger.info({
+    event: 'mid_call_gateway_call_registered',
+    call_id,
+    lang: opts.lang ?? 'de',
+    lang_whitelist: opts.lang_whitelist ?? [],
+  });
 }
 
 /**
- * Deregister a call_id from the active-call set. Called from
+ * Deregister a call_id from the active-call map. Called from
  * `voice_finalize_call_cost` (and any Phase-05.5 end_call hook). No-op when
  * the call_id was never registered (idempotent).
  */
@@ -106,12 +162,43 @@ export function deregisterActiveCall(call_id: string): void {
   }
 }
 
-/** True if a call is in the active-call set. */
+/** True if a call is currently active (registered + not yet deregistered). */
 export function isCallActive(call_id: string): boolean {
   return activeCalls.has(call_id);
 }
 
-/** Test-only: clears the active-call set. */
+/** Look up the currently-active lang for a call, or null if call is unknown. */
+export function getActiveLang(call_id: string): CallLang | null {
+  return activeCalls.get(call_id)?.lang ?? null;
+}
+
+/** Look up the lang whitelist for a call, or null if call is unknown. */
+export function getActiveWhitelist(call_id: string): CallLang[] | null {
+  const state = activeCalls.get(call_id);
+  return state ? state.lang_whitelist : null;
+}
+
+/** Render context captured at /accept time, or null if call is unknown. */
+export function getActiveRenderCtx(
+  call_id: string,
+): ActiveCallState['render_ctx'] | null {
+  return activeCalls.get(call_id)?.render_ctx ?? null;
+}
+
+/**
+ * Set the active lang for a call. Called from voice_set_language AFTER it
+ * has validated lang ∈ whitelist. No-op when call_id is unknown (the gate
+ * is the validation step, not this state-setter).
+ */
+export function setActiveLang(call_id: string, lang: CallLang): boolean {
+  const state = activeCalls.get(call_id);
+  if (!state) return false;
+  state.lang = lang;
+  logger.info({ event: 'mid_call_gateway_lang_set', call_id, lang });
+  return true;
+}
+
+/** Test-only: clears the active-call map. */
 export function _resetActiveSet(): void {
   activeCalls.clear();
 }

@@ -7,14 +7,14 @@ import {
 } from '../src/tools/allowlist.js'
 
 describe('tools/allowlist — REQ-TOOLS registry (D-07, D-08)', () => {
-  it('exposes exactly 15 entries (REQ-TOOLS-01..08 + confirm_action + ask_core + get_travel_time + request_outbound_call + delete/update_calendar_entry + end_call)', () => {
+  it('exposes exactly 16 entries (Phase 5 set + Phase 06.x set_language)', () => {
     const entries = getAllowlist()
-    expect(entries.length).toBe(15)
+    expect(entries.length).toBe(16)
   })
 
-  it('enforces the REQ-TOOLS-09 ceiling of 15 at module load', () => {
+  it('enforces the REQ-TOOLS-09 ceiling of 16 at module load (Phase 06.x raised from 15)', () => {
     const entries = getAllowlist()
-    expect(entries.length).toBeLessThanOrEqual(15)
+    expect(entries.length).toBeLessThanOrEqual(16)
   })
 
   it('marks exactly 9 tools as mutating (D-05 + request_outbound_call + delete/update_calendar_entry + end_call)', () => {
@@ -34,10 +34,10 @@ describe('tools/allowlist — REQ-TOOLS registry (D-07, D-08)', () => {
     ])
   })
 
-  it('marks exactly 6 tools as non-mutating (read-only set)', () => {
+  it('marks exactly 7 tools as non-mutating (read-only set + Phase 06.x set_language)', () => {
     const entries = getAllowlist()
     const readOnly = entries.filter((e: ToolEntry) => !e.mutating)
-    expect(readOnly.length).toBe(6)
+    expect(readOnly.length).toBe(7)
     expect(readOnly.map((e) => e.name).sort()).toEqual([
       'ask_core',
       'check_calendar',
@@ -45,6 +45,7 @@ describe('tools/allowlist — REQ-TOOLS registry (D-07, D-08)', () => {
       'get_practice_profile',
       'get_travel_time',
       'search_competitors',
+      'set_language',
     ])
   })
 

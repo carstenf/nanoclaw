@@ -595,18 +595,62 @@ export function openSidebandSession(
         // "Tschuess" (live 2026-04-24). Waiting on `output_audio_buffer
         // .stopped` (state.botSpeaking) preserves the farewell audio.
         const dispatch = opts.dispatchTool ?? _getDispatchTool()
-        const runDispatch = (): void => {
-          dispatch(ws, callId, 'fc-turn', functionCallId, toolName, parsedArgs, log).catch(
-            (e: unknown) => {
-              const err = e as Error
-              log.warn({
-                event: 'dispatch_tool_unhandled_error',
-                call_id: callId,
-                function_call_id: functionCallId,
-                err: err.message,
-              })
-            },
+        // Phase 06.x: post-dispatch hook for set_language. Bridge applies
+        // the new persona via TWO-STEP session.update (audio first → 50ms
+        // → instructions) per Q7 atomicity mitigation. Closure captures
+        // the per-call sideband `state` so the helper has the right WS.
+        const applyLanguageSwitch = async (
+          _callId: string,
+          instructions: string,
+          lang: 'de' | 'en' | 'it',
+        ): Promise<boolean> => {
+          // Step 1: push voice + transcription.language. cedar default
+          // multilingual; per-language env overrides honored via
+          // OPENAI_REALTIME_VOICE_{DE,EN,IT}.
+          const VOICE_BY_LANG: Record<'de' | 'en' | 'it', string> = {
+            de: process.env.OPENAI_REALTIME_VOICE_DE ?? 'cedar',
+            en: process.env.OPENAI_REALTIME_VOICE_EN ?? 'cedar',
+            it: process.env.OPENAI_REALTIME_VOICE_IT ?? 'cedar',
+          }
+          const audioOk = updateAudioConfig(
+            state,
+            VOICE_BY_LANG[lang],
+            lang,
+            log,
           )
+          // Step 2: 50ms gap so the audio update lands on the server before
+          // the instructions update. Q7-finding documentation-lean ATOMIC,
+          // but two-step is defensive against any future split-update edge.
+          await new Promise((r) => setTimeout(r, 50))
+          const instrOk = updateInstructions(state, instructions, log)
+          log.info({
+            event: 'set_language_applied',
+            call_id: state.callId,
+            lang,
+            audio_ok: audioOk,
+            instructions_ok: instrOk,
+          })
+          return audioOk && instrOk
+        }
+        const runDispatch = (): void => {
+          dispatch(
+            ws,
+            callId,
+            'fc-turn',
+            functionCallId,
+            toolName,
+            parsedArgs,
+            log,
+            { applyLanguageSwitch },
+          ).catch((e: unknown) => {
+            const err = e as Error
+            log.warn({
+              event: 'dispatch_tool_unhandled_error',
+              call_id: callId,
+              function_call_id: functionCallId,
+              err: err.message,
+            })
+          })
         }
         if (toolName === 'end_call') {
           void waitForBotAudioDone(state, log).then(runDispatch)
@@ -935,6 +979,62 @@ export function updateInstructions(
     const err = e as Error
     log.warn({
       event: 'sideband_send_failed',
+      call_id: state.callId,
+      err: err.message,
+    })
+    return false
+  }
+}
+
+/**
+ * Phase 06.x mid-call language switch — push voice + transcription.language
+ * via session.update (audio-only, no instructions). Pair with a follow-up
+ * updateInstructions() to two-step the persona swap per Q7 atomicity
+ * mitigation.
+ */
+export function updateAudioConfig(
+  state: SidebandState,
+  voice: string,
+  transcriptionLanguage: 'de' | 'en' | 'it',
+  log: Logger,
+): boolean {
+  if (!state.ready || !state.ws) {
+    log.warn({
+      event: 'sideband_audio_update_skipped',
+      call_id: state.callId,
+      reason: 'not_ready',
+    })
+    return false
+  }
+  // session.type='realtime' discriminator preserved (same invariant as
+  // updateInstructions). audio.input.transcription updates whisper's
+  // expected language; audio.output.voice swaps the TTS voice.
+  const session: Record<string, unknown> = {
+    type: 'realtime',
+    audio: {
+      input: {
+        transcription: {
+          model: 'gpt-4o-mini-transcribe',
+          language: transcriptionLanguage,
+        },
+      },
+      output: { voice },
+    },
+  }
+  try {
+    state.ws.send(JSON.stringify({ type: 'session.update', session }))
+    state.lastUpdateAt = Date.now()
+    log.info({
+      event: 'sideband_audio_updated',
+      call_id: state.callId,
+      voice,
+      transcription_language: transcriptionLanguage,
+    })
+    return true
+  } catch (e: unknown) {
+    const err = e as Error
+    log.warn({
+      event: 'sideband_audio_update_send_failed',
       call_id: state.callId,
       err: err.message,
     })

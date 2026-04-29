@@ -464,6 +464,9 @@ export function registerAcceptRoute(
             ...(activeOutbound.goal && activeOutbound.goal.length > 0
               ? { goal: activeOutbound.goal }
               : {}),
+            ...(activeOutbound.lang_whitelist && activeOutbound.lang_whitelist.length > 0
+              ? { lang_whitelist: activeOutbound.lang_whitelist }
+              : {}),
           })
           postAmdPersona = r.instructions
         } catch (err) {
@@ -650,6 +653,11 @@ export function registerAcceptRoute(
             ? 'fallback'
             : 'skill_render',
         counterpart_label: resolvedCounterpartLabel,
+        // Step 2B+ multilingual diagnostics: surface what Andy supplied at
+        // the boundary so missed lang/goal plumbing is visible in logs.
+        lang: activeOutbound.lang ?? null,
+        goal_present: Boolean(activeOutbound.goal && activeOutbound.goal.length > 0),
+        goal_len: activeOutbound.goal?.length ?? 0,
         tools_count: toolsPayloadOut.length,
         tools_override: hasToolsOverride,
       })

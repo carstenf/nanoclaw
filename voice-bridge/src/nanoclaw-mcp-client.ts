@@ -89,6 +89,12 @@ export interface VoiceTriggersInitInput {
    * deleted. Optional — inbound paths omit it.
    */
   goal?: string
+  /**
+   * Mid-call language switch whitelist (Phase 06.x). Plumbed via
+   * activeOutbound.lang_whitelist → init() so the renderer + active-call
+   * gateway both see the allowed set.
+   */
+  lang_whitelist?: ('de' | 'en' | 'it')[]
 }
 
 export interface VoiceTriggersTranscriptInput {

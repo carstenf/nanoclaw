@@ -82,6 +82,12 @@ export const VoiceTriggersInitSchema = z.object({
   // and case_2 legacy callers (no goal in init) keep working with the
   // case-specific defaults from deriveGoalAndContext.
   goal: z.string().max(500).optional(),
+  // Mid-call language switch whitelist (Phase 06.x). Allowed langs the bot
+  // may switch to via voice_set_language(lang). Stored per call_id by the
+  // active-call gateway and re-read by voice_set_language for validation.
+  // Renderer also bakes this into the {{lang_whitelist}} persona slot so
+  // the bot knows its allowed-set verbatim.
+  lang_whitelist: z.array(z.enum(['de', 'en', 'it'])).max(5).optional(),
 });
 
 // Use the schema's INPUT type (pre-default-application) so callers and
@@ -152,7 +158,20 @@ export function makeVoiceTriggersInit(deps: VoiceTriggersInitDeps): ToolHandler 
     // lives in voice_finalize_call_cost. Idempotent — safe to call again on
     // accept-retry. Registered BEFORE the agent invocation so any concurrent
     // mutating tool attempt during persona rendering is already blocked.
-    registerActiveCall(parsed.data.call_id);
+    //
+    // Phase 06.x: also seed the call's starting lang + whitelist so
+    // voice_set_language can validate switch-attempts against the per-call
+    // allowed set.
+    registerActiveCall(parsed.data.call_id, {
+      lang: parsed.data.lang,
+      lang_whitelist: parsed.data.lang_whitelist ?? [],
+      render_ctx: {
+        case_type: parsed.data.case_type,
+        call_direction: parsed.data.call_direction,
+        counterpart_label: parsed.data.counterpart_label,
+        goal: parsed.data.goal,
+      },
+    });
 
     try {
       const r = await deps.invokeAgent(parsed.data);
