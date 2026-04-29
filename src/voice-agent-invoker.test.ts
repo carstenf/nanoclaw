@@ -166,7 +166,9 @@ describe('renderPersona', () => {
     );
     expect(out).toContain('Anrede: Lei');
     expect(out).toContain("Disclosure Lei e'");
-    expect(out).toContain('Prenotare un tavolo');
+    // post-Test-4-retry: case_2+outbound goal-default is now neutral
+    // (kein "Prenotare un tavolo" mehr — Andy's goal arg drives the call).
+    expect(out).toContain('Risolvere la questione con Bella Vista');
   });
 
   it('lang omitted → defaults to de (back-compat)', () => {

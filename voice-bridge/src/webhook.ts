@@ -439,10 +439,23 @@ export function registerAcceptRoute(
           (activeOutbound.case_payload?.restaurant_name as string | undefined) ??
           'Counterpart',
       )
-      let postAmdPersona: string = FALLBACK_PERSONA
+      // Step 2B+ (post-Test-4 retry): no FALLBACK_PERSONA on outbound. If the
+      // skill renderer can't produce a persona, the call is rejected with a
+      // notify-user error — Carsten said "wenn die persona nicht durchkommt:
+      // kein Call und Fehlermeldung". Better explicit failure than a half-
+      // baked generic bot that hallucinates "wie kann ich Ihnen bei Ihrer
+      // Reservierung helfen".
+      let postAmdPersona: string | null = null
+      let personaFailureReason: string | null = null
       if (hasPersonaOverride) {
         postAmdPersona = activeOutbound.persona_override as string
       } else if (!nanoclawMcp) {
+        // Config-time fallback: NANOCLAW_VOICE_MCP_URL not set at startup.
+        // Treated as deploy misconfiguration rather than runtime failure;
+        // accept the call with FALLBACK_PERSONA so the operator sees a
+        // bot-greeting + can debug. Tests rely on this branch (acceptIncoming
+        // doesn't inject nanoclawMcp). Runtime init failures (next branch)
+        // still hard-reject.
         log.error({
           event: 'container_agent_mode_but_client_missing',
           call_id: callId,
@@ -476,8 +489,61 @@ export function registerAcceptRoute(
             case_type: initCaseType,
             err: (err as Error)?.message,
           })
-          postAmdPersona = FALLBACK_PERSONA
+          personaFailureReason = (err as Error)?.message ?? 'render_failed'
         }
+      }
+
+      // No persona → reject the OpenAI Realtime call + notify Andy via a
+      // fresh per-call NanoclawMcpClient. Belt-and-suspenders: the
+      // outbound-webhook persona pre-check should have already caught the
+      // failure before originate, so this branch only fires for race-window
+      // failures (MCP died between pre-check and /accept).
+      if (postAmdPersona === null) {
+        log.error({
+          event: 'outbound_rejected_no_persona',
+          call_id: callId,
+          task_id: activeOutbound.task_id,
+          reason: personaFailureReason,
+        })
+        try {
+          await openai.realtime.calls.reject(callId, { type: 'realtime' } as never)
+        } catch (e: unknown) {
+          log.warn({
+            event: 'outbound_reject_failed',
+            call_id: callId,
+            err: (e as Error)?.message,
+          })
+        }
+        const notifyClient = NANOCLAW_VOICE_MCP_URL
+          ? new NanoclawMcpClient({
+              url: new URL(NANOCLAW_VOICE_MCP_URL),
+              bearer: NANOCLAW_VOICE_MCP_TOKEN,
+            })
+          : null
+        if (notifyClient) {
+          try {
+            await notifyClient.callTool('voice_notify_user', {
+              urgency: 'alert',
+              text: `Outbound an ${resolvedCounterpartLabel} (${activeOutbound.target_phone}) abgebrochen — Persona-Render fehlgeschlagen (${personaFailureReason ?? 'unknown'}). Bitte NanoClaw-Service pruefen + manuell wiederholen.`,
+              call_id: callId,
+            })
+          } catch (e: unknown) {
+            log.warn({
+              event: 'outbound_no_persona_notify_failed',
+              call_id: callId,
+              err: (e as Error)?.message,
+            })
+          } finally {
+            await notifyClient.close().catch(() => {})
+          }
+        }
+        // Mark task done so the queue advances. Reuse onCallEnd with a
+        // synthetic 'persona_render_failed' reason — router preserves
+        // task.error for reportBack.
+        await outboundRouter?.onCallEnd?.(activeOutbound.task_id, 'persona_render_failed').catch(
+          () => {},
+        )
+        return reply.code(200).send({ ok: false, reason: 'persona_render_failed' })
       }
 
       // Outbound tool list: base allowlist minus 3 Case-6-specific tools that
@@ -643,15 +709,10 @@ export function registerAcceptRoute(
         call_id: callId,
         task_id: activeOutbound.task_id,
         case_type: activeOutbound.case_type ?? null,
-        // Step 2B: persona_source reflects which branch produced postAmdPersona.
-        // 'skill_render' = baseline-only outbound persona via voice-personas;
-        // 'persona_override' = caller-supplied verbatim string (Spike-A/Wave 3);
-        // 'fallback' = FALLBACK_PERSONA (MCP missing or render failure).
-        persona_source: hasPersonaOverride
-          ? 'persona_override'
-          : postAmdPersona === FALLBACK_PERSONA
-            ? 'fallback'
-            : 'skill_render',
+        // persona_source reflects which branch produced postAmdPersona.
+        // post-Test-4-retry: 'fallback' branch removed — render failure now
+        // rejects the call entirely instead of serving FALLBACK_PERSONA.
+        persona_source: hasPersonaOverride ? 'persona_override' : 'skill_render',
         counterpart_label: resolvedCounterpartLabel,
         // Step 2B+ multilingual diagnostics: surface what Andy supplied at
         // the boundary so missed lang/goal plumbing is visible in logs.

@@ -223,6 +223,11 @@ function deriveGoalAndContext(
   counterpart: string,
   lang: Lang,
 ): { goal: string; context: string } {
+  // Step 2B+ (post-Test-4 retry): outbound persona is fully neutral —
+  // no Restaurant/Reservierung default wording. Andy's voice_request_outbound_call
+  // `goal` arg drives the call brief; when omitted, the bot falls back to a
+  // generic "Anliegen klaeren / Resolve the matter" line. case_6b inbound
+  // keeps its CLI-specific default since that surface is Carsten-only.
   if (lang === 'en') {
     if (caseType === 'case_6b' && direction === 'inbound') {
       return {
@@ -231,15 +236,9 @@ function deriveGoalAndContext(
         context: 'Inbound call from Carsten via CLI whitelist (case_6b).',
       };
     }
-    if (caseType === 'case_2' && direction === 'outbound') {
-      return {
-        goal: 'Book a table on Carstens behalf.',
-        context: `Outbound to ${counterpart} (case_2 restaurant booking).`,
-      };
-    }
     return {
       goal: `Resolve the matter with ${counterpart}.`,
-      context: `${direction === 'inbound' ? 'Inbound' : 'Outbound'} (${caseType}).`,
+      context: `${direction === 'inbound' ? 'Inbound' : 'Outbound'} call.`,
     };
   }
   if (lang === 'it') {
@@ -250,15 +249,9 @@ function deriveGoalAndContext(
         context: 'Chiamata in entrata da Carsten via CLI whitelist (case_6b).',
       };
     }
-    if (caseType === 'case_2' && direction === 'outbound') {
-      return {
-        goal: 'Prenotare un tavolo per conto di Carsten.',
-        context: `Chiamata in uscita a ${counterpart} (case_2 prenotazione ristorante).`,
-      };
-    }
     return {
       goal: `Risolvere la questione con ${counterpart}.`,
-      context: `${direction === 'inbound' ? 'In entrata' : 'In uscita'} (${caseType}).`,
+      context: `Chiamata ${direction === 'inbound' ? 'in entrata' : 'in uscita'}.`,
     };
   }
   // de (default)
@@ -269,15 +262,9 @@ function deriveGoalAndContext(
       context: 'Inbound-Anruf von Carsten via CLI-Whitelist (case_6b).',
     };
   }
-  if (caseType === 'case_2' && direction === 'outbound') {
-    return {
-      goal: 'Tisch reservieren auf Carstens Wunsch.',
-      context: `Outbound an ${counterpart} (case_2 Restaurant-Reservierung).`,
-    };
-  }
   return {
     goal: `Anliegen mit ${counterpart} klaeren.`,
-    context: `${direction === 'inbound' ? 'Inbound' : 'Outbound'} (${caseType}).`,
+    context: `${direction === 'inbound' ? 'Inbound' : 'Outbound'}-Anruf.`,
   };
 }
 

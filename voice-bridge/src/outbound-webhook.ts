@@ -9,10 +9,16 @@
 //     never forwards an illegal tool schema to OpenAI Realtime.
 //   - case_payload.idempotency_key (when present) flows unchanged through the
 //     enqueue → webhook → AMD-voicemail-retry chain (non-double-booking contract).
+import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import type { Logger } from 'pino'
 import { z } from 'zod'
 import { QueueFullError, type OutboundRouter } from './outbound-router.js'
+import { NanoclawMcpClient } from './nanoclaw-mcp-client.js'
+import {
+  NANOCLAW_VOICE_MCP_URL,
+  NANOCLAW_VOICE_MCP_TOKEN,
+} from './config.js'
 
 // ---- Zod schema (same shape as Core-side schema) ----
 //
@@ -145,6 +151,46 @@ export function registerOutboundRoute(
       counterpart_label,
       lang_whitelist,
     } = parse.data
+
+    // 3b. Persona pre-check (post-Test-4-retry).
+    // Carsten requirement: "wenn die persona nicht durchkommt, kein call und
+    // fehlermeldung". Render a throwaway persona via NanoClaw MCP BEFORE
+    // Sipgate originate. If the render fails (MCP down, session expired,
+    // skill files missing, ...), return 503 to Andy immediately — Carstens
+    // phone never rings. Self-healing of stale sessions handled by
+    // NanoclawMcpClient session-recovery loop.
+    if (NANOCLAW_VOICE_MCP_URL) {
+      const probeClient = new NanoclawMcpClient({
+        url: new URL(NANOCLAW_VOICE_MCP_URL),
+        bearer: NANOCLAW_VOICE_MCP_TOKEN,
+      })
+      try {
+        await probeClient.init({
+          call_id: `pre-${randomUUID()}`,
+          case_type: 'case_2',
+          call_direction: 'outbound',
+          counterpart_label: counterpart_label && counterpart_label.length > 0 ? counterpart_label : 'Counterpart',
+          ...(lang ? { lang } : {}),
+          ...(goal && goal.length > 0 ? { goal } : {}),
+          ...(lang_whitelist && lang_whitelist.length > 0 ? { lang_whitelist } : {}),
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        log.error({
+          event: 'outbound_persona_precheck_failed',
+          target_phone: target_phone.replace(/(\+\d{4})\d+(\d{4})/, '$1***$2'),
+          err: msg,
+        })
+        return reply.code(503).send({
+          error: 'persona_render_unreachable',
+          reason: msg,
+        })
+      } finally {
+        await probeClient.close().catch(() => {
+          /* best-effort cleanup */
+        })
+      }
+    }
 
     // 4. Enqueue
     let task

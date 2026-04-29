@@ -195,58 +195,82 @@ export class NanoclawMcpClient {
     args: unknown,
     opts: { signal?: AbortSignal; timeoutMs?: number } = {},
   ): Promise<T> {
-    try {
-      // ensureConnected() lives inside the try block so transport-level
-      // failures (DNS, ECONNREFUSED, fetch TypeError) surface as
-      // NanoclawMcpError — preserving the public error-class contract.
-      await this.ensureConnected()
-      const c = this.client!
-      const result = (await c.callTool(
-        {
-          name,
-          arguments: (args as Record<string, unknown>) ?? {},
-        },
-        undefined,
-        {
-          timeout: opts.timeoutMs ?? this.timeoutMs,
-          signal: opts.signal,
-        },
-      )) as {
-        content?: Array<{ type: string; text?: string }>
-        isError?: boolean
-      }
-      if (result?.isError) {
-        const text = result.content?.[0]?.text ?? 'tool returned isError'
-        throw new NanoclawMcpError(text, undefined, name)
-      }
-      const first = result?.content?.[0]
-      if (first && first.type === 'text' && typeof first.text === 'string') {
-        try {
-          return JSON.parse(first.text) as T
-        } catch {
-          // Non-JSON text response — surface as opaque string under generic T.
-          return first.text as unknown as T
+    // Self-heal session_required by dropping the cached client + retrying
+    // once. Triggers when NanoClaw service restarted while the Bridge held
+    // a stale Streamable-HTTP session token. Without this, init() fails
+    // every call until Bridge restart and Bot lives on FALLBACK_PERSONA.
+    let attempt = 0
+    while (true) {
+      attempt++
+      try {
+        // ensureConnected() lives inside the try block so transport-level
+        // failures (DNS, ECONNREFUSED, fetch TypeError) surface as
+        // NanoclawMcpError — preserving the public error-class contract.
+        await this.ensureConnected()
+        const c = this.client!
+        const result = (await c.callTool(
+          {
+            name,
+            arguments: (args as Record<string, unknown>) ?? {},
+          },
+          undefined,
+          {
+            timeout: opts.timeoutMs ?? this.timeoutMs,
+            signal: opts.signal,
+          },
+        )) as {
+          content?: Array<{ type: string; text?: string }>
+          isError?: boolean
         }
+        return this._extractResult<T>(result, name)
+      } catch (err) {
+        if (err instanceof NanoclawMcpError) throw err
+        const msg = err instanceof Error ? err.message : String(err)
+        // Streamable HTTP server returned -32000 / "session_required" → MCP
+        // session expired (NanoClaw restart). Drop client + retry once.
+        if (
+          attempt === 1 &&
+          /session_required|-32000/.test(msg)
+        ) {
+          this.client = null
+          continue
+        }
+        const errCode = (err as { code?: unknown })?.code
+        const isTimeoutCode = errCode === -32001
+        if (isTimeoutCode || /timed?\s*out|timeout|abort/i.test(msg)) {
+          throw new NanoclawMcpTimeoutError(name, this.timeoutMs)
+        }
+        throw new NanoclawMcpError(
+          msg,
+          typeof errCode === 'string'
+            ? errCode
+            : typeof errCode === 'number'
+              ? String(errCode)
+              : undefined,
+          name,
+        )
       }
-      return result as unknown as T
-    } catch (err) {
-      if (err instanceof NanoclawMcpError) throw err
-      const msg = err instanceof Error ? err.message : String(err)
-      const errCode = (err as { code?: unknown })?.code
-      const isTimeoutCode = errCode === -32001
-      if (isTimeoutCode || /timed?\s*out|timeout|abort/i.test(msg)) {
-        throw new NanoclawMcpTimeoutError(name, this.timeoutMs)
-      }
-      throw new NanoclawMcpError(
-        msg,
-        typeof errCode === 'string'
-          ? errCode
-          : typeof errCode === 'number'
-            ? String(errCode)
-            : undefined,
-        name,
-      )
     }
+  }
+
+  private _extractResult<T>(
+    result: { content?: Array<{ type: string; text?: string }>; isError?: boolean },
+    name: string,
+  ): T {
+    if (result?.isError) {
+      const text = result.content?.[0]?.text ?? 'tool returned isError'
+      throw new NanoclawMcpError(text, undefined, name)
+    }
+    const first = result?.content?.[0]
+    if (first && first.type === 'text' && typeof first.text === 'string') {
+      try {
+        return JSON.parse(first.text) as T
+      } catch {
+        // Non-JSON text response — surface as opaque string under generic T.
+        return first.text as unknown as T
+      }
+    }
+    return result as unknown as T
   }
 
   /**
