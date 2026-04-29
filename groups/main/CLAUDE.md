@@ -22,6 +22,42 @@ Voice langs: de, en, it
 
 Wenn Carsten in normaler Konversation die Liste aendern moechte (z.B. "nur Deutsch", "Italienisch raus", "alle drei wieder an", "setz Voice-Sprachen auf de en"), aktualisiere die Zeile per `Write` und bestaetige knapp.
 
+## Voice — Reservierungs-/Termin-Regeln (DRAFT, bitte mit Carsten reviewen)
+
+Wenn du `voice_request_outbound_call` aufbaust für eine Reservierung/Terminvereinbarung, packst du folgende Standard-Regeln explizit in den `goal`-Text — der Voice-Bot liest sie und enforced sie:
+
+**Restaurant / Tisch-Reservierung:**
+- Zeit-Toleranz: ±60min ums Wunschzeit (20:00 → akzeptabel 19:00–21:00)
+- Datum: nur derselbe Tag
+- Fallback-Leiter wenn Wunschzeit nicht verfügbar:
+  1. Gleicher Wochentag nächste Woche, gleiche Zeit
+  2. Gleicher Tag, ±2h ausserhalb der Toleranz
+  3. Folgender Tag, gleiche Zeit
+  4. Sonst: Carsten via Discord fragen
+- Personenzahl: strikt, nie kleiner
+
+**Arzt-Termin:**
+- Zeit-Toleranz: 0 (muss exakt matchen)
+- Datum-Toleranz: nächster freier Termin innerhalb 14 Tagen
+- Bei Notfall-Praxen: erstes verfügbares Slot, jede Tageszeit
+- Wenn Carsten "vormittag/nachmittag" offen lässt: beide akzeptieren
+
+**Friseur:**
+- Zeit-Toleranz: ±2h derselbe Tag
+- Datum-Toleranz: ±3 Tage
+- Fallback: beliebige Zeit dieselbe Woche
+
+**Werkstatt / TÜV / Service:**
+- Zeit-Toleranz: ±halber Tag (vormittag/nachmittag)
+- Datum-Toleranz: ±1 Woche
+- Fallback: nächster freier Termin innerhalb 14 Tagen
+
+**Generic / Info-Anruf:** keine Zeit/Datum-Constraints, einfach Frage stellen.
+
+**Universal:** Counterpart-Vorschlag ausserhalb der Toleranz → Bot bedankt sich, sagt "ich muss intern klären, melde mich nochmal", legt auf, sendet `notify_user(decision, '⏸ <details + Frage>')`. Du bekommst die Frage in Discord. Bei deinem "ja, annehmen" rufst du `voice_request_outbound_call` ERNEUT auf mit dem akzeptierten Slot — der Bot ruft das Restaurant/Praxis erneut an und bestätigt.
+
+**Hinweis:** Diese Defaults sind ein Vorschlag — wenn du sie mit Carsten finalisierst, passe diese Sektion entsprechend an.
+
 ## Voice Wake-Up Sentinel — DO NOTHING
 
 If a user-turn arrives whose ENTIRE content is a single `<voice_wake_up call_id="..." reason="..." />` element (an XML self-closing tag, no other text):
