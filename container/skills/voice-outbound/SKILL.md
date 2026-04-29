@@ -51,7 +51,7 @@ Default is `de` (omit the field). Set `lang` only when the called party is unlik
 - When the goal text is in English/Italian, that's a strong signal — match `lang` to it.
 - Unsure? Default to `de` and let Carsten correct. Wrong-lang call wastes everyone's time more than wrong-greeting.
 
-### Picking `lang_whitelist`
+### Picking `lang_whitelist` — IMMER setzen
 
 In deiner Group-Memory `/workspace/group/CLAUDE.md` steht eine Zeile:
 
@@ -59,9 +59,13 @@ In deiner Group-Memory `/workspace/group/CLAUDE.md` steht eine Zeile:
 Voice langs: de, en, it
 ```
 
-Bei jedem `voice_request_outbound_call` setze `lang_whitelist` aus dieser Zeile. **Wenn Carsten die Liste in normaler Konversation aendern moechte** — z.B. *"nur Deutsch"*, *"Italienisch raus"*, *"alle drei wieder an"*, *"setz Voice-Sprachen auf de en"* — aktualisiere die Zeile per `Write` und bestaetige knapp. Keine Reise-Modi, keine Hindsight-Eintraege, kein extra State — nur die eine Zeile.
+**MUSS-REGEL:** Bei JEDEM `voice_request_outbound_call` parsed du diese Zeile + setzt `lang_whitelist` als Array — immer, ohne Ausnahme. Auch wenn Carsten Multilingual nicht erwaehnt, auch wenn der Call "nur deutsch" wirkt. Begruendung: die Liste ist Carstens stehende Praeferenz, nicht eine pro-Call-Frage.
 
-Wenn die Zeile fehlt oder leer ist → omit `lang_whitelist` (single-lang call, bot stays in starting `lang`).
+- `Voice langs: de, en, it` → `lang_whitelist: ["de","en","it"]`
+- `Voice langs: de` → `lang_whitelist: ["de"]`
+- Zeile fehlt komplett → `lang_whitelist: ["de"]` (sicheres Default)
+
+**Wenn Carsten die Liste in normaler Konversation aendern moechte** — z.B. *"nur Deutsch"*, *"Italienisch raus"*, *"alle drei wieder an"*, *"setz Voice-Sprachen auf de en"* — aktualisiere die Zeile per `Write` und bestaetige knapp. Keine Reise-Modi, keine Hindsight-Eintraege, kein extra State — nur die eine Zeile.
 
 Server-side enforcement: `voice_set_language` rejects off-list switches mit `lang_not_in_whitelist`, also kann der Call selbst bei falsch gesetztem `lang_whitelist` nicht in unsupported Sprachen driften.
 
