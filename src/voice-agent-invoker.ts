@@ -272,12 +272,6 @@ function deriveGoalAndContext(
 // Mid-call language switch (Phase 06.x)
 // ---------------------------------------------------------------------------
 
-const LANG_NAME_BY_LANG: Record<Lang, Record<Lang, string>> = {
-  de: { de: 'Deutsch', en: 'Englisch', it: 'Italienisch' },
-  en: { de: 'German', en: 'English', it: 'Italian' },
-  it: { de: 'tedesco', en: 'inglese', it: 'italiano' },
-};
-
 /**
  * Render the lang-switch instruction block for a baseline. Replaces the
  * pre-Phase-06.x hard "NEVER speak another language" rule with a soft
@@ -288,36 +282,39 @@ const LANG_NAME_BY_LANG: Record<Lang, Record<Lang, string>> = {
  *   - 2+ langs in the whitelist → bot may switch via voice_set_language(lang)
  *     when the counterpart answers consistently in another whitelist lang.
  *     Off-whitelist langs → polite refusal in the current lang.
+ *
+ * Block content is language-neutral: written once in English (the model's
+ * instruction-language) and used for all 3 active langs. The model produces
+ * the actual refusal/wording in the active speaking language.
  */
+const LANG_NAME_EN: Record<Lang, string> = {
+  de: 'German',
+  en: 'English',
+  it: 'Italian',
+};
+
 function buildLangSwitchBlock(
   active: Lang,
   whitelist: readonly Lang[] | undefined,
 ): string {
   const switchable = (whitelist ?? []).filter((l) => l !== active);
-  const names = LANG_NAME_BY_LANG[active];
 
+  // Language-neutral instruction text. Written in English (the model's
+  // instruction-language) so a single phrasing serves all three persona
+  // langs. Behavioral rule only — no quoted refusal phrase is supplied;
+  // the model produces the refusal naturally in its current speaking
+  // language. Second-attempt rule: switch refusal to English so a caller
+  // who does not understand the active language can still parse it.
   if (switchable.length === 0) {
-    if (active === 'de') {
-      return 'Sprich durchgaengig Deutsch. Bei fremdsprachigem Counterpart antworte hoeflich: "Entschuldigung, ich kann Sie aktuell nur auf Deutsch betreuen."';
-    }
-    if (active === 'en') {
-      return 'Stay in English throughout. If the counterpart speaks another language, reply politely: "I\'m sorry, I can only help you in English right now."';
-    }
-    return 'Mantieni l\'italiano per tutta la chiamata. Se l\'interlocutore parla un\'altra lingua, rispondi cortesemente: "Mi dispiace, al momento posso assisterLa solo in italiano."';
+    return `Speak ${LANG_NAME_EN[active]} throughout this call. If the counterpart speaks another language, politely refuse in your current speaking language, explain you can only handle ${LANG_NAME_EN[active]}, and ask them to use it. If the counterpart insists in an off-language a second time, repeat the polite refusal in English regardless of your current speaking language. Do not switch to the off-language.`;
   }
 
-  const switchableNames = switchable
-    .map((l) => names[l])
-    .join(active === 'de' ? ' oder ' : active === 'en' ? ' or ' : ' o ');
+  const allowed: Lang[] = [active, ...switchable];
+  const allowedNames = allowed.map((l) => LANG_NAME_EN[l]).join(' / ');
+  const allowedCodes = allowed.join('/');
   const switchableCodes = switchable.join('/');
 
-  if (active === 'de') {
-    return `Du startest auf Deutsch. Erlaubte Sprachen fuer einen Wechsel: ${switchableNames} (${switchableCodes}). Wenn der Counterpart durchgehend in einer dieser Sprachen antwortet, ruf das Werkzeug \`voice_set_language\` mit dem entsprechenden Sprach-Code auf — die Persona wird in der neuen Sprache neu geladen. Bei einer Sprache AUSSERHALB der Liste antworte hoeflich auf Deutsch, dass du nur Deutsch oder die erlaubten Sprachen sprichst.`;
-  }
-  if (active === 'en') {
-    return `You start in English. Allowed switch languages: ${switchableNames} (${switchableCodes}). If the counterpart consistently answers in one of these, call the \`voice_set_language\` tool with the matching language code — the persona reloads in the new language. For a language OUTSIDE the list, politely answer in English that you only handle English or the allowed languages.`;
-  }
-  return `Inizi in italiano. Lingue consentite per il cambio: ${switchableNames} (${switchableCodes}). Se l'interlocutore risponde costantemente in una di queste, chiama lo strumento \`voice_set_language\` con il codice di lingua corrispondente — la persona viene ricaricata nella nuova lingua. Per una lingua FUORI dalla lista, rispondi cortesemente in italiano che gestisci solo l'italiano o le lingue consentite.`;
+  return `Start this call in ${LANG_NAME_EN[active]}. Allowed languages for a mid-call switch: ${allowedNames} (${allowedCodes}). If the counterpart consistently answers in one of the allowed switch languages (${switchableCodes}), call the \`voice_set_language\` tool with that language code — the persona reloads in the new language. For any language outside the allowed list: politely refuse in your CURRENT speaking language, naming the allowed languages, and ask the counterpart to use one of them. If the counterpart insists in an off-list language a second time, repeat the polite refusal in English regardless of your current speaking language. Never switch to a language that is not in the allowed list.`;
 }
 
 // ---------------------------------------------------------------------------

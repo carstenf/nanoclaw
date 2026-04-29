@@ -1,5 +1,7 @@
 // voice-bridge/tests/filler-inject.test.ts
-// Plan 02-14: Tests for code-side filler-phrase injection (emitFillerPhrase).
+// Phase 06.x: filler is language-neutral. emitFillerPhrase emits one
+// response.create with an English instruction-override; the model produces
+// the spoken filler in whatever language the call is currently in.
 import { describe, it, expect, vi } from 'vitest'
 import type { Logger } from 'pino'
 import type { WebSocket as WSType } from 'ws'
@@ -24,30 +26,45 @@ function makeMockWS(sendImpl?: () => void) {
   } as unknown as WSType
 }
 
-describe('emitFillerPhrase — code-side filler injection (02-14)', () => {
-  it('happy path ask_core: sends conversation.item.create then response.create (2 messages)', async () => {
+describe('emitFillerPhrase — language-neutral filler injection (Phase 06.x)', () => {
+  it('happy path ask_core: emits one response.create (audio-only, tool_choice:none, instruction-override)', async () => {
     const ws = makeMockWS()
     const log = makeLog()
 
     const result = await emitFillerPhrase(ws, 'ask_core', 'call_1', log)
 
     expect(result).toBe(true)
-    expect(ws.send).toHaveBeenCalledTimes(2)
+    expect(ws.send).toHaveBeenCalledTimes(1)
 
-    const firstCall = JSON.parse((ws.send as ReturnType<typeof vi.fn>).mock.calls[0][0] as string)
-    expect(firstCall.type).toBe('conversation.item.create')
-    expect(firstCall.item.type).toBe('message')
-    expect(firstCall.item.role).toBe('assistant')
-    // Current OpenAI Realtime schema: assistant-message content uses
-    // `output_text` (not `text`). Old field name triggers session_update_rejected
-    // — see filler-inject.ts:68 production comment.
-    expect(firstCall.item.content[0].type).toBe('output_text')
-    expect(firstCall.item.content[0].text).toContain('Moment, ich frage Andy')
+    const sent = JSON.parse(
+      (ws.send as ReturnType<typeof vi.fn>).mock.calls[0][0] as string,
+    )
+    expect(sent.type).toBe('response.create')
+    expect(sent.response.output_modalities).toEqual(['audio'])
+    expect(sent.response.tool_choice).toBe('none')
+    // Override-instruction must tell the model to speak in the call's
+    // active language — without that clause the model would use the
+    // override's own language (English).
+    expect(typeof sent.response.instructions).toBe('string')
+    expect(sent.response.instructions.toLowerCase()).toContain('language')
+    // Must NOT carry a literal text payload (no conversation.item.create
+    // with quoted text — Phase 06.x removes language-specific wording).
+    expect(sent.response.instructions).not.toMatch(/^["'].*["']$/)
+  })
 
-    const secondCall = JSON.parse((ws.send as ReturnType<typeof vi.fn>).mock.calls[1][0] as string)
-    expect(secondCall.type).toBe('response.create')
-    // Current schema also requires output_modalities (not modalities).
-    expect(secondCall.response.output_modalities).toEqual(['audio'])
+  it('does not emit conversation.item.create (no literal filler text)', async () => {
+    const types: string[] = []
+    const ws = {
+      send: vi.fn((msg: string) => {
+        types.push(JSON.parse(msg).type as string)
+      }),
+    } as unknown as WSType
+    const log = makeLog()
+
+    await emitFillerPhrase(ws, 'ask_core', 'call_no_text', log)
+
+    expect(types).toEqual(['response.create'])
+    expect(types).not.toContain('conversation.item.create')
   })
 
   it('unknown tool name returns false without sending', async () => {
@@ -80,16 +97,15 @@ describe('emitFillerPhrase — code-side filler injection (02-14)', () => {
     expect(ws.send).not.toHaveBeenCalled()
   })
 
-  it('sequence order: conversation.item.create BEFORE response.create', async () => {
-    const calls: string[] = []
-    const ws = {
-      send: vi.fn((msg: string) => { calls.push(JSON.parse(msg).type as string) }),
-    } as unknown as WSType
+  it('dedup: same call+tool inside cooldown window emits only once', async () => {
+    const ws = makeMockWS()
     const log = makeLog()
 
-    await emitFillerPhrase(ws, 'ask_core', 'call_5', log)
+    const r1 = await emitFillerPhrase(ws, 'ask_core', 'call_dedup', log)
+    const r2 = await emitFillerPhrase(ws, 'ask_core', 'call_dedup', log)
 
-    expect(calls[0]).toBe('conversation.item.create')
-    expect(calls[1]).toBe('response.create')
+    expect(r1).toBe(true)
+    expect(r2).toBe(false)
+    expect(ws.send).toHaveBeenCalledTimes(1)
   })
 })

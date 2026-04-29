@@ -202,26 +202,32 @@ function fakeSkillWithSwitch(caseType: string): VoicePersonaSkillFiles {
   };
 }
 
-describe('renderPersona — lang_switch_block', () => {
-  it('no whitelist → DE single-lang stay-in-language instruction', () => {
+describe('renderPersona — lang_switch_block (language-neutral, Phase 06.x)', () => {
+  it('no whitelist → DE active: instructs to speak German, no switch tool, second-attempt-English rule', () => {
     const out = renderPersona(
       fakeSkillWithSwitch('case_2'),
       makeInitInput({ case_type: 'case_2', call_direction: 'outbound', lang: 'de' }),
     );
-    expect(out).toContain('Sprich durchgaengig Deutsch');
+    expect(out).toContain('Speak German throughout');
+    // Second-attempt-English fallback rule must be present.
+    expect(out).toMatch(/second time|second attempt|insists/i);
+    expect(out).toContain('English');
     expect(out).not.toContain('voice_set_language');
+    // No quoted refusal phrase — wording must be language-neutral.
+    expect(out).not.toMatch(/"[^"]*Entschuldigung[^"]*"/);
+    expect(out).not.toMatch(/"[^"]*Sorry[^"]*"/);
   });
 
-  it('no whitelist → EN single-lang stay-in-language instruction', () => {
+  it('no whitelist → EN active: instructs to speak English, no switch tool', () => {
     const out = renderPersona(
       fakeSkillWithSwitch('case_2'),
       makeInitInput({ case_type: 'case_2', call_direction: 'outbound', lang: 'en' }),
     );
-    expect(out).toContain('Stay in English throughout');
+    expect(out).toContain('Speak English throughout');
     expect(out).not.toContain('voice_set_language');
   });
 
-  it('whitelist [de,en,it] starting in de → switch instruction listing en/it', () => {
+  it('whitelist [de,en,it] starting in de → switch instruction listing English / Italian + switchable codes', () => {
     const out = renderPersona(
       fakeSkillWithSwitch('case_2'),
       makeInitInput({
@@ -231,12 +237,17 @@ describe('renderPersona — lang_switch_block', () => {
         lang_whitelist: ['de', 'en', 'it'],
       }),
     );
-    expect(out).toContain('Du startest auf Deutsch');
-    expect(out).toContain('Englisch oder Italienisch');
+    expect(out).toContain('Start this call in German');
+    // Allowed-list now uses English language names + slash separator.
+    expect(out).toContain('German / English / Italian');
+    // Switchable-only codes group passed to set_language.
+    expect(out).toContain('en/it');
     expect(out).toContain('voice_set_language');
+    // Second-attempt-English rule.
+    expect(out).toMatch(/second time|insists/i);
   });
 
-  it('whitelist [de,en] starting in en → switch instruction listing only DE', () => {
+  it('whitelist [de,en] starting in en → switch instruction lists German', () => {
     const out = renderPersona(
       fakeSkillWithSwitch('case_2'),
       makeInitInput({
@@ -246,7 +257,7 @@ describe('renderPersona — lang_switch_block', () => {
         lang_whitelist: ['de', 'en'],
       }),
     );
-    expect(out).toContain('You start in English');
+    expect(out).toContain('Start this call in English');
     expect(out).toContain('German');
     expect(out).toContain('voice_set_language');
   });
@@ -261,11 +272,11 @@ describe('renderPersona — lang_switch_block', () => {
         lang_whitelist: ['de'],
       }),
     );
-    expect(out).toContain('Sprich durchgaengig Deutsch');
+    expect(out).toContain('Speak German throughout');
     expect(out).not.toContain('voice_set_language');
   });
 
-  it('IT whitelist → IT-language switch instructions', () => {
+  it('IT whitelist → starts in Italian, names allowed langs in English form', () => {
     const out = renderPersona(
       fakeSkillWithSwitch('case_2'),
       makeInitInput({
@@ -275,7 +286,7 @@ describe('renderPersona — lang_switch_block', () => {
         lang_whitelist: ['de', 'en', 'it'],
       }),
     );
-    expect(out).toContain('Inizi in italiano');
+    expect(out).toContain('Start this call in Italian');
     expect(out).toContain('voice_set_language');
   });
 });
