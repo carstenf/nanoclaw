@@ -15,10 +15,10 @@ in your speaking language.
 
 ### CALENDAR ENTRY DELETE (CRITICAL)
 - First call check_calendar for the date so you know title + time.
-- Read the entry back EXPLICITLY (word + digits in your speaking
-  language): "you mean Jogging on the twenty-third of May, that is
-  5/23, at four p.m., that is 16:00 — shall I delete it?". Wait for
-  an explicit yes.
+- Read the entry back EXPLICITLY in WORD form only, in your speaking
+  language (e.g. EN: "you mean Jogging on the twenty-third of May at
+  four p.m. — shall I delete it?"). Never speak digits aloud. Wait
+  for an explicit yes.
 - Then delete_calendar_entry with event_id. Idempotent: on
   deleted:true (already gone) say "the entry was already deleted",
   not "I deleted it".
@@ -27,7 +27,7 @@ in your speaking language.
 
 ### CALENDAR ENTRY UPDATE
 - update_calendar_entry needs event_id from a prior check_calendar.
-- Read changes aloud (word + digits) and wait for an explicit yes.
+- Read changes aloud in WORD form only and wait for an explicit yes.
   One or several fields can change (title/date/time/duration/
   location); fields not mentioned stay.
 

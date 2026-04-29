@@ -65,6 +65,8 @@ import { startPhase4CronLoop, startSchedulerLoop } from './task-scheduler.js';
 import { runDriftMonitor } from './drift-monitor.js';
 import { runRecon3Way } from './recon-3way.js';
 import { runReconInvoice } from './recon-invoice.js';
+import { runHealthCheck } from './health-check.js';
+import { readEnvFile } from './env.js';
 import { getDatabase } from './db.js';
 import fsNode from 'node:fs';
 import pathNode from 'node:path';
@@ -865,7 +867,19 @@ async function main(): Promise<void> {
   // Phase 4 Plan 04-04: in-process drift + recon cron jobs (Lenovo1 only).
   // Pure in-process (CLAUDE.md single-Node-process). Systemd-timer jobs
   // (§201 audit + Hetzner pricing-refresh) live OUTSIDE this node process.
-  const discordAlertUrl = process.env.DISCORD_ALERT_WEBHOOK_URL ?? '';
+  // .env is not auto-loaded into process.env (no dotenv import; systemd unit
+  // sets only specific Environment= entries). Channels read .env directly via
+  // readEnvFile. Do the same for the alert webhook + sipgate creds so the
+  // health-check + drift/recon Discord posts actually reach Discord.
+  const alertEnv = readEnvFile([
+    'DISCORD_ALERT_WEBHOOK_URL',
+    'SIPGATE_TOKEN_ID',
+    'SIPGATE_TOKEN',
+  ]);
+  const discordAlertUrl =
+    process.env.DISCORD_ALERT_WEBHOOK_URL ??
+    alertEnv.DISCORD_ALERT_WEBHOOK_URL ??
+    '';
   const sendDiscordAlert = async (message: string): Promise<void> => {
     if (!discordAlertUrl) return;
     try {
@@ -930,6 +944,24 @@ async function main(): Promise<void> {
           db: getDatabase(),
           sendDiscordAlert,
           writeStateRepoOpenPoint,
+        }),
+    },
+    {
+      // Periodic system health check — channels connected, OAuth token
+      // expiry (Google Testing-mode 7-day TTL warning), voice-bridge alive,
+      // OneCLI gateway, Sipgate REST. Posts "✅ Andy systems healthy" or
+      // a fail/warn list to DISCORD_ALERT_WEBHOOK_URL.
+      name: 'health-check',
+      intervalHours: 6,
+      run: () =>
+        runHealthCheck({
+          channels,
+          sendDiscordAlert,
+          containerImage: process.env.CONTAINER_IMAGE,
+          sipgateAuth:
+            alertEnv.SIPGATE_TOKEN_ID && alertEnv.SIPGATE_TOKEN
+              ? { tokenId: alertEnv.SIPGATE_TOKEN_ID, token: alertEnv.SIPGATE_TOKEN }
+              : undefined,
         }),
     },
   ]);

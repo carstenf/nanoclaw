@@ -304,6 +304,12 @@ export interface Phase4CronJob {
   dailyAt?: string;
   /** Monthly anchor as `{day: 1-28, time: "HH:MM"}`. */
   monthlyAt?: { day: number; time: string };
+  /**
+   * Fire every N hours since lastRun. First fire is on the first poll
+   * tick after registration. Useful for periodic health checks where
+   * a fixed wall-clock anchor (dailyAt) is overkill.
+   */
+  intervalHours?: number;
   run: () => Promise<unknown>;
 }
 
@@ -359,6 +365,11 @@ export function shouldFirePhase4Cron(
     if (!lastRunIso) return true;
     return new Date(lastRunIso).getTime() < monthAnchor.getTime();
   }
+  if (typeof job.intervalHours === 'number' && job.intervalHours > 0) {
+    if (!lastRunIso) return true;
+    const intervalMs = job.intervalHours * 60 * 60 * 1000;
+    return now.getTime() - new Date(lastRunIso).getTime() >= intervalMs;
+  }
   return false;
 }
 
@@ -392,6 +403,7 @@ export function startPhase4CronLoop(
         job: j.name,
         daily_at: j.dailyAt ?? null,
         monthly_at: j.monthlyAt ?? null,
+        interval_hours: j.intervalHours ?? null,
       },
       `registered phase-4 cron job ${j.name}`,
     );

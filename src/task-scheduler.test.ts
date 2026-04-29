@@ -197,4 +197,36 @@ describe('Phase4 cron (in-process drift/recon)', () => {
     secondHandle.stop();
     expect(typeof firstHandle.stop).toBe('function');
   });
+
+  it('intervalHours: fires on first run when no lastRunIso', () => {
+    const job = {
+      name: 'health-check',
+      intervalHours: 6,
+      run: async () => undefined,
+    };
+    const now = new Date('2026-04-29T12:00:00Z');
+    expect(shouldFirePhase4Cron(job, null, now)).toBe(true);
+  });
+
+  it('intervalHours: does NOT fire before interval has elapsed', () => {
+    const job = {
+      name: 'health-check',
+      intervalHours: 6,
+      run: async () => undefined,
+    };
+    const lastRun = new Date('2026-04-29T12:00:00Z');
+    const now = new Date('2026-04-29T15:00:00Z'); // 3h later
+    expect(shouldFirePhase4Cron(job, lastRun.toISOString(), now)).toBe(false);
+  });
+
+  it('intervalHours: fires once interval has elapsed', () => {
+    const job = {
+      name: 'health-check',
+      intervalHours: 6,
+      run: async () => undefined,
+    };
+    const lastRun = new Date('2026-04-29T12:00:00Z');
+    const now = new Date('2026-04-29T18:00:00Z'); // 6h later — exactly at boundary
+    expect(shouldFirePhase4Cron(job, lastRun.toISOString(), now)).toBe(true);
+  });
 });
