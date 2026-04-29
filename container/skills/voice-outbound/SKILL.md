@@ -51,30 +51,19 @@ Default is `de` (omit the field). Set `lang` only when the called party is unlik
 - When the goal text is in English/Italian, that's a strong signal — match `lang` to it.
 - Unsure? Default to `de` and let Carsten correct. Wrong-lang call wastes everyone's time more than wrong-greeting.
 
-### Picking `lang_whitelist` (mid-call switch)
+### Picking `lang_whitelist`
 
-The bot may **switch language mid-call** if the counterpart consistently answers in another language — but only within the whitelist Andy supplies. Off-whitelist requests are politely refused. Workflow:
+In deiner Group-Memory `/workspace/group/CLAUDE.md` steht eine Zeile:
 
-1. **Check Carstens current travel-mode memory in Hindsight** (`recall_memory` or just remembered context). Carsten typically tells you in normal conversation:
-   > *"Ich bin diese Woche in Italien"* → save: travel-mode = `[de, en, it]`
-   > *"Ich bin nächsten Monat in Frankreich"* → travel-mode = `[de, en, fr]` *(fr ist v1 nicht supported — fall back auf `[de, en]`)*
-   > *"Zurück daheim"* → travel-mode cleared / single-lang.
-2. **Set `lang_whitelist`** on `voice_request_outbound_call` from that memory. Always include `lang` (the starting language) in the whitelist.
-3. **No travel-mode set** → omit `lang_whitelist` (single-lang call, bot stays in `lang`).
+```
+Voice langs: de, en, it
+```
 
-Examples:
+Bei jedem `voice_request_outbound_call` setze `lang_whitelist` aus dieser Zeile. **Wenn Carsten die Liste in normaler Konversation aendern moechte** — z.B. *"nur Deutsch"*, *"Italienisch raus"*, *"alle drei wieder an"*, *"setz Voice-Sprachen auf de en"* — aktualisiere die Zeile per `Write` und bestaetige knapp. Keine Reise-Modi, keine Hindsight-Eintraege, kein extra State — nur die eine Zeile.
 
-| Carsten says | lang | lang_whitelist | rationale |
-|---|---|---|---|
-| Normal day, ruf Tante Anke an | `de` (omit) | omit | single-lang, bot bleibt deutsch |
-| In Italien: "ruf das Hotel an" | `it` | `["de","en","it"]` | Italien-Mode + Hotel evtl. spricht EN |
-| In Italien: "ruf den deutschen Anwalt an" | `de` | `["de","en","it"]` | DE start, but allow EN/IT if needed |
-| In London: "call my hotel" | `en` | `["de","en"]` (it nicht relevant) | Carsten + Englisch-sprachiger Kontext |
-| Restaurant Bella Vista in Mailand +39 | `it` | `["de","en","it"]` | full whitelist sicher in IT-Reise |
+Wenn die Zeile fehlt oder leer ist → omit `lang_whitelist` (single-lang call, bot stays in starting `lang`).
 
-**Saving the travel-mode in Hindsight:** when Carsten mentions location/travel-context, store it as a memory entry (e.g. via `add_to_memory` with content `Carsten in Italien 28.04 - 12.05; lang_whitelist=[de,en,it]`). Future outbound calls automatically read it without re-asking.
-
-The bot enforces the whitelist server-side (`voice_set_language` rejects off-list switches with `lang_not_in_whitelist`), so even if Andy gets the whitelist wrong, the call cannot drift to an unsupported language.
+Server-side enforcement: `voice_set_language` rejects off-list switches mit `lang_not_in_whitelist`, also kann der Call selbst bei falsch gesetztem `lang_whitelist` nicht in unsupported Sprachen driften.
 
 The persona, all SCHWEIGEN nudges, voice tone, and whisper transcription pin to `lang` for the entire call. Goal text doesn't have to be translated — the bot speaks `lang`, the goal is just your brief.
 
