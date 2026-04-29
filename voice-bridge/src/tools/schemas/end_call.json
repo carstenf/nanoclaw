@@ -8,8 +8,8 @@
   "properties": {
     "reason": {
       "type": "string",
-      "enum": ["farewell", "silence", "user_request", "error", "tool_failure"],
-      "description": "Warum aufgelegt wird. 'farewell' = Anrufer hat sich verabschiedet (REQ-VOICE-14). 'silence' = niemand antwortet nach zwei Silence-Prompten (REQ-VOICE-09). 'user_request' = Anrufer hat explizit aufzulegen verlangt. 'error' = unrecoverable bridge-side problem. 'tool_failure' = ein Tool (z.B. ask_core) hat versagt oder timeoutet, Gespraech kann nicht mehr sinnvoll fortgefuehrt werden."
+      "enum": ["farewell", "silence", "user_request", "error", "tool_failure", "task_declined"],
+      "description": "Warum aufgelegt wird. 'farewell' = Anrufer hat sich verabschiedet ODER Bot verabschiedet sich nach erfolgreich abgeschlossener Aufgabe (REQ-VOICE-14). 'silence' = niemand antwortet nach zwei Silence-Prompten (REQ-VOICE-09). 'user_request' = Anrufer hat explizit aufzulegen verlangt. 'error' = unrecoverable bridge-side problem. 'tool_failure' = ein Werkzeug (z.B. ask_core) ist VOR Counterpart-OK fehlgeschlagen, die Primaer-Aufgabe konnte nicht abgeschlossen werden. 'task_declined' = der Counterpart hat die Anfrage abgelehnt (z.B. kein Tisch frei, kein Termin moeglich), Bot wurde hoeflich verabschiedet."
     }
   }
 }
