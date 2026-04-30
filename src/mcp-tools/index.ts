@@ -37,6 +37,7 @@ import { makeVoiceNotifyUser, TOOL_NAME as VOICE_NOTIFY_USER_TOOL_NAME } from '.
 import { makeVoiceOutboundScheduleRetry, TOOL_NAME as VOICE_OUTBOUND_RETRY_TOOL_NAME } from './voice-outbound-retry.js';
 import { makeVoiceAnalyzeVoicemail, TOOL_NAME as VOICE_ANALYZE_VOICEMAIL_TOOL_NAME } from './voice-analyze-voicemail.js';
 import { makeVoiceSetLanguage, TOOL_NAME as VOICE_SET_LANGUAGE_TOOL_NAME } from './voice-set-language.js';
+import { makeVoiceSetOperatorConfig, TOOL_NAME as VOICE_SET_OPERATOR_CONFIG_TOOL_NAME } from './voice-set-operator-config.js';
 import { makeVoiceWakeUp } from './voice-wake-up.js';
 import {
   makeVoiceTriggersInit,
@@ -663,6 +664,18 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   registry.register(
     VOICE_SET_LANGUAGE_TOOL_NAME,
     makeVoiceSetLanguage(),
+    { mutating: false },
+  );
+
+  // v1.4.0: voice_set_operator_config — bot-managed deployment config.
+  // Persists operator_name / operator_cli_number to ~/.config/nanoclaw/
+  // voice-config.json so Andy can self-update them through chat. The config
+  // file is bind-mounted into the bridge container so the next inbound call
+  // picks up the new value without docker restart. Skill instructs Andy to
+  // call this whenever the operator volunteers their name or CLI.
+  registry.register(
+    VOICE_SET_OPERATOR_CONFIG_TOOL_NAME,
+    makeVoiceSetOperatorConfig(),
     { mutating: false },
   );
 

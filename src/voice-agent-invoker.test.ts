@@ -4,7 +4,21 @@
 // render path. Skill-files reader is stubbed via the loadSkillFiles DI
 // seam; no LLM, no network, no filesystem reads in tests.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// v1.4.0: hermetic test isolation — operatorName() now reads voice-config.json
+// and ~/nanoclaw/.env via readEnvFile. In a real dev box those files contain
+// the operator's actual name, which would leak into render output and break
+// lang-default assertions ("the operator" / "il proprietario"). Mock both
+// lookups to return empty so tests exercise the lang-fallback path
+// deterministically.
+vi.mock('./voice-config.js', () => ({
+  readVoiceConfig: () => ({}),
+  writeVoiceConfig: vi.fn(),
+}));
+vi.mock('./env.js', () => ({
+  readEnvFile: () => ({}),
+}));
 
 import {
   defaultInvokeAgent,

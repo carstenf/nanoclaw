@@ -35,9 +35,23 @@
 import fs from 'fs';
 import path from 'path';
 
+import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
+import { readVoiceConfig } from './voice-config.js';
 import type { VoiceTriggersInitInput } from './mcp-tools/voice-triggers-init.js';
 import type { VoiceTriggersTranscriptInput } from './mcp-tools/voice-triggers-transcript.js';
+
+// v1.4.0: voice-config.json is the canonical source for operator_name /
+// assistant_name. The legacy env path (.env via readEnvFile) stays as a
+// transitional fallback for one release — install.sh seeds voice-config.json
+// from the env vars on first run so existing deployments self-migrate.
+//
+// Resolution order at every call:
+//   1. ~/.config/nanoclaw/voice-config.json (Andy can edit via tool)
+//   2. process.env.OPERATOR_NAME / ASSISTANT_NAME (host env)
+//   3. ~/nanoclaw/.env via readEnvFile (transitional, removed in v1.5)
+//   4. lang-specific neutral default
+const _envFile = readEnvFile(['OPERATOR_NAME', 'ASSISTANT_NAME']);
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -80,12 +94,16 @@ const DEFAULT_LANG: Lang = 'de';
 
 /**
  * Operator name used by the persona templates (replaces the `{{operator_name}}`
- * placeholder + the deriveGoalAndContext text). Sourced from the OPERATOR_NAME
- * env var; defaults to a lang-specific neutral fallback when unset.
+ * placeholder + the deriveGoalAndContext text). Resolution order documented at
+ * the top of this file. Reads voice-config.json fresh on every call so the
+ * `voice_set_operator_config` tool takes effect without a NanoClaw restart.
  */
 function operatorName(lang: Lang): string {
-  const env = process.env.OPERATOR_NAME;
-  if (env && env.trim().length > 0) return env.trim();
+  const cfg = readVoiceConfig();
+  const fromCfg = (cfg.operator_name ?? '').trim();
+  if (fromCfg.length > 0) return fromCfg;
+  const fromEnv = (process.env.OPERATOR_NAME ?? _envFile.OPERATOR_NAME ?? '').trim();
+  if (fromEnv.length > 0) return fromEnv;
   if (lang === 'de') return 'der Nutzer';
   if (lang === 'it') return 'il proprietario';
   return 'the operator';
@@ -385,9 +403,11 @@ export function renderPersona(
     anrede_disclosure: anrede.disclosure,
     lang_switch_block,
     // Phone-bot identifies with the same name the operator uses for the
-    // WhatsApp/Discord agent. Sourced from ASSISTANT_NAME env at process
-    // start; hardcoded fallback "Andy" matches the .env default.
-    assistant_name: process.env.ASSISTANT_NAME ?? 'Andy',
+    // WhatsApp/Discord agent. Resolved process.env → ~/nanoclaw/.env →
+    // hardcoded "Andy" (matches .env default).
+    assistant_name:
+      (process.env.ASSISTANT_NAME ?? _envFile.ASSISTANT_NAME ?? '').trim() ||
+      'Andy',
     // Operator name — replaces every {{operator_name}} token in baseline +
     // overlays. Sourced from OPERATOR_NAME env; falls back to a lang-neutral
     // string when unset (see operatorName() helper above).
