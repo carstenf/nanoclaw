@@ -42,6 +42,14 @@ export const VoiceOutboundScheduleRetrySchema = z.object({
   prev_outcome: z
     .enum(['no_answer', 'busy', 'voicemail', 'silence', 'out_of_tolerance'])
     .optional(),
+  /**
+   * Smart-retry override (open_points 2026-04-29). When set, the retry is
+   * scheduled at this exact ISO timestamp instead of running through the
+   * 5/15/45/120 ladder. calendar_date for the daily-cap bucket is derived
+   * from retry_at in Europe/Berlin local time so a "tomorrow 9 am" override
+   * lands in tomorrow's bucket (not today's).
+   */
+  retry_at: z.string().datetime({ offset: true }).optional(),
 });
 
 export type VoiceOutboundScheduleRetryInput = z.infer<
@@ -60,15 +68,13 @@ export interface VoiceOutboundScheduleRetryDeps {
 }
 
 /**
- * Synthesise today's calendar_date in Europe/Berlin local time as YYYY-MM-DD.
- * Pinning to Berlin matches the case_2 invariant (calendar_date is always
- * local Berlin date) so the daily-cap counter shares the same bucket whether
- * the booking was case_2 or generic outbound.
+ * Format a calendar_date in Europe/Berlin local time as YYYY-MM-DD. Used both
+ * for "today" (no retry_at override) and for retry_at-derived buckets so a
+ * smart-retry override at "tomorrow 09:00" counts against tomorrow's daily-cap
+ * bucket, not today's.
  */
-function todayBerlinIso(now: number): string {
-  // toLocaleDateString with explicit timeZone produces a stable date string
-  // independent of host TZ. Format normalised to YYYY-MM-DD.
-  const dt = new Date(now);
+function berlinIsoDate(epochMs: number): string {
+  const dt = new Date(epochMs);
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Berlin',
     year: 'numeric',
@@ -108,9 +114,14 @@ export function makeVoiceOutboundScheduleRetry(
       );
     }
 
-    const { call_id, target_phone, prev_outcome } = parseResult.data;
+    const { call_id, target_phone, prev_outcome, retry_at } = parseResult.data;
     const now = nowFn();
-    const calendar_date = todayBerlinIso(now);
+    // calendar_date derives from retry_at when provided so a "tomorrow 9 am"
+    // smart-retry counts against tomorrow's daily-cap bucket (and shares no
+    // attempt_no space with today's regular retries).
+    const calendar_date = retry_at
+      ? berlinIsoDate(Date.parse(retry_at))
+      : berlinIsoDate(now);
     const idempotency_key = freshIdempotencyKey(target_phone, now);
 
     // Map 'silence' (Step 2A AMD verdict) to 'voicemail' for the case_2
@@ -126,6 +137,7 @@ export function makeVoiceOutboundScheduleRetry(
       calendar_date,
       idempotency_key,
       ...(mappedOutcome ? { prev_outcome: mappedOutcome } : {}),
+      ...(retry_at ? { retry_at } : {}),
     });
   };
 }

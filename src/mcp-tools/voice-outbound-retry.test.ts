@@ -115,4 +115,47 @@ describe('voice_outbound_schedule_retry', () => {
     const args = stub.mock.calls[0][0] as Record<string, string>;
     expect(args.calendar_date).toBe('2026-04-28');
   });
+
+  // open_points 2026-04-29: smart-retry — retry_at ISO override.
+  it('retry_at override: forwarded to scheduleCase2Retry alongside calendar_date derived from retry_at', async () => {
+    const stub = vi.fn().mockResolvedValue({ ok: true });
+    const handler = makeVoiceOutboundScheduleRetry({
+      scheduleCase2Retry: stub,
+      // Today (Berlin) = 2026-04-29; retry_at is tomorrow morning.
+      now: () => Date.UTC(2026, 3, 29, 12, 0, 0),
+    });
+    await handler({
+      target_phone: '+491234567890',
+      prev_outcome: 'voicemail',
+      retry_at: '2026-04-30T09:00:00+02:00',
+    });
+    const args = stub.mock.calls[0][0] as Record<string, string>;
+    expect(args.retry_at).toBe('2026-04-30T09:00:00+02:00');
+    // calendar_date is the Berlin-local date OF retry_at, so the daily-cap
+    // bucket is tomorrow's, not today's.
+    expect(args.calendar_date).toBe('2026-04-30');
+  });
+
+  it('retry_at omitted: scheduleCase2Retry called without retry_at (ladder path)', async () => {
+    const stub = vi.fn().mockResolvedValue({ ok: true });
+    const handler = makeVoiceOutboundScheduleRetry({ scheduleCase2Retry: stub });
+    await handler({
+      target_phone: '+491234567890',
+      prev_outcome: 'voicemail',
+    });
+    const args = stub.mock.calls[0][0] as Record<string, unknown>;
+    expect('retry_at' in args).toBe(false);
+  });
+
+  it('zod: rejects retry_at without timezone offset', async () => {
+    const handler = makeVoiceOutboundScheduleRetry({
+      scheduleCase2Retry: vi.fn(),
+    });
+    await expect(
+      handler({
+        target_phone: '+491234567890',
+        retry_at: '2026-04-30T09:00:00',
+      }),
+    ).rejects.toThrow(BadRequestError);
+  });
 });

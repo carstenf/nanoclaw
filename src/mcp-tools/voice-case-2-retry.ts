@@ -41,6 +41,14 @@ export const VoiceCase2ScheduleRetrySchema = z.object({
   prev_outcome: z.enum(['no_answer', 'busy', 'voicemail', 'out_of_tolerance']).optional(),
   /** idempotency_key from voice_start_case_2_call — chains retries to the original booking. */
   idempotency_key: z.string().length(64).regex(/^[0-9a-f]{64}$/, 'idempotency_key must be 64 lowercase hex chars'),
+  /**
+   * Smart-retry override (open_points 2026-04-29): when set, bypass the
+   * 5/15/45/120 ladder and schedule the retry at this exact ISO timestamp.
+   * Daily-cap counting on calendar_date still applies — caller must align
+   * calendar_date with the local Berlin date of retry_at when supplying both.
+   * Output not_before_ts will equal retry_at instead of now+ladderOffset.
+   */
+  retry_at: z.string().datetime({ offset: true }).optional(),
 });
 
 export type VoiceCase2ScheduleRetryInput = z.infer<typeof VoiceCase2ScheduleRetrySchema>;
@@ -91,8 +99,14 @@ export function makeVoiceCase2ScheduleRetry(
       );
     }
 
-    const { call_id, target_phone, calendar_date, prev_outcome, idempotency_key } =
-      parseResult.data;
+    const {
+      call_id,
+      target_phone,
+      calendar_date,
+      prev_outcome,
+      idempotency_key,
+      retry_at,
+    } = parseResult.data;
 
     let db: Database.Database;
     try {
@@ -147,9 +161,12 @@ export function makeVoiceCase2ScheduleRetry(
       return { ok: false, error: 'daily_cap_reached' };
     }
 
-    // Step 6: Compute not_before_ts
-    const ladderOffsetMs = CASE_2_RETRY_LADDER_MIN[ladder_idx]! * 60000;
-    const not_before_ts = new Date(nowFn() + ladderOffsetMs).toISOString();
+    // Step 6: Compute not_before_ts. retry_at override (open_points 2026-04-29
+    // smart-retry) bypasses the ladder when the analyzer extracted an explicit
+    // re-availability time from the voicemail greeting. Otherwise: ladder.
+    const not_before_ts = retry_at
+      ? new Date(retry_at).toISOString()
+      : new Date(nowFn() + CASE_2_RETRY_LADDER_MIN[ladder_idx]! * 60000).toISOString();
     const created_at = new Date(nowFn()).toISOString();
 
     // Step 7: INSERT OR FAIL — up to 10 retries on PK collision (Pitfall-7 race).

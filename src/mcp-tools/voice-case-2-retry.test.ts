@@ -237,6 +237,51 @@ describe('voice_case_2_schedule_retry', () => {
   });
 
   // Test 11: Two concurrent calls with same PK → INSERT OR FAIL → retry with attempt_no++ (race protection)
+  // open_points 2026-04-29: smart-retry — retry_at ISO override.
+  it('retry_at override: bypasses the 5/15/45/120 ladder and uses retry_at as not_before_ts', async () => {
+    const scheduleRetry = makeScheduleRetryMock();
+    const handler = makeVoiceCase2ScheduleRetry({
+      getDatabase: () => db,
+      scheduleRetry,
+      now: () => nowMs,
+    });
+    const retry_at = '2026-05-01T15:00:00+02:00';
+    const result = (await handler(makeArgs({ retry_at }))) as {
+      ok: boolean;
+      result: { attempt_no: number; not_before_ts: string };
+    };
+    expect(result.ok).toBe(true);
+    expect(result.result.attempt_no).toBe(1);
+    // not_before_ts equals retry_at normalised to UTC (Berlin +02:00 → -2h).
+    expect(new Date(result.result.not_before_ts).toISOString()).toBe(
+      '2026-05-01T13:00:00.000Z',
+    );
+    // Retry-tool received the override-derived not_before_ts.
+    const tools07Args = scheduleRetry.mock.calls[0][0] as { not_before_ts: string };
+    expect(new Date(tools07Args.not_before_ts).toISOString()).toBe(
+      '2026-05-01T13:00:00.000Z',
+    );
+  });
+
+  it('retry_at override: still respects the daily-cap (5/day on calendar_date)', async () => {
+    // Pre-fill the cap so the override path also hits daily_cap_reached.
+    for (let i = 1; i <= 5; i++) {
+      insertAttempt(db, '+491234567890', '2026-05-01', i, String(i).repeat(64));
+    }
+    const scheduleRetry = makeScheduleRetryMock();
+    const handler = makeVoiceCase2ScheduleRetry({
+      getDatabase: () => db,
+      scheduleRetry,
+      now: () => nowMs,
+    });
+    const result = (await handler(
+      makeArgs({ retry_at: '2026-05-01T15:00:00+02:00' }),
+    )) as { ok: boolean; error?: string };
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('daily_cap_reached');
+    expect(scheduleRetry).not.toHaveBeenCalled();
+  });
+
   it('pk-race: pre-existing attempt_no=1 row causes INSERT OR FAIL → retries with attempt_no=2', async () => {
     // Pre-insert attempt_no=1 with a DIFFERENT idempotency_key to simulate race
     // (same target+date+attempt_no=1 is already taken by another concurrent call)
