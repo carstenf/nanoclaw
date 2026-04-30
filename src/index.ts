@@ -78,6 +78,7 @@ import { makeCall, startVoiceServer } from './voice-server.js';
 import { makeFreeswitchCall, initFreeswitchVoice } from './freeswitch-voice.js';
 import { startMcpServer } from './mcp-server.js';
 import { startMcpStreamServer } from './mcp-stream-server.js';
+import { makeVoiceAskCoreHandler } from './channels/voice-ask-core.js';
 import { buildDefaultRegistry } from './mcp-tools/index.js';
 import {
   wireVoiceChannel,
@@ -1084,7 +1085,16 @@ async function main(): Promise<void> {
     deps: { sendDiscordMessage, getMainGroupAndJid },
   });
   // startMcpStreamServer is a no-op when MCP_STREAM_BEARER env is unset.
-  startMcpStreamServer({ registry: sharedRegistry });
+  // v2.0: voice-ask-core HTTP channel handler is wired alongside the MCP
+  // catchall so voice-mcp's voice_ask_core tool can POST /voice/ask_core.
+  startMcpStreamServer({
+    registry: sharedRegistry,
+    voiceAskCoreHandler: makeVoiceAskCoreHandler({
+      voiceRespondManager,
+      tryInjectVoiceRequest,
+      warmupContainer: () => triggerWakeUp('voice-ask-core-warmup', 'warmup'),
+    }),
+  });
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {

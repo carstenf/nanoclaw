@@ -125,6 +125,13 @@ export interface McpStreamDeps {
   bearerToken?: string;
   allowlist?: string[];
   log?: StreamLog;
+  /**
+   * v2.0: optional voice-ask-core HTTP channel handler. When provided, a
+   * POST /voice/ask_core route is registered alongside the MCP catchall
+   * for voice-mcp's voice_ask_core tool. Bearer + allowlist apply.
+   * (express-style middleware signature.)
+   */
+  voiceAskCoreHandler?: (req: Request, res: Response) => Promise<void>;
 }
 
 // -----------------------------------------------------------------------------
@@ -480,6 +487,40 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
       lastActivity: Date.now(),
     };
   };
+
+  // -------------------------------------------------------------------------
+  // v2.0: voice-ask-core HTTP channel — POST /voice/ask_core. Mounted before
+  // the MCP catchall so the explicit path wins. Bearer + allowlist already
+  // applied via the middleware chain (peerAllowlistMiddleware + the auth
+  // gate in the catchall — re-applied here so nothing leaks past).
+  // -------------------------------------------------------------------------
+  if (deps.voiceAskCoreHandler) {
+    const handler = deps.voiceAskCoreHandler;
+    app.post('/voice/ask_core', async (req: Request, res: Response) => {
+      // Bearer check (catchall does it for /; this path is its own route).
+      if (MCP_STREAM_BEARER) {
+        const auth = req.header('authorization') ?? '';
+        if (auth !== `Bearer ${MCP_STREAM_BEARER}`) {
+          res.status(401).json({ ok: false, error: 'unauthorized' });
+          return;
+        }
+      }
+      try {
+        await handler(req, res);
+      } catch (err) {
+        log.warn(
+          {
+            event: 'voice_ask_core_handler_threw',
+            err: err instanceof Error ? err.message : String(err),
+          },
+          'voice ask_core handler threw',
+        );
+        if (!res.headersSent) {
+          res.status(500).json({ ok: false, error: 'internal' });
+        }
+      }
+    });
+  }
 
   // -------------------------------------------------------------------------
   // Main MCP handler — routes by Mcp-Session-Id. Cap-check + session-required
