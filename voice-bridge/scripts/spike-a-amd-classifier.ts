@@ -9,7 +9,7 @@
 // preceding `response.audio.delta` frames?
 //
 // Flow:
-//   1. POST /outbound with persona_override=CASE2_AMD_CLASSIFIER_PROMPT
+//   1. POST /outbound with persona_override=OUTBOUND_AMD_CLASSIFIER_PROMPT
 //      + tools_override=[amd_result({verdict})]. Bridge routes through
 //      the existing outbound-router → Sipgate REST → OpenAI SIP path.
 //   2. Bridge /accept applies the override (see
@@ -39,7 +39,7 @@ import { readdirSync } from 'node:fs'
 // Verbatim from .planning/phases/05-case-2-restaurant-reservation-outbound/
 //   05-RESEARCH.md §2.4. Must NOT be reworded during the spike — the
 //   whole point of Spike-A is to test THIS prompt shape verbatim.
-const CASE2_AMD_CLASSIFIER_PROMPT = [
+const OUTBOUND_AMD_CLASSIFIER_PROMPT = [
   'Du bist in einem Detektions-Modus. Der Anruf wurde GERADE angenommen.',
   'Deine EINZIGE Aufgabe ist: bestimme, ob ein Mensch oder eine Mailbox/Anrufbeantworter angenommen hat.',
   '',
@@ -115,7 +115,7 @@ async function main(): Promise<void> {
     goal: 'SPIKE-A AMD classifier test',
     context: '',
     report_to_jid: 'spike-a@local',
-    persona_override: CASE2_AMD_CLASSIFIER_PROMPT,
+    persona_override: OUTBOUND_AMD_CLASSIFIER_PROMPT,
     tools_override: [AMD_RESULT_TOOL],
   }
 

@@ -672,7 +672,7 @@ describe('POST /accept — Phase 2 full-wiring', () => {
 // Plan 05-03 Task 3: /accept Case-2 branch tests
 import { createOutboundRouter } from '../src/outbound-router.js'
 import type { OutboundTask } from '../src/outbound-router.js'
-import { CASE2_AMD_CLASSIFIER_PROMPT } from '../src/amd-classifier.js'
+import { OUTBOUND_AMD_CLASSIFIER_PROMPT } from '../src/amd-classifier.js'
 
 describe('POST /accept — Case-2 outbound branch (05-03 Task 3)', () => {
   let logDir: string
@@ -741,7 +741,7 @@ describe('POST /accept — Case-2 outbound branch (05-03 Task 3)', () => {
     return router
   }
 
-  it('accept-test 1: case_type=case_2 → instructions = CASE2_AMD_CLASSIFIER_PROMPT AND tools include amd_result', async () => {
+  it('accept-test 1: case_type=case_2 → instructions = OUTBOUND_AMD_CLASSIFIER_PROMPT AND tools include amd_result', async () => {
     const outboundRouter = makeCase2OutboundRouter('case_2')
     // Wait for enqueue to make task active (originate is async)
     await new Promise((r) => setTimeout(r, 10))
@@ -794,8 +794,8 @@ describe('POST /accept — Case-2 outbound branch (05-03 Task 3)', () => {
       expect(res.statusCode).toBe(200)
       expect(acceptSpy).toHaveBeenCalledTimes(1)
       const [_callId, session] = acceptSpy.mock.calls[0]
-      // Instructions must be CASE2_AMD_CLASSIFIER_PROMPT (not OUTBOUND_PERSONA_TEMPLATE)
-      expect(session.instructions).toBe(CASE2_AMD_CLASSIFIER_PROMPT)
+      // Instructions must be OUTBOUND_AMD_CLASSIFIER_PROMPT (not OUTBOUND_PERSONA_TEMPLATE)
+      expect(session.instructions).toBe(OUTBOUND_AMD_CLASSIFIER_PROMPT)
       // Tools list must include amd_result
       const toolNames = (session.tools as Array<{ name: string }>).map((t) => t.name)
       expect(toolNames).toContain('amd_result')
@@ -804,7 +804,7 @@ describe('POST /accept — Case-2 outbound branch (05-03 Task 3)', () => {
     }
   })
 
-  it('accept-test 2: case_type=undefined outbound → AMD always-on (Step 2A §201 fix): amd_result IS in tools; instructions = CASE2_AMD_CLASSIFIER_PROMPT', async () => {
+  it('accept-test 2: case_type=undefined outbound → AMD always-on (Step 2A §201 fix): amd_result IS in tools; instructions = OUTBOUND_AMD_CLASSIFIER_PROMPT', async () => {
     const outboundRouter = makeCase2OutboundRouter(undefined)
     await new Promise((r) => setTimeout(r, 10))
 
@@ -864,7 +864,7 @@ describe('POST /accept — Case-2 outbound branch (05-03 Task 3)', () => {
       // by the onHuman callback, not at /accept.
       const toolNames = (session.tools as Array<{ name: string }>).map((t) => t.name)
       expect(toolNames).toContain('amd_result')
-      expect(session.instructions).toBe(CASE2_AMD_CLASSIFIER_PROMPT)
+      expect(session.instructions).toBe(OUTBOUND_AMD_CLASSIFIER_PROMPT)
     } finally {
       await app.close()
     }

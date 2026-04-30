@@ -94,13 +94,13 @@ describe('buildAudioConfig (Phase 06.x multilingual)', () => {
     expect(a.input.transcription.language).toBe('it')
   })
 
-  it('case2AmdGate=true forces create_response=false (§201 invariant)', () => {
-    const a = buildAudioConfig('de', { case2AmdGate: true })
+  it('outboundAmdGate=true forces create_response=false (§201 invariant)', () => {
+    const a = buildAudioConfig('de', { outboundAmdGate: true })
     expect(a.input.turn_detection.create_response).toBe(false)
   })
 
-  it('case2AmdGate=false keeps create_response=true (REQ-VOICE-04 default)', () => {
-    const a = buildAudioConfig('de', { case2AmdGate: false })
+  it('outboundAmdGate=false keeps create_response=true (REQ-VOICE-04 default)', () => {
+    const a = buildAudioConfig('de', { outboundAmdGate: false })
     expect(a.input.turn_detection.create_response).toBe(true)
   })
 

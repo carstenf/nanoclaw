@@ -382,10 +382,10 @@ const VOICE_BY_LANG: Record<CallLang, string> = {
  */
 export function buildAudioConfig(
   lang: CallLang = 'de',
-  opts: { case2AmdGate?: boolean } = {},
+  opts: { outboundAmdGate?: boolean } = {},
 ): typeof SESSION_CONFIG.audio {
   const baseInput = SESSION_CONFIG.audio.input
-  const turnDetection = opts.case2AmdGate
+  const turnDetection = opts.outboundAmdGate
     ? { ...baseInput.turn_detection, create_response: false }
     : baseInput.turn_detection
   return {

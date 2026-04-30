@@ -31,7 +31,7 @@ import type { Logger } from 'pino'
 
 // ---- Prompt ----
 
-// CASE2_AMD_CLASSIFIER_PROMPT is a LISTEN-ONLY DETECTION prompt — the model
+// OUTBOUND_AMD_CLASSIFIER_PROMPT is a LISTEN-ONLY DETECTION prompt — the model
 // is in a non-conversational mode whose only output is the amd_result
 // function-call with verdict ∈ {human, voicemail, silent, noise}. It is
 // structurally distinct from the baseline+overlay conversation-mode persona
@@ -42,7 +42,7 @@ import type { Logger } from 'pino'
  * Instructs the Realtime model (gpt-realtime since Plan 05.1 upgrade 2026-04-21; previously mini) to emit amd_result WITHOUT speaking first.
  * Spike-A validated that function_call precedes response.audio.delta when prompt instructs it.
  */
-export const CASE2_AMD_CLASSIFIER_PROMPT = `Du bist in einem Detektions-Modus. Der Anruf wurde GERADE angenommen.
+export const OUTBOUND_AMD_CLASSIFIER_PROMPT = `Du bist in einem Detektions-Modus. Der Anruf wurde GERADE angenommen.
 Deine EINZIGE Aufgabe ist: bestimme, ob ein Mensch oder eine Mailbox/Anrufbeantworter angenommen hat.
 
 KRITISCH: Du sprichst JETZT NICHT. Generiere KEIN Audio. Du hörst nur zu.

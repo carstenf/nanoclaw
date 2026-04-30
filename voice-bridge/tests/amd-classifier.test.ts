@@ -3,7 +3,7 @@
 // 12 tests covering verdict routing, VAD cadence gate, transcript-cue, idempotency
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
-  CASE2_AMD_CLASSIFIER_PROMPT,
+  OUTBOUND_AMD_CLASSIFIER_PROMPT,
   CASE2_MAILBOX_CUE_REGEX_V2,
   createAmdClassifier,
   type AmdVerdict,
@@ -91,13 +91,13 @@ describe('CASE2_MAILBOX_CUE_REGEX_V2', () => {
   })
 })
 
-describe('CASE2_AMD_CLASSIFIER_PROMPT', () => {
+describe('OUTBOUND_AMD_CLASSIFIER_PROMPT', () => {
   it('is a non-empty string containing AMD instruction keywords', () => {
-    expect(typeof CASE2_AMD_CLASSIFIER_PROMPT).toBe('string')
-    expect(CASE2_AMD_CLASSIFIER_PROMPT.length).toBeGreaterThan(50)
-    expect(CASE2_AMD_CLASSIFIER_PROMPT).toContain('amd_result')
-    expect(CASE2_AMD_CLASSIFIER_PROMPT).toContain('human')
-    expect(CASE2_AMD_CLASSIFIER_PROMPT).toContain('voicemail')
+    expect(typeof OUTBOUND_AMD_CLASSIFIER_PROMPT).toBe('string')
+    expect(OUTBOUND_AMD_CLASSIFIER_PROMPT.length).toBeGreaterThan(50)
+    expect(OUTBOUND_AMD_CLASSIFIER_PROMPT).toContain('amd_result')
+    expect(OUTBOUND_AMD_CLASSIFIER_PROMPT).toContain('human')
+    expect(OUTBOUND_AMD_CLASSIFIER_PROMPT).toContain('voicemail')
   })
 })
 

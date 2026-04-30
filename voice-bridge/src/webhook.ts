@@ -46,7 +46,7 @@ import {
 } from './cost/gate.js'
 import { sendDiscordAlert } from './alerts.js'
 import {
-  CASE2_AMD_CLASSIFIER_PROMPT,
+  OUTBOUND_AMD_CLASSIFIER_PROMPT,
   createAmdClassifier,
   type AmdEventSnapshot,
   type AmdVoicemailReason,
@@ -532,7 +532,7 @@ export function registerAcceptRoute(
       let ctxRef: { sideband: { state: Parameters<typeof updateInstructions>[0] } } | null = null
 
       // Initial /accept instructions = AMD classifier prompt for ALL outbound.
-      const outboundInstructions: string = CASE2_AMD_CLASSIFIER_PROMPT
+      const outboundInstructions: string = OUTBOUND_AMD_CLASSIFIER_PROMPT
 
       // Pre-render the post-AMD persona. Step 2B unified path: every outbound
       // renders a baseline-only persona via the voice-personas skill (the
@@ -741,7 +741,7 @@ export function registerAcceptRoute(
               // Plan 05.1-01 Task 3 invariant: synthetic user-directive between
               // updateInstructions and the synchronous requestResponse on
               // AMD-handoff. Breaks the conversational context inherited from
-              // CASE2_AMD_CLASSIFIER_PROMPT — without this, the model may
+              // OUTBOUND_AMD_CLASSIFIER_PROMPT — without this, the model may
               // mis-read the callee's opening greeting as evidence it should
               // continue in AMD-helper mode instead of CASE2_OUTBOUND_PERSONA.
               // Does NOT itself trigger response.create (VAD only scopes
@@ -852,8 +852,8 @@ export function registerAcceptRoute(
       // subsequent turns. Eliminates the Q2-silent-pickup hang class.
       const callLang: CallLang = (activeOutbound.lang ?? 'de') as CallLang
       // §201 invariant (Step 2A): every outbound is AMD-gated. Param name
-      // still reads `case2AmdGate` until the Step 3 cleanup rename pass.
-      const audioForAccept = buildAudioConfig(callLang, { case2AmdGate: true })
+      // still reads `outboundAmdGate` until the Step 3 cleanup rename pass.
+      const audioForAccept = buildAudioConfig(callLang, { outboundAmdGate: true })
       try {
         await openai.realtime.calls.accept(callId, {
           type: 'realtime',
@@ -885,7 +885,7 @@ export function registerAcceptRoute(
         // closure fires response.create + flips create_response:true post
         // verdict. Wire ctxRef so the closure reaches sideband. The legacy
         // speak-first else-branch (Case-6b outbound) is dead since /accept
-        // now always pushes CASE2_AMD_CLASSIFIER_PROMPT — proactive
+        // now always pushes OUTBOUND_AMD_CLASSIFIER_PROMPT — proactive
         // requestResponse would either be silenced by the detection-mode
         // prompt or break it.
         ctxRef = ctx

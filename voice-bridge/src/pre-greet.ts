@@ -59,7 +59,7 @@ export async function maybeInjectPreGreet(
   const t0 = Date.now()
 
   // Step 2A — AMD always-on: skip pre-greet for ANY active outbound task.
-  // /accept already pushed CASE2_AMD_CLASSIFIER_PROMPT as instructions for
+  // /accept already pushed OUTBOUND_AMD_CLASSIFIER_PROMPT as instructions for
   // every outbound; firing Slow-Brain pre-greet would race with it and break
   // AMD. Inbound calls (no active outbound task) still receive pre-greet.
   const activeTask = opts.outboundRouter?.getActiveTask?.() ?? null
