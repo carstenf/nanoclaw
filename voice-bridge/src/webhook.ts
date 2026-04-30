@@ -158,46 +158,22 @@ export function buildOutboundOnVoicemailHandler(
         err: (e as Error)?.message,
       })
     }
-    // Schedule a retry via Core MCP. Step 2C (open_points 2026-04-28):
-    //   - case_2 booking with calendar_date + idempotency_key in case_payload
-    //     → voice_case_2_schedule_retry (chains to original booking digest).
-    //   - any other outbound (voice_request_outbound_call without case-2
-    //     metadata) → voice_outbound_schedule_retry (synthesises today's
-    //     calendar_date + a fresh idempotency_key per attempt).
-    // Both share the same 5/15/45/120-min ladder + 5/day cap.
+    // Schedule a retry via Core MCP. After Step 1 (commit 2b77b83) Andy
+    // uses voice_request_outbound_call for ALL outbound calls — case_payload
+    // never carries calendar_date/idempotency_key anymore, so the bridge
+    // always routes to voice_outbound_schedule_retry (which synthesises
+    // today's calendar_date + a fresh idempotency_key per attempt).
+    // 5/15/45/120-min ladder + 5/day cap — see voice-outbound-retry.ts.
     if (coreMcpForAmd) {
-      const calendarDateRaw = casePayload.requested_date
-      const idempotencyKeyRaw = casePayload.idempotency_key
-      const calendarDate =
-        typeof calendarDateRaw === 'string' && calendarDateRaw.length > 0
-          ? calendarDateRaw
-          : ''
-      const idempotencyKey =
-        typeof idempotencyKeyRaw === 'string' && idempotencyKeyRaw.length > 0
-          ? idempotencyKeyRaw
-          : ''
-      const isCase2Retry = Boolean(calendarDate && idempotencyKey)
       try {
-        if (isCase2Retry) {
-          await coreMcpForAmd.callTool('voice_case_2_schedule_retry', {
-            call_id: callId,
-            target_phone: activeOutbound.target_phone,
-            calendar_date: calendarDate,
-            prev_outcome: amdReasonToPrevOutcome(reason),
-            idempotency_key: idempotencyKey,
-          })
-        } else {
-          await coreMcpForAmd.callTool('voice_outbound_schedule_retry', {
-            call_id: callId,
-            target_phone: activeOutbound.target_phone,
-            prev_outcome: amdReasonToPrevOutcome(reason),
-          })
-        }
+        await coreMcpForAmd.callTool('voice_outbound_schedule_retry', {
+          call_id: callId,
+          target_phone: activeOutbound.target_phone,
+          prev_outcome: amdReasonToPrevOutcome(reason),
+        })
       } catch (e: unknown) {
         log.warn({
-          event: isCase2Retry
-            ? 'case_2_schedule_retry_failed'
-            : 'outbound_schedule_retry_failed',
+          event: 'outbound_schedule_retry_failed',
           call_id: callId,
           err: (e as Error)?.message,
         })
