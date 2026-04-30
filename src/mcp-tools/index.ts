@@ -516,7 +516,7 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
   // Phase 4 Plan 04-02: /accept-time cost gate + manual cap reset.
   // voice_get_day_month_cost_sum is read by voice-bridge/src/cost/gate.ts on
   // every incoming call. voice_reset_monthly_cap is the manual override
-  // Carsten invokes (via iPhone/Chat) after a €25 monthly breach.
+  // Operator invokes (via iPhone/Chat) after a €25 monthly breach.
   registry.register(
     'voice_get_day_month_cost_sum',
     makeVoiceGetDayMonthCostSum({

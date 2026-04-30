@@ -10,12 +10,12 @@ describe('VoiceRespondManager', () => {
     const mgr = new VoiceRespondManager();
     const promise = mgr.register('call-1', 5000);
     const matched = mgr.resolve('call-1', {
-      voice_short: 'Hallo Carsten',
+      voice_short: 'Hallo Operator',
       discord_long: null,
     });
     expect(matched).toBe(true);
     await expect(promise).resolves.toEqual({
-      voice_short: 'Hallo Carsten',
+      voice_short: 'Hallo Operator',
       discord_long: null,
     });
     expect(mgr.size()).toBe(0);

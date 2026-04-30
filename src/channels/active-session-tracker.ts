@@ -3,7 +3,7 @@ import { VOICE_ACTIVE_SESSION_WINDOW_MS } from '../config.js';
 export interface ActiveSessionTracker {
   /** Called by Andy's message ingest with the channel name + JID + timestamp_ms of the inbound message. */
   recordActivity(channel: 'whatsapp' | 'discord', jid: string, ts_ms: number): void;
-  /** Looks up which channel Carsten most-recently sent a message on for a given JID within window_ms. */
+  /** Looks up which channel Operator most-recently sent a message on for a given JID within window_ms. */
   getActiveChannelFor(jid: string, now_ms: number): 'whatsapp' | 'discord' | null;
   /** DI test hook — exposes the internal map size. */
   _size(): number;

@@ -8,7 +8,7 @@ import { join } from 'node:path';
 const VALID_ARGS = {
   target_phone: '+491234567890',
   goal: 'Termin beim Arzt vereinbaren',
-  context: 'Carsten braucht einen Termin fuer Montag',
+  context: 'Operator braucht einen Termin fuer Montag',
   report_to_jid: 'dc:1490365616518070407',
 };
 

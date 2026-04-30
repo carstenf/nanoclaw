@@ -283,13 +283,13 @@ describe('POST /accept — Phase 2 full-wiring', () => {
   }
 
   // Phase 05.6 cleanup: this test asserts the legacy webhook persona-build
-  // path (buildBasePersona + buildTaskOverlay → 'Carsten' substituted into
+  // path (buildBasePersona + buildTaskOverlay → 'Operator' substituted into
   // the body). Under REASONING_MODE='container-agent' default the path is
   // nanoclawMcp.init() which the test fixture doesn't wire — so the persona
-  // falls back to FALLBACK_PERSONA (generic Sie-form, no 'Carsten' reference).
+  // falls back to FALLBACK_PERSONA (generic Sie-form, no 'Operator' reference).
   // The persona rendering is now exercised by NanoClaw-side tests
   // (voice-agent-invoker.test.ts) and verified live via PSTN cutover.
-  it.skip('passes full SESSION_CONFIG + persona + tools list to accept() — case6b for Carsten CLI', async () => {
+  it.skip('passes full SESSION_CONFIG + persona + tools list to accept() — case6b for Operator CLI', async () => {
     const router = makeRouter()
     const { res, acceptSpy } = await acceptIncoming(
       new Set(['+491708036426']),
@@ -300,8 +300,8 @@ describe('POST /accept — Phase 2 full-wiring', () => {
     const [calledCallId, session] = acceptSpy.mock.calls[0]
     expect(calledCallId).toBe('rtc_p2')
     expect(session.model).toBe('gpt-realtime')
-    // Caller is Carsten CLI (+491708036426) → CASE6B_PERSONA (02-14)
-    expect(session.instructions).toContain('Carsten')
+    // Caller is Operator CLI (+491708036426) → CASE6B_PERSONA (02-14)
+    expect(session.instructions).toContain('Operator')
     expect(session.instructions).toContain('ask_core')
     expect(session.audio.input.turn_detection.type).toBe('server_vad')
     // Phase 05.4 Block-3: D-8 (create_response=false) narrowed to

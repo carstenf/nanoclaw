@@ -1,7 +1,7 @@
 // src/health-check.ts
 //
 // System health check for NanoClaw. Runs periodically (Phase4 cron, every 6h)
-// and posts a summary to the Discord alert webhook so Carsten knows
+// and posts a summary to the Discord alert webhook so Operator knows
 // proactively when a subsystem is degraded — instead of finding out during
 // a real call.
 //
@@ -234,7 +234,7 @@ async function checkOAuthExpiry(
   if (typeof accessExpiry === 'number') {
     if (accessExpiry <= now) {
       // access expired but refresh_token may still mint a new one — that's
-      // ok; warn-level so Carsten knows the next call will trigger refresh.
+      // ok; warn-level so Operator knows the next call will trigger refresh.
       return {
         name,
         status: 'ok',
@@ -343,7 +343,7 @@ export async function runHealthCheck(deps: HealthCheckDeps): Promise<void> {
     await deps.sendDiscordAlert(digest);
   } catch (e) {
     // Best-effort: even our own check function shouldn't crash the cron
-    // poller. Surface the failure as an alert so Carsten still notices.
+    // poller. Surface the failure as an alert so Operator still notices.
     try {
       await deps.sendDiscordAlert(
         `❌ Andy health-check itself crashed: ${(e as Error).message}`,

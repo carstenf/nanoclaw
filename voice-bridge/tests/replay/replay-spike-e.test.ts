@@ -47,7 +47,7 @@ describe('Spike-E replay — SC-1 / SC-5 (D-31..D-34, REQ-VOICE-02, REQ-VOICE-03
   })
 
   it('text-similarity helper returns >= 0.80 for identical strings and announces implementation', async () => {
-    const s = await cosineOrDice('hallo carsten', 'hallo carsten')
+    const s = await cosineOrDice('hallo operator', 'hallo operator')
     expect(s).toBeGreaterThanOrEqual(TEXT_SIMILARITY_MIN)
     expect(['sbert', 'dice']).toContain(getSimilarityChoice())
   })

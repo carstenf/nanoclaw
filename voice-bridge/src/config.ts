@@ -172,16 +172,16 @@ export const NANOCLAW_VOICE_MCP_TIMEOUT_MS = Number(
 // may contain post-Phase-05.5; all other personas live in the
 // `container/skills/voice-personas/` skill (D-13).
 export const FALLBACK_PERSONA =
-  'Du bist NanoClaw, der Sprach-Assistent von Carsten Freek. Sprich Deutsch, kurze Saetze, Sie-Form. ' +
+  'Du bist NanoClaw, der Sprach-Assistent von Operator Freek. Sprich Deutsch, kurze Saetze, Sie-Form. ' +
   'Du machst KEINE Annahme zum Zweck dieses Anrufs (kein "Reservierung", kein "Buchung", kein "Termin" voraussetzen) — frage hoeflich, womit du helfen kannst, und folge der Konversation. ' +
   'Bei Sprachwechsel des Gegenuebers: bleib bei Deutsch, sage hoeflich, dass du gerade nur Deutsch verstehst. ' +
   'Wenn du nicht weiter weisst oder ein technisches Problem auftritt: sage hoeflich Bescheid und beende den Anruf.'
 
 // ----- Plan 02-14: Case-6b persona + filler-phrase injection -----
 
-// E.164 CLI number that maps to CASE6B_PERSONA (Carsten's personal number).
-export const CARSTEN_CLI_NUMBER =
-  process.env.CARSTEN_CLI_NUMBER ?? '+491708036426'
+// E.164 CLI number that maps to CASE6B_PERSONA (Operator's personal number).
+export const OPERATOR_CLI_NUMBER =
+  process.env.OPERATOR_CLI_NUMBER ?? ''
 
 // Comma-separated list of tool names that trigger code-side filler-phrase injection.
 // Default: ask_core (long container cold-start, ~90s).
@@ -303,7 +303,7 @@ export const VOICEMAIL_CAPTURE_MS = Number(
 // session.turn_detection" at realtime.calls.accept().
 export const SESSION_CONFIG = {
   // gpt-realtime (full, not mini) — holds persona role on longer turns; mini
-  // exhibited role-hallucination in Case-1 outbound (Carsten 2026-04-21).
+  // exhibited role-hallucination in Case-1 outbound (Operator 2026-04-21).
   model: 'gpt-realtime' as const,
   audio: {
     input: {

@@ -700,7 +700,7 @@ async function main(): Promise<void> {
   initDatabase();
 
   // Plan 05-02 Task 5: active-session-tracker — tracks which channel (whatsapp/discord)
-  // Carsten most recently sent a message on. recordActivity() is called in onMessage
+  // Operator most recently sent a message on. recordActivity() is called in onMessage
   // below; voice_notify_user routing reads it via buildDefaultRegistry DI.
   const activeSessionTracker = createActiveSessionTracker();
   logger.info('Database initialized');

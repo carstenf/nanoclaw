@@ -35,7 +35,7 @@ OUTBOUND-LADDER: ist da jemand
 
 function fakeSkill(caseType: string): VoicePersonaSkillFiles {
   const overlayMap: Record<string, string> = {
-    case_6b: '### TASK\nInbound von Carsten.',
+    case_6b: '### TASK\nInbound von Operator.',
     case_2: '### TASK\nOutbound zur Reservierung.',
   };
   return {
@@ -53,7 +53,7 @@ function makeInitInput(
     call_id: 'rtc_unit_init',
     case_type: 'case_6b',
     call_direction: 'inbound',
-    counterpart_label: 'Carsten',
+    counterpart_label: 'Operator',
     ...overrides,
   };
 }
@@ -89,12 +89,12 @@ describe('renderPersona', () => {
     expect(out).toContain('Pronomen du');
     expect(out).toContain('Re-Ask dich');
     expect(out).toContain('Disclosure Bist du');
-    expect(out).toContain('Gegenueber: Carsten');
+    expect(out).toContain('Gegenueber: Operator');
     expect(out).toContain('Richtung: inbound');
     expect(out).toContain('INBOUND-LADDER');
     expect(out).not.toContain('OUTBOUND-LADDER');
     expect(out).not.toMatch(/\{\{[a-z_]+\}\}/);
-    expect(out).toContain('Inbound von Carsten'); // overlay attached
+    expect(out).toContain('Inbound von Operator'); // overlay attached
   });
 
   it('case_2 outbound → Sie-form, drops inbound ladder, attaches case_2 overlay', () => {
@@ -139,7 +139,7 @@ describe('renderPersona', () => {
     expect(out).toContain('Anrede: you');
     expect(out).toContain('Pronomen you');
     expect(out).toContain('Disclosure Are you');
-    expect(out).toContain('Help Carsten directly via CLI');
+    expect(out).toContain('Help the operator directly via CLI');
     expect(out).not.toContain('ueber CLI');
   });
 
@@ -151,7 +151,7 @@ describe('renderPersona', () => {
     expect(out).toContain('Anrede: tu');
     expect(out).toContain('Pronomen tu');
     expect(out).toContain('Re-Ask te');
-    expect(out).toContain('Aiutare Carsten');
+    expect(out).toContain('Aiutare il proprietario');
   });
 
   it('lang=it case_2 → Lei-form, IT goal text', () => {
@@ -328,7 +328,7 @@ describe('defaultInvokeAgent', () => {
       loadSkillFiles: fakeSkill,
     });
     expect(r.instructions).toContain('Du');
-    expect(r.instructions).toContain('Carsten');
+    expect(r.instructions).toContain('Operator');
     expect(r.instructions).not.toMatch(/\{\{[a-z_]+\}\}/);
   });
 

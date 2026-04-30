@@ -29,7 +29,7 @@ the `lang` arg passed to `voice_triggers_init`; default `lang='de'`.
 | File | Purpose |
 |---|---|
 | `i18n/{de,en,it}/baseline.md` | Universal baseline (~515 tokens). Identity, ROLE, PERSONALITY, REFERENCE PRONUNCIATIONS, INSTRUCTIONS/RULES, CONVERSATION FLOW, SAFETY & ESCALATION. Holds all `{{...}}` placeholders. |
-| `i18n/{de,en,it}/overlays/case-6b-inbound-carsten.md` | Case-6b overlay — inbound from Carsten (CLI whitelist). TASK + calendar / travel-time / ASK_CORE / END_CALL hard-rule. |
+| `i18n/{de,en,it}/overlays/case-6b-inbound-operator.md` | Case-6b overlay — inbound from {{operator_name}} (CLI whitelist). TASK + calendar / travel-time / ASK_CORE / END_CALL hard-rule. |
 
 **Outbound (case_2 / generic) renders baseline-only (Step 2B 2026-04-28).**
 The case-2 restaurant overlay was deleted; the call brief now flows in via the `goal` placeholder Andy supplied to `voice_request_outbound_call`, and `counterpart_label` addresses the right entity. Sonnet/Realtime is fully capable of handling restaurant reservations, doctor appointments, callbacks, and generic inquiries straight from the goal text. If a future case demands scripted decision rules (e.g. legal-style negotiations), introduce a new overlay file rather than reviving the case-2 one.
@@ -61,7 +61,7 @@ Paths are relative to `i18n/{lang}/`.
 
 | `case_type` | Overlay file |
 |---|---|
-| `case_6b` | `overlays/case-6b-inbound-carsten.md` |
+| `case_6b` | `overlays/case-6b-inbound-operator.md` |
 | `case_2` | none — baseline only (Step 2B). Restaurant overlay was deleted; goal text drives the brief. |
 | (any other) | none — baseline only, log warning |
 
@@ -69,18 +69,20 @@ Paths are relative to `i18n/{lang}/`.
 
 The following `{{...}}` tokens appear in `baseline.md` and the overlays. The container-agent substitutes them during assembly step 4.
 
-### Baseline placeholders (9 — sourced from `voice-bridge/src/persona/baseline.ts:60-72`)
+### Baseline placeholders (sourced from `src/voice-agent-invoker.ts`)
 
 | Token | Source | Description |
 |---|---|---|
 | `{{goal}}` | trigger arg | Task summary, 1-2 sentences (from container-agent task context) |
-| `{{context}}` | trigger arg | Call context — e.g. restaurant+date or "inbound from Carsten's CLI" |
-| `{{counterpart_label}}` | trigger arg | Counterpart noun phrase, e.g. "Bella Vista" or "Carsten" |
+| `{{context}}` | trigger arg | Call context — e.g. restaurant+date or "inbound from operator's CLI" |
+| `{{counterpart_label}}` | trigger arg | Counterpart noun phrase, e.g. "Bella Vista" or the operator's name |
 | `{{call_direction}}` | trigger arg (`inbound` or `outbound`) | Informs SCHWEIGEN ladder selection + SAFETY scope |
 | `{{anrede_form}}` | derived from `case_type` (see below) | `Du` or `Sie` |
 | `{{anrede_capitalized}}` | derived from `anrede_form` | `dich` (Du) or `Sie` (Sie) — accusative re-ask form |
 | `{{anrede_pronoun}}` | derived from `anrede_form` | `du` (Du) or `Sie` (Sie) — nominative re-ask form |
 | `{{anrede_disclosure}}` | derived from `anrede_form` | `Bist du` (Du) or `Sind Sie` (Sie) — bot-disclosure question form |
+| `{{assistant_name}}` | `ASSISTANT_NAME` env (default `Andy`) | Name the bot uses to identify itself |
+| `{{operator_name}}` | `OPERATOR_NAME` env (lang-neutral fallback when unset) | Name of the operator the bot serves; appears throughout baseline + the case-6b overlay |
 | `{{SCHWEIGEN_LADDER}}` | direction-conditional block (see below) | Outbound vs inbound silence-nudge ladder |
 
 ### Case-2 overlay-specific placeholders (sourced from `voice-bridge/src/persona/overlays/case-2.ts:46-71`)
@@ -123,7 +125,7 @@ The init schema (`voice_triggers_init`) does NOT pass `anrede_form`. The skill d
 | `it` | (other) | `Lei` | `Lei` | `Lei` | `Lei e'` |
 | `en` | (any) | `you` | `you` | `you` | `Are you` |
 
-`en` has no T-V distinction — all four slots collapse to "you" / "Are you". `de` and `it` keep the Carsten-vs-counterpart axis (Du/tu for Carsten via case_6b, Sie/Lei for any outbound counterpart).
+`en` has no T-V distinction — all four slots collapse to "you" / "Are you". `de` and `it` keep the {{operator_name}}-vs-counterpart axis (Du/tu for {{operator_name}} via case_6b, Sie/Lei for any outbound counterpart).
 
 The init schema stays minimal (D-8: only `call_id`, `case_type`, `call_direction`, `counterpart_label`, plus optional `lang`); the skill is self-sufficient (REQ-DIR-18).
 

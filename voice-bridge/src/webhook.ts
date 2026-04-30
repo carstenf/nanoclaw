@@ -5,7 +5,7 @@
 //
 // Owning plans: 05.1-01 (session.type, AMD defect #6), 05.1-03 (Case-2 voicemail
 // factory), 05.2-03 D-8 (wait-for-speech armedForFirstSpeech), 05.2-04/05 +
-// 05.3-03 D-2 (inbound Carsten baseline+overlay composition), 05.3-05a D-3
+// 05.3-03 D-2 (inbound Operator baseline+overlay composition), 05.3-05a D-3
 // (UX setTimeouts removed; synchronous requestResponse).
 //
 // Load-bearing invariants (inline-anchored below):
@@ -23,7 +23,7 @@ import type { FastifyInstance } from 'fastify'
 import OpenAI from 'openai'
 import type { Logger } from 'pino'
 import {
-  CARSTEN_CLI_NUMBER,
+  OPERATOR_CLI_NUMBER,
   SESSION_CONFIG,
   buildAudioConfig,
   buildTracePath,
@@ -222,7 +222,7 @@ export function buildOutboundOnVoicemailHandler(
 
     if (skipRetry) {
       // "Closed for the rest of today" without a specific re-open time: drop
-      // the ladder and tell Carsten so he can decide whether to re-trigger
+      // the ladder and tell Operator so he can decide whether to re-trigger
       // tomorrow manually.
       try {
         await coreMcpForAmd.callTool('voice_notify_user', {
@@ -553,7 +553,7 @@ export function registerAcceptRoute(
       )
       // Step 2B+ (post-Test-4 retry): no FALLBACK_PERSONA on outbound. If the
       // skill renderer can't produce a persona, the call is rejected with a
-      // notify-user error — Carsten said "wenn die persona nicht durchkommt:
+      // notify-user error — Operator said "wenn die persona nicht durchkommt:
       // kein Call und Fehlermeldung". Better explicit failure than a half-
       // baked generic bot that hallucinates "wie kann ich Ihnen bei Ihrer
       // Reservierung helfen".
@@ -923,15 +923,15 @@ export function registerAcceptRoute(
     }
 
     // Inbound /accept — render persona via nanoclawMcp.init (REQ-DIR-13:
-    // voice-personas skill in nanoclaw is the single SoT). Carsten → case_6b.
-    // Non-Carsten callers reaching /accept after whitelist (case_6a not yet
+    // voice-personas skill in nanoclaw is the single SoT). Operator → case_6b.
+    // Non-Operator callers reaching /accept after whitelist (case_6a not yet
     // wired) fall through to FALLBACK_PERSONA (REQ-DIR-18). On nanoclaw
     // render failure → FALLBACK_PERSONA (REQ-VOICE-13 inbound best-effort).
     const personaLabel =
-      callerNumber === CARSTEN_CLI_NUMBER ? 'case6b' : 'fallback'
+      callerNumber === OPERATOR_CLI_NUMBER ? 'case6b' : 'fallback'
 
     let instructions: string
-    if (callerNumber === CARSTEN_CLI_NUMBER) {
+    if (callerNumber === OPERATOR_CLI_NUMBER) {
       if (!nanoclawMcp) {
         log.error({
           event: 'container_agent_mode_but_client_missing',
@@ -942,7 +942,7 @@ export function registerAcceptRoute(
         // open_points 2026-04-27 #1: fire-and-forget pre-warm. Runs in
         // parallel to nanoclawMcp.init() so the persona render's 3 ms is
         // not delayed by the wake-up's MCP round-trip. By the time the
-        // bot finishes greeting Carsten and his first ask_core fires
+        // bot finishes greeting Operator and his first ask_core fires
         // (~5-10 s later), the main container is up + idle-waiting.
         // Failure is non-fatal — voice path still works, the next
         // ask_core just pays cold-spawn latency if needed.
@@ -967,7 +967,9 @@ export function registerAcceptRoute(
             call_id: callId,
             case_type: 'case_6b',
             call_direction: 'inbound',
-            counterpart_label: 'Carsten',
+            // The operator is calling in. Renderer substitutes OPERATOR_NAME
+            // into the persona; counterpart_label is a label used in prompts.
+            counterpart_label: process.env.OPERATOR_NAME?.trim() || 'Operator',
           })
           instructions = r.instructions
         } catch (err) {
@@ -1006,8 +1008,8 @@ export function registerAcceptRoute(
         })
       : undefined
     try {
-      // Inbound is currently Carsten-only (case_6b) → DE always. Routed
-      // through buildAudioConfig for symmetry; future case_6a (non-Carsten
+      // Inbound is currently Operator-only (case_6b) → DE always. Routed
+      // through buildAudioConfig for symmetry; future case_6a (non-Operator
       // inbound) can pass a different lang here once detected.
       await openai.realtime.calls.accept(callId, {
         type: 'realtime',

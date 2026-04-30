@@ -152,7 +152,7 @@ export function startVoiceServer(deps: VoiceDeps): void {
       connect.conversationRelay({
         url: wsUrl,
         welcomeGreeting:
-          'Hallo, ich bin Andy und rufe im Auftrag von Carsten an.',
+          'Hallo, ich bin Andy und rufe im Auftrag von Operator an.',
         language: 'de-DE',
         ttsProvider: 'ElevenLabs',
         voice,
@@ -257,7 +257,7 @@ export function startVoiceServer(deps: VoiceDeps): void {
               messages: [
                 {
                   role: 'system',
-                  content: `You are Andy, a personal assistant making a phone call on behalf of Carsten (Munich, Germany).
+                  content: `You are Andy, a personal assistant making a phone call on behalf of Operator (Munich, Germany).
 Goal: ${state.goal}
 
 Rules for spoken conversation (this is text-to-speech — follow strictly):
@@ -421,7 +421,7 @@ Rules for spoken conversation (this is text-to-speech — follow strictly):
               JSON.stringify({
                 type: 'session.update',
                 session: {
-                  instructions: `You are Andy, a personal assistant making a phone call on behalf of Carsten (Munich, Germany).
+                  instructions: `You are Andy, a personal assistant making a phone call on behalf of Operator (Munich, Germany).
 Goal: ${state!.goal}
 
 Rules:
@@ -451,7 +451,7 @@ Rules:
                 response: {
                   modalities: ['audio', 'text'],
                   instructions:
-                    'Greet the person warmly in German. Introduce yourself as Andy calling on behalf of Carsten, then briefly state the purpose of the call.',
+                    'Greet the person warmly in German. Introduce yourself as Andy calling on behalf of Operator, then briefly state the purpose of the call.',
                 },
               }),
             );

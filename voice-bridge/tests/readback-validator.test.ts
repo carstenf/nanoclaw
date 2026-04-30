@@ -148,8 +148,8 @@ describe('validateReadback — name dimension (Levenshtein <= 2)', () => {
 describe('validateReadback — freetext (dice >= 0.85)', () => {
   it('passes identical tokens (case + casing irrelevant)', () => {
     const r = validateReadback(
-      { content: 'Hallo Carsten schick Termin' },
-      'hallo carsten schick termin',
+      { content: 'Hallo Operator schick Termin' },
+      'hallo operator schick termin',
       mockLog(),
       'c',
       't',
@@ -160,7 +160,7 @@ describe('validateReadback — freetext (dice >= 0.85)', () => {
 
   it('fails when content diverges heavily', () => {
     const r = validateReadback(
-      { content: 'Hallo Carsten schick Termin' },
+      { content: 'Hallo Operator schick Termin' },
       'komplett anderer satz wirklich sehr anders',
       mockLog(),
       'c',

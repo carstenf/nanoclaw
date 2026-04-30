@@ -165,11 +165,11 @@ describe('post-call-transcript / formatTranscript', () => {
       { callId: 'rtc_x', durationMs: 5000 },
       [
         { t: 100, who: 'user', text: 'Hallo' },
-        { t: 200, who: 'bot', text: 'Moin Carsten' },
+        { t: 200, who: 'bot', text: 'Moin Operator' },
       ],
     )
     expect(md).toContain('🎤 **User**: Hallo')
-    expect(md).toContain('🤖 **Andy**: Moin Carsten')
+    expect(md).toContain('🤖 **Andy**: Moin Operator')
   })
 })
 

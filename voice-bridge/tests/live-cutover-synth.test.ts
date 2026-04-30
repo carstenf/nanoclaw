@@ -88,7 +88,7 @@ function fakeSkill(caseType: string): VoicePersonaSkillFiles {
   return {
     skill: '# SKILL\nRender persona between fences.',
     baseline: '# BASELINE\nGoal: {{goal}}',
-    overlay: caseType === 'case_6b' ? 'Inbound von Carsten — Du-Form.' : 'Outbound — Sie-Form.',
+    overlay: caseType === 'case_6b' ? 'Inbound von Operator — Du-Form.' : 'Outbound — Sie-Form.',
     overlayPath: `overlays/${caseType}.md`,
   }
 }
@@ -332,9 +332,9 @@ describe.skip('live-cutover-synth — Bridge ↔ NanoClaw-MCP ↔ container-agen
   // -------------------------------------------------------------------------
   // Test 1: init synth path — case_6b inbound, Du-form persona reaches accept().
   // -------------------------------------------------------------------------
-  it('Test 1: case_6b inbound /accept → instructions contain "Du" + "Carsten" + zero {{...}} (NOT FALLBACK_PERSONA, NOT AGENT_NOT_WIRED)', async () => {
+  it('Test 1: case_6b inbound /accept → instructions contain "Du" + "Operator" + zero {{...}} (NOT FALLBACK_PERSONA, NOT AGENT_NOT_WIRED)', async () => {
     setStubReturnsBody(
-      'Hallo Carsten, schoen dass Du anrufst. Du kannst Dir das so vorstellen: Termin-Eintrag, Loeschen, Aendern.',
+      'Hallo Operator, schoen dass Du anrufst. Du kannst Dir das so vorstellen: Termin-Eintrag, Loeschen, Aendern.',
     )
     const callId = 'rtc_synth_du'
     const router = makeRouter()
@@ -361,7 +361,7 @@ describe.skip('live-cutover-synth — Bridge ↔ NanoClaw-MCP ↔ container-agen
       expect(acceptSpy).toHaveBeenCalledTimes(1)
       const session = acceptSpy.mock.calls[0][1] as { instructions: string }
       expect(session.instructions).toContain('Du')
-      expect(session.instructions).toContain('Carsten')
+      expect(session.instructions).toContain('Operator')
       expect(session.instructions).not.toMatch(/\{\{/)
       expect(session.instructions).not.toBe(FALLBACK_PERSONA)
       // Regression — AGENT_NOT_WIRED must not appear in production path.

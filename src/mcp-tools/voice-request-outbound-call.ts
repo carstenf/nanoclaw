@@ -26,7 +26,7 @@ export const RequestOutboundCallSchema = z.object({
   // working unchanged.
   counterpart_label: z.string().max(120).default(''),
   // Phase 06.x multilingual: persona/voice language for THIS outbound call.
-  // Andy decides per call ("Carsten said the restaurant is in Italy" → 'it';
+  // Andy decides per call ("Operator said the restaurant is in Italy" → 'it';
   // "the lawyer is German" → 'de'; "the contact in London" → 'en'). When
   // omitted, NanoClaw + Bridge default to 'de'. Validated to the v1 set
   // (de/en/it) at the schema boundary so an unsupported lang produces a
@@ -34,7 +34,7 @@ export const RequestOutboundCallSchema = z.object({
   lang: z.enum(['de', 'en', 'it']).optional(),
   // Mid-call language switch: variable whitelist Andy supplies per call so
   // the bot may switch sprachen mid-call only within this set. Pulled from
-  // Carstens Hindsight memory ("travel-mode" entries — z.B. in Italien:
+  // Operators Hindsight memory ("travel-mode" entries — z.B. in Italien:
   // [de,en,it]). Empty/omitted → no mid-call switching allowed (legacy
   // single-lang behaviour). The whitelist is enforced server-side in the
   // voice_set_language MCP tool — the bot cannot exceed it even with bad

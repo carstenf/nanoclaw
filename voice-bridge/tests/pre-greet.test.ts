@@ -43,7 +43,7 @@ describe('maybeInjectPreGreet (03-14, REQ-VOICE-13)', () => {
     const { handle, ws } = makeFakeSideband(true)
     const callTool = vi.fn().mockResolvedValue({
       ok: true,
-      instructions_update: 'TAILORED PERSONA: friendly Carsten greeting',
+      instructions_update: 'TAILORED PERSONA: friendly Operator greeting',
     })
     const log = makeLog()
 
@@ -70,7 +70,7 @@ describe('maybeInjectPreGreet (03-14, REQ-VOICE-13)', () => {
     const sent = JSON.parse((ws.send.mock.calls[0]?.[0] as string) ?? '{}')
     expect(sent.type).toBe('session.update')
     expect(sent.session.instructions).toBe(
-      'TAILORED PERSONA: friendly Carsten greeting',
+      'TAILORED PERSONA: friendly Operator greeting',
     )
   })
 

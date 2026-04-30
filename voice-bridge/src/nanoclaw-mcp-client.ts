@@ -77,14 +77,14 @@ export interface VoiceTriggersInitInput {
   counterpart_label: string
   /**
    * Optional persona language (Phase 06.x multilingual). Default 'de' on the
-   * server side. Inbound paths default to 'de' (Carsten = DE); outbound paths
+   * server side. Inbound paths default to 'de' (Operator = DE); outbound paths
    * pass it from voice_request_outbound_call args (Andy decides per call).
    */
   lang?: 'de' | 'en' | 'it'
   /**
    * Step 2B+ patch: outbound goal text Andy supplied to
    * voice_request_outbound_call. Threaded into the {{goal}} persona placeholder
-   * so the bot reads the actual brief ("Sag Carsten X") instead of the
+   * so the bot reads the actual brief ("Sag Operator X") instead of the
    * hardcoded restaurant default that lingered after the case_2 overlay was
    * deleted. Optional — inbound paths omit it.
    */

@@ -312,7 +312,7 @@ describe('Phase 4.5 MCP regression — session-based StreamableHTTP', () => {
       arguments: {
         target_phone: '+4915112345678',
         goal: 'test outbound call',
-        report_to_jid: 'carsten@whatsapp',
+        report_to_jid: 'operator@whatsapp',
       },
     });
     const text = (r.content as Array<{ text: string }>)[0].text;

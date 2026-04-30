@@ -1,7 +1,7 @@
 // src/mcp-tools/voice-reset-monthly-cap.ts
 // Phase 4 Plan 04-02 (COST-03): Manual reset of the voice_channel_suspended
 // flag after the monthly €25 cap has been hit. Audited via JSONL (event:
-// monthly_cap_reset). Invoked by Carsten from the iPhone/Chat or CLI when he
+// monthly_cap_reset). Invoked by Operator from the iPhone/Chat or CLI when he
 // deliberately wants to re-enable the voice channel before month-end.
 import fs from 'fs';
 import path from 'path';

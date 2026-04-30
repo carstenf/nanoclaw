@@ -13,7 +13,7 @@ function getClient(): HindsightClient | null {
   return client;
 }
 
-const BANK_ID = 'carsten';
+const BANK_ID = 'operator';
 
 /**
  * Recall relevant memories before the agent runs.

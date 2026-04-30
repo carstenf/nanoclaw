@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 const VALID_BODY = {
   target_phone: '+491234567890',
   goal: 'Termin bei Zahnarzt vereinbaren',
-  context: 'Carsten braucht einen Termin',
+  context: 'Operator braucht einen Termin',
   report_to_jid: 'dc:1490365616518070407',
 }
 

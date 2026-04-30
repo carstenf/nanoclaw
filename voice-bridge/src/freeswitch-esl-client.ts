@@ -80,7 +80,7 @@ export interface EslOriginateResult {
  * - call_uuid set to taskId so the originated leg has a deterministic UUID
  *   for cross-referencing with the OpenAI webhook flow (correlated via the
  *   active outbound-router slot).
- * - origination_caller_id_number presents Carsten's CLI on the outbound leg.
+ * - origination_caller_id_number presents Operator's CLI on the outbound leg.
  */
 export function buildOriginateCommand(opts: {
   targetPhone: string

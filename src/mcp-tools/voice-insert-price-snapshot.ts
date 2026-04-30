@@ -9,7 +9,7 @@
 // Pitfall 5 invariant: this handler ONLY writes the snapshot row. It MUST
 // NOT in any form mutate `voice-bridge/src/cost/prices.ts` or otherwise
 // trigger price-constant updates. Manual bump of the TS pinned prices
-// remains Carsten's decision after reviewing the Discord drift alert.
+// remains Operator's decision after reviewing the Discord drift alert.
 //
 // Not exposed to OpenAI Realtime — no schema in voice-bridge allowlist.
 import fs from 'fs';

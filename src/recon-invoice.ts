@@ -6,7 +6,7 @@
 // ~/nanoclaw-state/openai-invoices/YYYY-MM.csv (format: `month,usage_usd`
 // with a single data row). Pitfall 7: OpenAI's billing API is not
 // programmatically exposed for fine-grained line items today — so the
-// source of truth is the manual CSV export (Carsten pastes the dashboard
+// source of truth is the manual CSV export (Operator pastes the dashboard
 // total). If the CSV is missing, we alert + write an open_points.md entry
 // instead of crashing.
 //
@@ -117,7 +117,7 @@ export async function runReconInvoice(
     invoice_eur = usd * usdToEur;
   } catch (err: unknown) {
     const emsg = (err as Error).message;
-    const msg = `Recon-invoice: parse-error on ${csvPath}: ${emsg}. Carsten: verify CSV is <month,usage_usd> with a single data row.`;
+    const msg = `Recon-invoice: parse-error on ${csvPath}: ${emsg}. Operator: verify CSV is <month,usage_usd> with a single data row.`;
     await deps.sendDiscordAlert(msg);
     try {
       deps.writeStateRepoOpenPoint(

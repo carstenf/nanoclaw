@@ -153,10 +153,10 @@ export function registerOutboundRoute(
     } = parse.data
 
     // 3b. Persona pre-check (post-Test-4-retry).
-    // Carsten requirement: "wenn die persona nicht durchkommt, kein call und
+    // Operator requirement: "wenn die persona nicht durchkommt, kein call und
     // fehlermeldung". Render a throwaway persona via NanoClaw MCP BEFORE
     // Sipgate originate. If the render fails (MCP down, session expired,
-    // skill files missing, ...), return 503 to Andy immediately — Carstens
+    // skill files missing, ...), return 503 to Andy immediately — Operators
     // phone never rings. Self-healing of stale sessions handled by
     // NanoclawMcpClient session-recovery loop.
     if (NANOCLAW_VOICE_MCP_URL) {

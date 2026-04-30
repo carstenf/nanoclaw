@@ -28,7 +28,7 @@
 //   - MUST NOT write any .wav/.mp3/.opus/.flac file. Only the (already-
 //     redacted) JSONL from the Bridge-side trace path.
 //
-// Usage (coordinated with Carsten's second phone):
+// Usage (coordinated with Operator's second phone):
 //   cd /home/carsten_bot/nanoclaw/voice-bridge
 //   npx tsx scripts/spike-a-amd-classifier.ts +491708036426
 import { readFileSync, existsSync } from 'node:fs'

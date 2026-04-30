@@ -60,7 +60,7 @@ describe('voice_ask_core', () => {
       callClaude: async (sys, msgs) => {
         expect(sys).toContain('# Test Skill');
         expect(msgs[0].content).toBe('sag Hallo');
-        return 'Hallo Carsten von NanoClaw.';
+        return 'Hallo Operator von NanoClaw.';
       },
     });
     const handler = makeVoiceAskCore(deps);
@@ -70,7 +70,7 @@ describe('voice_ask_core', () => {
     };
 
     expect(result.ok).toBe(true);
-    expect(result.result.answer).toBe('Hallo Carsten von NanoClaw.');
+    expect(result.result.answer).toBe('Hallo Operator von NanoClaw.');
     expect(result.result.topic).toBe('test');
     expect(result.result.citations).toEqual([]);
   });

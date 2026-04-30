@@ -67,7 +67,7 @@ const VOICE_PERSONAS_DIR = path.resolve(
 // rename pass; the renderer treats it as "no overlay → baseline only" the
 // same as case_6a.
 const CASE_OVERLAY_MAP: Record<string, string | null> = {
-  case_6b: 'overlays/case-6b-inbound-carsten.md',
+  case_6b: 'overlays/case-6b-inbound-operator.md',
 };
 
 // Multilingual layout (Phase 06.x): per-language baselines + overlays under
@@ -77,6 +77,19 @@ const CASE_OVERLAY_MAP: Record<string, string | null> = {
 const SUPPORTED_LANGS = ['de', 'en', 'it'] as const;
 type Lang = typeof SUPPORTED_LANGS[number];
 const DEFAULT_LANG: Lang = 'de';
+
+/**
+ * Operator name used by the persona templates (replaces the `{{operator_name}}`
+ * placeholder + the deriveGoalAndContext text). Sourced from the OPERATOR_NAME
+ * env var; defaults to a lang-specific neutral fallback when unset.
+ */
+function operatorName(lang: Lang): string {
+  const env = process.env.OPERATOR_NAME;
+  if (env && env.trim().length > 0) return env.trim();
+  if (lang === 'de') return 'der Nutzer';
+  if (lang === 'it') return 'il proprietario';
+  return 'the operator';
+}
 
 // ---------------------------------------------------------------------------
 // DI seam — kept for tests; default uses fs.readFileSync.
@@ -147,7 +160,7 @@ export function loadVoicePersonaSkillDefault(
 // ---------------------------------------------------------------------------
 // Anrede derivation (lang-aware)
 // ---------------------------------------------------------------------------
-// DE: Du/Sie axis (case-conditional — Carsten=Du, restaurant=Sie).
+// DE: Du/Sie axis (case-conditional — operator=Du, counterpart=Sie).
 // IT: tu/Lei axis (case-conditional — same shape as DE).
 // EN: no T-V distinction; "you" everywhere. Disclosure question form
 //     ("Are you a bot?") still varies, kept as a separate token.
@@ -227,13 +240,14 @@ function deriveGoalAndContext(
   // no Restaurant/Reservierung default wording. Andy's voice_request_outbound_call
   // `goal` arg drives the call brief; when omitted, the bot falls back to a
   // generic "Anliegen klaeren / Resolve the matter" line. case_6b inbound
-  // keeps its CLI-specific default since that surface is Carsten-only.
+  // keeps its CLI-specific default since that surface targets the operator
+  // only (whitelist-matched personal CLI).
+  const op = operatorName(lang);
   if (lang === 'en') {
     if (caseType === 'case_6b' && direction === 'inbound') {
       return {
-        goal:
-          'Help Carsten directly via CLI — manage calendar, look up travel times, delegate research, recall memory.',
-        context: 'Inbound call from Carsten via CLI whitelist (case_6b).',
+        goal: `Help ${op} directly via CLI — manage calendar, look up travel times, delegate research, recall memory.`,
+        context: `Inbound call from ${op} via CLI whitelist (case_6b).`,
       };
     }
     return {
@@ -244,9 +258,8 @@ function deriveGoalAndContext(
   if (lang === 'it') {
     if (caseType === 'case_6b' && direction === 'inbound') {
       return {
-        goal:
-          'Aiutare Carsten direttamente via CLI — gestire il calendario, controllare i tempi di viaggio, delegare ricerche, recuperare la memoria.',
-        context: 'Chiamata in entrata da Carsten via CLI whitelist (case_6b).',
+        goal: `Aiutare ${op} direttamente via CLI — gestire il calendario, controllare i tempi di viaggio, delegare ricerche, recuperare la memoria.`,
+        context: `Chiamata in entrata da ${op} via CLI whitelist (case_6b).`,
       };
     }
     return {
@@ -257,9 +270,8 @@ function deriveGoalAndContext(
   // de (default)
   if (caseType === 'case_6b' && direction === 'inbound') {
     return {
-      goal:
-        'Carsten ueber CLI direkt helfen — Kalender pflegen, Reisezeiten klaeren, Recherche delegieren, Erinnerungen aus dem Memory holen.',
-      context: 'Inbound-Anruf von Carsten via CLI-Whitelist (case_6b).',
+      goal: `${op} ueber CLI direkt helfen — Kalender pflegen, Reisezeiten klaeren, Recherche delegieren, Erinnerungen aus dem Memory holen.`,
+      context: `Inbound-Anruf von ${op} via CLI-Whitelist (case_6b).`,
     };
   }
   return {
@@ -341,7 +353,7 @@ export function renderPersona(
   );
   // Step 2B patch: prefer the caller-supplied goal text over the case-derived
   // default. voice_request_outbound_call's `goal` arg flows from Andy
-  // verbatim, so the bot reads the actual brief ("Sag Carsten X" / "Buch
+  // verbatim, so the bot reads the actual brief ("Sag dem Operator X" / "Buch
   // Tisch fuer Y") instead of the hardcoded "Tisch reservieren ..." default
   // that lingered after the case_2 overlay was deleted.
   const goal = input.goal && input.goal.length > 0 ? input.goal : derived.goal;
@@ -372,10 +384,14 @@ export function renderPersona(
     anrede_pronoun: anrede.pronoun,
     anrede_disclosure: anrede.disclosure,
     lang_switch_block,
-    // Phone-bot identifies with the same name Carsten uses for the WhatsApp/
-    // Discord agent (Andy). Sourced from ASSISTANT_NAME env at process start;
-    // hardcoded fallback "Andy" matches .env default.
+    // Phone-bot identifies with the same name the operator uses for the
+    // WhatsApp/Discord agent. Sourced from ASSISTANT_NAME env at process
+    // start; hardcoded fallback "Andy" matches the .env default.
     assistant_name: process.env.ASSISTANT_NAME ?? 'Andy',
+    // Operator name — replaces every {{operator_name}} token in baseline +
+    // overlays. Sourced from OPERATOR_NAME env; falls back to a lang-neutral
+    // string when unset (see operatorName() helper above).
+    operator_name: operatorName(lang),
   };
 
   for (const [token, value] of Object.entries(subs)) {

@@ -62,7 +62,7 @@ if (!/^[a-zA-Z0-9_]{1,64}$/.test(TOOL_NAME)) {
 }
 
 // D-8 locked schema. case_type enum starts with the three overlays in
-// scope for v1 (case_2 outbound restaurant, case_6a / case_6b Carsten).
+// scope for v1 (case_2 outbound restaurant, case_6a / case_6b Operator).
 // Extend the enum when new overlays land (skill ships them).
 //
 // `lang` (optional, default 'de'): persona/voice language. Supported v1:

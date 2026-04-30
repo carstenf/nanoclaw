@@ -172,7 +172,7 @@ const TOOL_META: Record<string, ToolMeta> =
     },
     'voice_send_discord_message': {
       description:
-        'Send a Discord DM to Carsten — idempotent via content hash.',
+        'Send a Discord DM to Operator — idempotent via content hash.',
       shape: SendDiscordMessageSchema.shape,
     },
     'voice_get_travel_time': {
@@ -239,7 +239,7 @@ const TOOL_META: Record<string, ToolMeta> =
     },
     'voice_notify_user': {
       description:
-        'Notify Carsten via the most-recent active channel (WhatsApp/Discord) with >50-word override to Discord.',
+        'Notify Operator via the most-recent active channel (WhatsApp/Discord) with >50-word override to Discord.',
       shape: VoiceNotifyUserSchema.shape,
     },
     'voice_outbound_schedule_retry': {

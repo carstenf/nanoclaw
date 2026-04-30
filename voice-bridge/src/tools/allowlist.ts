@@ -72,7 +72,7 @@ const ENTRIES: ToolEntry[] = [
   // whitelist via the gateway.
   { name: 'set_language',          mutating: false, schema: setLanguageSchema as Record<string, unknown>,          validate: ajv.compile(setLanguageSchema), injectCallId: true },
   // Phase 06.x outcome reporting: bot calls notify_user BEFORE end_call to
-  // report success / decline / decision-needed back to Carsten in the main
+  // report success / decline / decision-needed back to Operator in the main
   // chat group (Discord priority, WhatsApp if active session). injectCallId
   // so voice_notify_user logs correlate with the call.
   { name: 'notify_user',           mutating: true,  schema: notifyUserSchema as Record<string, unknown>,           validate: ajv.compile(notifyUserSchema),           injectCallId: true },

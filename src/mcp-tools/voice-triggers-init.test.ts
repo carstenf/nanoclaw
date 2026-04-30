@@ -237,14 +237,14 @@ function fakeSkill(caseType: string): VoicePersonaSkillFiles {
   return {
     skill: '# SKILL',
     baseline: '# BASELINE\nGoal: {{goal}}\nGegenueber: {{counterpart_label}}\nAnrede: {{anrede_form}}',
-    overlay: caseType === 'case_6b' ? 'Inbound von Carsten.' : 'Outbound zur Reservierung.',
+    overlay: caseType === 'case_6b' ? 'Inbound von {{operator_name}}.' : 'Outbound zur Reservierung.',
     overlayPath: `overlays/${caseType}.md`,
   };
 }
 
 describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.6 Plan 01 Task 2)', () => {
   // -------------------------------------------------------------------------
-  // Test 1: Du-form rendering for case_6b (Carsten inbound)
+  // Test 1: Du-form rendering for case_6b (operator inbound)
   // -------------------------------------------------------------------------
   it('Test 1: case_6b → handler returns instructions containing "Du" via real defaultInvokeAgent', async () => {
     const invokerDeps: VoiceAgentInvokerDeps = {
@@ -256,7 +256,7 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
     });
 
     const result = (await handler(
-      makeValidArgs({ case_type: 'case_6b', call_direction: 'inbound', counterpart_label: 'Carsten' }),
+      makeValidArgs({ case_type: 'case_6b', call_direction: 'inbound', counterpart_label: 'Operator' }),
     )) as { ok: true; result: { instructions: string } };
 
     expect(result.ok).toBe(true);
