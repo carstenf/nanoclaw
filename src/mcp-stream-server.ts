@@ -88,6 +88,7 @@ import { OnTranscriptTurnSchema } from './mcp-tools/voice-on-transcript-turn.js'
 import { VoiceNotifyUserSchema } from './mcp-tools/voice-notify-user.js';
 import { VoiceOutboundScheduleRetrySchema } from './mcp-tools/voice-outbound-retry.js';
 import { VoiceSetLanguageSchema } from './mcp-tools/voice-set-language.js';
+import { VoiceSetOperatorConfigSchema } from './mcp-tools/voice-set-operator-config.js';
 import { VoiceTriggersInitSchema } from './mcp-tools/voice-triggers-init.js';
 import { VoiceTriggersTranscriptSchema } from './mcp-tools/voice-triggers-transcript.js';
 import { VoiceRespondSchema } from './mcp-tools/voice-respond.js';
@@ -252,6 +253,11 @@ const TOOL_META: Record<string, ToolMeta> =
         'Mid-call language switch. Validates lang ∈ per-call lang_whitelist (Phase 06.x). Returns re-rendered persona instructions; the Bridge applies via two-step session.update (audio + instructions).',
       shape: VoiceSetLanguageSchema.shape,
       skipSyntheticIds: true,
+    },
+    'voice_set_operator_config': {
+      description:
+        "Persist operator profile (name + personal CLI) to ~/.config/nanoclaw/voice-config.json. Call when the operator volunteers their name (\"ich heiße X\") or phone number (\"meine Nummer ist +49…\"). At least one of operator_name / operator_cli_number must be set; both can be set together. operator_cli_number must be E.164 (leading +, country code, digits, no spaces). Used by personas (operator_name) and case_6b inbound CLI matching (operator_cli_number).",
+      shape: VoiceSetOperatorConfigSchema.shape,
     },
     'voice_triggers_init': {
       description:

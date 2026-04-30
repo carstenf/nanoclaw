@@ -31,23 +31,22 @@ if (!/^[a-zA-Z0-9_]{1,64}$/.test(TOOL_NAME)) {
 // error instead of a silently malformed value that breaks CLI matching.
 const E164_REGEX = /^\+[1-9]\d{7,14}$/;
 
-export const VoiceSetOperatorConfigSchema = z
-  .object({
-    operator_name: z.string().min(1).max(120).optional(),
-    operator_cli_number: z
-      .string()
-      .min(1)
-      .max(20)
-      .refine((v) => E164_REGEX.test(v), {
-        message:
-          'must be E.164 (e.g. +491701234567) — leading + then country code + digits, no spaces',
-      })
-      .optional(),
-  })
-  .refine(
-    (v) => v.operator_name !== undefined || v.operator_cli_number !== undefined,
-    { message: 'at least one of operator_name / operator_cli_number must be set' },
-  );
+// Plain z.object (no .refine wrapper) so the SDK can expose `.shape` to MCP
+// `tools/list` consumers. The "at least one of" rule lives in the handler
+// below — wrapping the object in .refine() produces ZodEffects which has no
+// `.shape` and would result in an empty inputSchema being published.
+export const VoiceSetOperatorConfigSchema = z.object({
+  operator_name: z.string().min(1).max(120).optional(),
+  operator_cli_number: z
+    .string()
+    .min(1)
+    .max(20)
+    .refine((v) => E164_REGEX.test(v), {
+      message:
+        'must be E.164 (e.g. +491701234567) — leading + then country code + digits, no spaces',
+    })
+    .optional(),
+});
 
 export type VoiceSetOperatorConfigInput = z.infer<
   typeof VoiceSetOperatorConfigSchema
@@ -76,6 +75,16 @@ export function makeVoiceSetOperatorConfig(
       throw new BadRequestError(
         String(issue?.path?.[0] ?? 'input'),
         issue?.message ?? 'invalid',
+      );
+    }
+
+    if (
+      parsed.data.operator_name === undefined &&
+      parsed.data.operator_cli_number === undefined
+    ) {
+      throw new BadRequestError(
+        'input',
+        'at least one of operator_name / operator_cli_number must be set',
       );
     }
 
