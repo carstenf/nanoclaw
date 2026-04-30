@@ -36,6 +36,7 @@ import { makeVoiceInsertPriceSnapshot } from './voice-insert-price-snapshot.js';
 import { makeVoiceNotifyUser, TOOL_NAME as VOICE_NOTIFY_USER_TOOL_NAME } from './voice-notify-user.js';
 import { makeVoiceCase2ScheduleRetry, TOOL_NAME as VOICE_CASE_2_RETRY_TOOL_NAME } from './voice-case-2-retry.js';
 import { makeVoiceOutboundScheduleRetry, TOOL_NAME as VOICE_OUTBOUND_RETRY_TOOL_NAME } from './voice-outbound-retry.js';
+import { makeVoiceAnalyzeVoicemail, TOOL_NAME as VOICE_ANALYZE_VOICEMAIL_TOOL_NAME } from './voice-analyze-voicemail.js';
 import { makeVoiceSetLanguage, TOOL_NAME as VOICE_SET_LANGUAGE_TOOL_NAME } from './voice-set-language.js';
 import { makeVoiceWakeUp } from './voice-wake-up.js';
 import {
@@ -649,6 +650,20 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
         registry.invoke(VOICE_CASE_2_RETRY_TOOL_NAME, args),
     }),
     { mutating: true },
+  );
+
+  // open_points 2026-04-29: voice_analyze_voicemail — extract opening info
+  // from a captured voicemail greeting transcript. Used by voice-bridge after
+  // AMD-verdict=voicemail to drive smart retry-scheduling instead of the
+  // blind 5/15/45/120 ladder. mutating:false (read-only inference, no DB).
+  registry.register(
+    VOICE_ANALYZE_VOICEMAIL_TOOL_NAME,
+    makeVoiceAnalyzeVoicemail({
+      jsonlPath: deps.dataDir
+        ? `${deps.dataDir}/voice-analyze-voicemail.jsonl`
+        : undefined,
+    }),
+    { mutating: false },
   );
 
   // Phase 06.x: voice_set_language — mid-call language switch tool. mutating
