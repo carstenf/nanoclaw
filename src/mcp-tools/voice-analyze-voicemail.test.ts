@@ -1,25 +1,33 @@
 import { describe, it, expect, vi } from 'vitest';
 
-import type { ClaudeMessage } from './claude-client.js';
-
 import {
   makeVoiceAnalyzeVoicemail,
   parseAnalyzerJson,
 } from './voice-analyze-voicemail.js';
 import { BadRequestError } from './voice-on-transcript-turn.js';
 
+type AskCoreArgs = { call_id: string; topic: 'andy'; request: string };
+type AskCoreFn = (args: AskCoreArgs) => Promise<unknown>;
+
 function makeDeps(
   overrides: Partial<{
-    callClaude: (sys: string, msgs: ClaudeMessage[]) => Promise<string>;
+    callAskCore: AskCoreFn;
     jsonlPath: string;
     now: () => number;
   }> = {},
 ) {
   return {
-    callClaude:
-      overrides.callClaude ??
-      (async () =>
-        '{"closed_until_iso":"2026-04-30T15:00:00+02:00","closed_today":false,"raw":"ab fuenfzehn Uhr"}'),
+    callAskCore:
+      overrides.callAskCore ??
+      (async () => ({
+        ok: true,
+        result: {
+          answer:
+            '{"closed_until_iso":"2026-04-30T15:00:00+02:00","closed_today":false,"raw":"ab fuenfzehn Uhr"}',
+          topic: 'andy' as const,
+          citations: [],
+        },
+      })),
     jsonlPath: overrides.jsonlPath ?? '/tmp/test-voice-analyze-voicemail.jsonl',
     now: overrides.now ?? (() => 1777000000000),
   };
@@ -45,7 +53,9 @@ describe('parseAnalyzerJson', () => {
   });
 
   it('rejects ISO strings without timezone offset', () => {
-    const r = parseAnalyzerJson('{"closed_until_iso":"2026-04-30T15:00:00","closed_today":true,"raw":""}');
+    const r = parseAnalyzerJson(
+      '{"closed_until_iso":"2026-04-30T15:00:00","closed_today":true,"raw":""}',
+    );
     expect(r.closed_until_iso).toBeNull();
     expect(r.closed_today).toBe(true);
   });
@@ -61,18 +71,21 @@ describe('parseAnalyzerJson', () => {
 
   it('truncates raw to 200 chars', () => {
     const long = 'x'.repeat(500);
-    const r = parseAnalyzerJson(`{"closed_until_iso":null,"closed_today":false,"raw":"${long}"}`);
+    const r = parseAnalyzerJson(
+      `{"closed_until_iso":null,"closed_today":false,"raw":"${long}"}`,
+    );
     expect(r.raw.length).toBe(200);
   });
 });
 
 describe('voice_analyze_voicemail', () => {
-  it('happy path: claude returns parseable JSON → typed result envelope', async () => {
+  it('happy path: ask_core(andy) returns parseable JSON answer → typed result', async () => {
     const deps = makeDeps();
     const handler = makeVoiceAnalyzeVoicemail(deps);
     const out = (await handler({
       call_id: 'rtc_test',
-      transcript: 'Hallo, hier ist die Mailbox. Wir sind ab fuenfzehn Uhr wieder erreichbar.',
+      transcript:
+        'Hallo, hier ist die Mailbox. Wir sind ab fuenfzehn Uhr wieder erreichbar.',
       lang: 'de',
     })) as {
       ok: boolean;
@@ -84,69 +97,124 @@ describe('voice_analyze_voicemail', () => {
     expect(out.result.raw).toBe('ab fuenfzehn Uhr');
   });
 
-  it('lang defaults to "de" when omitted', async () => {
-    const callClaude = vi
-      .fn<(sys: string, msgs: ClaudeMessage[]) => Promise<string>>()
-      .mockResolvedValue('{"closed_until_iso":null,"closed_today":false,"raw":""}');
-    const handler = makeVoiceAnalyzeVoicemail(makeDeps({ callClaude }));
+  it('routes the request via voice_ask_core with topic="andy"', async () => {
+    const callAskCore = vi
+      .fn<AskCoreFn>()
+      .mockResolvedValue({
+        ok: true,
+        result: {
+          answer: '{"closed_until_iso":null,"closed_today":false,"raw":""}',
+          topic: 'andy',
+          citations: [],
+        },
+      });
+    const handler = makeVoiceAnalyzeVoicemail(makeDeps({ callAskCore }));
     await handler({
-      transcript: 'Hallo, hier ist die Mailbox.',
+      call_id: 'rtc_x',
+      transcript: 'Hallo Mailbox.',
+      lang: 'de',
     });
-    const sysPrompt = callClaude.mock.calls[0]?.[0] ?? '';
-    expect(sysPrompt).toMatch(/Mailbox|Anrufbeantworter/);
+    expect(callAskCore).toHaveBeenCalledTimes(1);
+    const args = callAskCore.mock.calls[0]![0];
+    expect(args.call_id).toBe('rtc_x');
+    expect(args.topic).toBe('andy');
+    // The request prompt embeds the transcript verbatim and is lang-specific.
+    expect(args.request).toContain('Hallo Mailbox.');
+    expect(args.request).toMatch(/Mailbox|Anrufbeantworter/);
   });
 
-  it('passes lang=en to a different system prompt', async () => {
-    const callClaude = vi
-      .fn<(sys: string, msgs: ClaudeMessage[]) => Promise<string>>()
-      .mockResolvedValue('{"closed_until_iso":null,"closed_today":false,"raw":""}');
-    const handler = makeVoiceAnalyzeVoicemail(makeDeps({ callClaude }));
+  it('lang=en uses English prompt builder; no German tokens in request', async () => {
+    const callAskCore = vi
+      .fn<AskCoreFn>()
+      .mockResolvedValue({
+        ok: true,
+        result: {
+          answer: '{"closed_until_iso":null,"closed_today":false,"raw":""}',
+          topic: 'andy',
+          citations: [],
+        },
+      });
+    const handler = makeVoiceAnalyzeVoicemail(makeDeps({ callAskCore }));
     await handler({
+      call_id: 'rtc_en',
       transcript: 'Hello, this is voicemail.',
       lang: 'en',
     });
-    const sysPrompt = callClaude.mock.calls[0]?.[0] ?? '';
-    expect(sysPrompt).toMatch(/voicemail|answering machine/i);
-    expect(sysPrompt).not.toMatch(/Anrufbeantworter/);
+    const req = callAskCore.mock.calls[0]![0].request;
+    expect(req).toMatch(/voicemail|answering machine/i);
+    expect(req).not.toMatch(/Anrufbeantworter/);
   });
 
-  it('claude failure → ok:false envelope, no throw', async () => {
-    const callClaude = vi.fn(async () => {
-      throw new Error('claude_timeout');
-    });
-    const handler = makeVoiceAnalyzeVoicemail(makeDeps({ callClaude }));
+  it('Andy unavailable (callAskCore throws) → ok:false envelope, no throw', async () => {
+    const callAskCore = vi.fn<AskCoreFn>().mockRejectedValue(new Error('mcp boom'));
+    const handler = makeVoiceAnalyzeVoicemail(makeDeps({ callAskCore }));
     const out = (await handler({
+      call_id: 'rtc_fail',
       transcript: 'Mailbox-Ansage hier.',
       lang: 'de',
     })) as { ok: boolean; error?: string };
     expect(out.ok).toBe(false);
-    expect(out.error).toBe('claude_error');
+    expect(out.error).toBe('andy_unavailable');
   });
 
-  it('unparseable model output → ok:true with safe defaults (parse_ok=false in jsonl)', async () => {
-    const callClaude = vi.fn(async () => 'not JSON at all');
-    const handler = makeVoiceAnalyzeVoicemail(makeDeps({ callClaude }));
+  it('voice_ask_core ok:false (e.g. Andy not reachable) → ok:false no_answer', async () => {
+    const callAskCore = vi
+      .fn<AskCoreFn>()
+      .mockResolvedValue({ ok: false, error: 'no_active_container' });
+    const handler = makeVoiceAnalyzeVoicemail(makeDeps({ callAskCore }));
     const out = (await handler({
+      call_id: 'rtc_q',
+      transcript: 'Mailbox.',
+      lang: 'de',
+    })) as { ok: boolean; error?: string };
+    expect(out.ok).toBe(false);
+    expect(out.error).toBe('no_answer');
+  });
+
+  it('Andy answers with non-JSON prose → ok:true with safe defaults', async () => {
+    const callAskCore = vi
+      .fn<AskCoreFn>()
+      .mockResolvedValue({
+        ok: true,
+        result: {
+          answer: 'I could not extract anything specific from that voicemail.',
+          topic: 'andy',
+          citations: [],
+        },
+      });
+    const handler = makeVoiceAnalyzeVoicemail(makeDeps({ callAskCore }));
+    const out = (await handler({
+      call_id: 'rtc_z',
       transcript: 'Hallo, Mailbox.',
       lang: 'de',
-    })) as { ok: boolean; result: { closed_until_iso: string | null; closed_today: boolean; raw: string } };
+    })) as {
+      ok: boolean;
+      result: { closed_until_iso: string | null; closed_today: boolean; raw: string };
+    };
     expect(out.ok).toBe(true);
     expect(out.result.closed_until_iso).toBeNull();
     expect(out.result.closed_today).toBe(false);
     expect(out.result.raw).toBe('');
   });
 
+  it('throws BadRequestError on missing call_id', async () => {
+    const handler = makeVoiceAnalyzeVoicemail(makeDeps());
+    await expect(
+      handler({ transcript: 'Hallo.' }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
   it('throws BadRequestError on empty transcript', async () => {
     const handler = makeVoiceAnalyzeVoicemail(makeDeps());
-    await expect(handler({ transcript: '' })).rejects.toBeInstanceOf(
-      BadRequestError,
-    );
+    await expect(
+      handler({ call_id: 'rtc_x', transcript: '' }),
+    ).rejects.toBeInstanceOf(BadRequestError);
   });
 
   it('throws BadRequestError on unsupported lang', async () => {
     const handler = makeVoiceAnalyzeVoicemail(makeDeps());
     await expect(
-      handler({ transcript: 'Hallo', lang: 'fr' }),
+      handler({ call_id: 'rtc_x', transcript: 'Hallo', lang: 'fr' }),
     ).rejects.toBeInstanceOf(BadRequestError);
   });
 });

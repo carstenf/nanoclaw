@@ -638,13 +638,16 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     { mutating: true },
   );
 
-  // open_points 2026-04-29: voice_analyze_voicemail — extract opening info
-  // from a captured voicemail greeting transcript. Used by voice-bridge after
-  // AMD-verdict=voicemail to drive smart retry-scheduling instead of the
-  // blind 5/15/45/120 ladder. mutating:false (read-only inference, no DB).
+  // voice_analyze_voicemail — extract opening info from a captured voicemail
+  // greeting transcript. Used by voice-bridge after AMD-verdict=voicemail to
+  // drive smart retry-scheduling instead of the blind 5/15/45/120 ladder.
+  // 2026-04-30 refactor: routes through voice_ask_core(topic='andy') so the
+  // voice-channel keeps zero direct Anthropic dependency. mutating:false
+  // (Andy answers, no DB write here; ask_core's own logging applies).
   registry.register(
     VOICE_ANALYZE_VOICEMAIL_TOOL_NAME,
     makeVoiceAnalyzeVoicemail({
+      callAskCore: (args) => registry.invoke('voice_ask_core', args),
       jsonlPath: deps.dataDir
         ? `${deps.dataDir}/voice-analyze-voicemail.jsonl`
         : undefined,
