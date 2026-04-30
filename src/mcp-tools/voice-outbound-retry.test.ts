@@ -36,7 +36,7 @@ function insertAttempt(
 ) {
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO voice_case_2_attempts
+    `INSERT INTO voice_outbound_attempts
        (target_phone, calendar_date, attempt_no, scheduled_for, idempotency_key, created_at, outcome)
      VALUES (?, ?, ?, ?, ?, ?, NULL)`,
   ).run(phone, date, attemptNo, now, idemKey, now);
@@ -252,7 +252,7 @@ describe('voice_outbound_schedule_retry — failure paths', () => {
     expect(result.error).toBe('schedule_retry_failed');
     const row = db
       .prepare(
-        `SELECT outcome FROM voice_case_2_attempts WHERE target_phone=? AND calendar_date=?`,
+        `SELECT outcome FROM voice_outbound_attempts WHERE target_phone=? AND calendar_date=?`,
       )
       .get(PHONE, TODAY_BERLIN_DATE) as { outcome: string } | undefined;
     expect(row?.outcome).toBe('schedule_failed');
@@ -294,7 +294,7 @@ describe('voice_outbound_schedule_retry — input handling', () => {
     const handler = makeVoiceOutboundScheduleRetry(baseDeps(db, stub));
     await handler({ target_phone: PHONE });
     const row = db
-      .prepare(`SELECT calendar_date FROM voice_case_2_attempts WHERE target_phone=?`)
+      .prepare(`SELECT calendar_date FROM voice_outbound_attempts WHERE target_phone=?`)
       .get(PHONE) as { calendar_date: string } | undefined;
     expect(row?.calendar_date).toBe(TODAY_BERLIN_DATE);
   });
@@ -305,7 +305,7 @@ describe('voice_outbound_schedule_retry — input handling', () => {
     await handler({ target_phone: PHONE });
     const rows = db
       .prepare(
-        `SELECT idempotency_key FROM voice_case_2_attempts WHERE target_phone=? ORDER BY attempt_no`,
+        `SELECT idempotency_key FROM voice_outbound_attempts WHERE target_phone=? ORDER BY attempt_no`,
       )
       .all(PHONE) as Array<{ idempotency_key: string }>;
     expect(rows).toHaveLength(2);
@@ -318,7 +318,7 @@ describe('voice_outbound_schedule_retry — input handling', () => {
     // No DB column for outcome on insert, but the call succeeds — silence is
     // remapped internally for any future outcome storage.
     const row = db
-      .prepare(`SELECT * FROM voice_case_2_attempts WHERE target_phone=?`)
+      .prepare(`SELECT * FROM voice_outbound_attempts WHERE target_phone=?`)
       .get(PHONE);
     expect(row).toBeDefined();
   });

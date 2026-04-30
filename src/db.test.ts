@@ -618,47 +618,47 @@ describe('message query LIMIT', () => {
   });
 });
 
-// --- voice_case_2_attempts schema (Plan 05-02) ---
+// --- voice_outbound_attempts schema (Step 3 Phase C rename, open_points 2026-04-30) ---
 
-describe('voice_case_2_attempts schema', () => {
+describe('voice_outbound_attempts schema', () => {
   it('table exists after init — SELECT returns empty rows, not an error', () => {
     const db = getDatabase();
-    const rows = db.prepare('SELECT * FROM voice_case_2_attempts').all();
+    const rows = db.prepare('SELECT * FROM voice_outbound_attempts').all();
     expect(rows).toHaveLength(0);
   });
 
-  it('idx_voice_case_2_phone_date index exists', () => {
+  it('idx_voice_outbound_phone_date index exists', () => {
     const db = getDatabase();
     const idx = db
       .prepare(
-        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_voice_case_2_phone_date'",
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_voice_outbound_phone_date'",
       )
       .get() as { name: string } | undefined;
-    expect(idx?.name).toBe('idx_voice_case_2_phone_date');
+    expect(idx?.name).toBe('idx_voice_outbound_phone_date');
   });
 
-  it('idx_voice_case_2_idempotency UNIQUE index exists', () => {
+  it('idx_voice_outbound_idempotency UNIQUE index exists', () => {
     const db = getDatabase();
     const idx = db
       .prepare(
-        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_voice_case_2_idempotency'",
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_voice_outbound_idempotency'",
       )
       .get() as { name: string } | undefined;
-    expect(idx?.name).toBe('idx_voice_case_2_idempotency');
+    expect(idx?.name).toBe('idx_voice_outbound_idempotency');
   });
 
   it('idempotency_key has UNIQUE constraint — inserting two rows with same key fails', () => {
     const db = getDatabase();
     const now = new Date().toISOString();
     db.prepare(
-      `INSERT INTO voice_case_2_attempts
+      `INSERT INTO voice_outbound_attempts
          (target_phone, calendar_date, attempt_no, scheduled_for, idempotency_key, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     ).run('+491234567890', '2026-05-01', 1, now, 'a'.repeat(64), now);
 
     expect(() => {
       db.prepare(
-        `INSERT INTO voice_case_2_attempts
+        `INSERT INTO voice_outbound_attempts
            (target_phone, calendar_date, attempt_no, scheduled_for, idempotency_key, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
       ).run('+491234567891', '2026-05-01', 1, now, 'a'.repeat(64), now);

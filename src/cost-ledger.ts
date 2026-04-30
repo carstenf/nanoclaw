@@ -63,13 +63,12 @@ export interface VoicePriceSnapshotRow {
  */
 export function createSchema(database: Database.Database): void {
   database.exec(`
-    -- voice_case_2_attempts mirror for in-memory unit tests. Step 3 Phase A3
-    -- inlined the case_2 retry tool into voice_outbound_schedule_retry but
-    -- kept the table name pending Phase C (rename to voice_outbound_attempts).
-    -- Production DB creates this table in src/db.ts createSchema(). This
-    -- re-export lets unit tests for voice_outbound_schedule_retry spin up
-    -- only the retry table without dragging the full NanoClaw schema.
-    CREATE TABLE IF NOT EXISTS voice_case_2_attempts (
+    -- voice_outbound_attempts mirror for in-memory unit tests (Step 3 Phase C
+    -- renamed from voice_case_2_attempts, open_points 2026-04-30). Production
+    -- DB creates this table in src/db.ts createSchema(). This re-export lets
+    -- unit tests for voice_outbound_schedule_retry spin up only the retry
+    -- table without dragging the full NanoClaw schema.
+    CREATE TABLE IF NOT EXISTS voice_outbound_attempts (
       target_phone        TEXT NOT NULL,
       calendar_date       TEXT NOT NULL,
       attempt_no          INTEGER NOT NULL,
@@ -82,10 +81,10 @@ export function createSchema(database: Database.Database): void {
       created_at          TEXT NOT NULL,
       PRIMARY KEY (target_phone, calendar_date, attempt_no)
     );
-    CREATE INDEX IF NOT EXISTS idx_voice_case_2_phone_date
-      ON voice_case_2_attempts(target_phone, calendar_date);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_voice_case_2_idempotency
-      ON voice_case_2_attempts(idempotency_key);
+    CREATE INDEX IF NOT EXISTS idx_voice_outbound_phone_date
+      ON voice_outbound_attempts(target_phone, calendar_date);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_voice_outbound_idempotency
+      ON voice_outbound_attempts(idempotency_key);
 
     CREATE TABLE IF NOT EXISTS voice_call_costs (
       call_id          TEXT PRIMARY KEY,

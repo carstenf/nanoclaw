@@ -89,7 +89,7 @@ function berlinIsoDate(epochMs: number): string {
 
 /**
  * Mint a fresh idempotency_key per attempt. UNIQUE on
- * voice_case_2_attempts.idempotency_key forbids reusing a key, so each retry
+ * voice_outbound_attempts.idempotency_key forbids reusing a key, so each retry
  * gets a digest of (phone | iso-ts | random). 64 lowercase hex.
  */
 function freshIdempotencyKey(targetPhone: string, now: number): string {
@@ -156,7 +156,7 @@ export function makeVoiceOutboundScheduleRetry(
     try {
       const row = db
         .prepare(
-          'SELECT COUNT(*) as n FROM voice_case_2_attempts WHERE target_phone=? AND calendar_date=?',
+          'SELECT COUNT(*) as n FROM voice_outbound_attempts WHERE target_phone=? AND calendar_date=?',
         )
         .get(target_phone, calendar_date) as { n: number };
       count = row.n;
@@ -211,7 +211,7 @@ export function makeVoiceOutboundScheduleRetry(
     for (let r = 0; r < 10; r++) {
       try {
         db.prepare(
-          `INSERT INTO voice_case_2_attempts
+          `INSERT INTO voice_outbound_attempts
              (target_phone, calendar_date, attempt_no, scheduled_for, idempotency_key, created_at, outcome)
            VALUES (?, ?, ?, ?, ?, ?, NULL)`,
         ).run(target_phone, calendar_date, insertedAttemptNo, not_before_ts, idempotency_key, created_at);
@@ -248,7 +248,7 @@ export function makeVoiceOutboundScheduleRetry(
       logger.warn({ event: 'voice_outbound_retry_tools07_error', err });
       try {
         db.prepare(
-          `UPDATE voice_case_2_attempts SET outcome='schedule_failed'
+          `UPDATE voice_outbound_attempts SET outcome='schedule_failed'
            WHERE target_phone=? AND calendar_date=? AND attempt_no=?`,
         ).run(target_phone, calendar_date, insertedAttemptNo);
       } catch {
@@ -262,7 +262,7 @@ export function makeVoiceOutboundScheduleRetry(
     if (!r?.ok) {
       try {
         db.prepare(
-          `UPDATE voice_case_2_attempts SET outcome='schedule_failed'
+          `UPDATE voice_outbound_attempts SET outcome='schedule_failed'
            WHERE target_phone=? AND calendar_date=? AND attempt_no=?`,
         ).run(target_phone, calendar_date, insertedAttemptNo);
       } catch {
