@@ -7,8 +7,20 @@
 // invariant.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Logger } from 'pino'
-import type { AmdVoicemailReason } from '../src/amd-classifier.js'
-import { buildOutboundOnVoicemailHandler } from '../src/webhook.js'
+import type {
+  AmdEventSnapshot,
+  AmdVoicemailReason,
+} from '../src/amd-classifier.js'
+import {
+  buildOutboundOnVoicemailHandler,
+  extractVoicemailTranscript,
+} from '../src/webhook.js'
+
+const EMPTY_SNAPSHOT: AmdEventSnapshot = { eventLog: [] }
+const VM_OPEN_AT_15 = 'Hallo, hier ist die Mailbox von Bella Vista. Wir sind heute ab fuenfzehn Uhr wieder erreichbar. Bitte rufen Sie spaeter an.'
+const VM_OPEN_AT_15_SNAPSHOT: AmdEventSnapshot = {
+  eventLog: [{ type: 'transcript', text: VM_OPEN_AT_15, at: 1 }],
+}
 
 function makeLog(): {
   log: Logger
@@ -38,7 +50,10 @@ interface HandlerFixture {
   hangupMock: ReturnType<typeof vi.fn>
   setAmdClassifierMock: ReturnType<typeof vi.fn>
   logWarn: ReturnType<typeof vi.fn>
-  handler: (reason: AmdVoicemailReason) => Promise<void>
+  handler: (
+    reason: AmdVoicemailReason,
+    snapshot?: AmdEventSnapshot,
+  ) => Promise<void>
 }
 
 function buildHandler(opts: {
@@ -70,7 +85,7 @@ function buildHandler(opts: {
     realtime: { calls: { hangup: hangupMock } },
   } as unknown as Parameters<typeof buildOutboundOnVoicemailHandler>[0]['openai']
 
-  const handler = buildOutboundOnVoicemailHandler({
+  const builtHandler = buildOutboundOnVoicemailHandler({
     callId,
     activeOutbound,
     casePayload,
@@ -81,6 +96,10 @@ function buildHandler(opts: {
     log,
     setAmdClassifier: setAmdClassifierMock,
   })
+  // Wrap so existing tests can pass just a reason; smart-retry tests pass a
+  // populated snapshot to drive the analyze branch.
+  const handler = (reason: AmdVoicemailReason, snapshot?: AmdEventSnapshot) =>
+    builtHandler(reason, snapshot ?? EMPTY_SNAPSHOT)
 
   return {
     callId,
@@ -153,5 +172,116 @@ describe('webhook onVoicemail — voice_outbound_schedule_retry generic path', (
       (c) => c[0] === 'voice_notify_user',
     )
     expect(notifyCall).toBeDefined()
+  })
+
+  // open_points 2026-04-29: smart-retry — voice_analyze_voicemail mines the
+  // captured greeting for opening info and overrides the ladder when found.
+  describe('smart-retry (voice_analyze_voicemail)', () => {
+    it('empty snapshot → no analyze call, ladder retry only', async () => {
+      const fx = buildHandler({})
+      await fx.handler('amd_result', EMPTY_SNAPSHOT)
+      const analyzeCall = fx.callToolMock.mock.calls.find(
+        (c) => c[0] === 'voice_analyze_voicemail',
+      )
+      expect(analyzeCall).toBeUndefined()
+      const retryCall = fx.callToolMock.mock.calls.find(
+        (c) => c[0] === 'voice_outbound_schedule_retry',
+      )
+      expect(retryCall).toBeDefined()
+      expect(retryCall?.[1]).not.toHaveProperty('retry_at')
+    })
+
+    it('analyzer returns closed_until_iso → schedule_retry called with retry_at = +15min', async () => {
+      const callTool: CallToolMock = vi.fn().mockImplementation((name) => {
+        if (name === 'voice_analyze_voicemail') {
+          return Promise.resolve({
+            closed_until_iso: '2026-04-30T15:00:00+02:00',
+            closed_today: false,
+            raw: 'ab fuenfzehn Uhr wieder erreichbar',
+          })
+        }
+        return Promise.resolve({ ok: true })
+      })
+      const fx = buildHandler({ callToolOverride: callTool })
+      await fx.handler('transcript_cue', VM_OPEN_AT_15_SNAPSHOT)
+
+      const retryCall = fx.callToolMock.mock.calls.find(
+        (c) => c[0] === 'voice_outbound_schedule_retry',
+      )
+      expect(retryCall).toBeDefined()
+      const retryArgs = retryCall?.[1] as { retry_at?: string }
+      expect(retryArgs.retry_at).toBe('2026-04-30T13:15:00.000Z')
+
+      const notifyCall = fx.callToolMock.mock.calls.find(
+        (c) => c[0] === 'voice_notify_user',
+      )
+      expect(notifyCall?.[1]).toMatchObject({
+        text: expect.stringContaining('Smart-Retry'),
+      })
+    })
+
+    it('analyzer returns closed_today=true without re-open time → no retry, notify_user "geschlossen"', async () => {
+      const callTool: CallToolMock = vi.fn().mockImplementation((name) => {
+        if (name === 'voice_analyze_voicemail') {
+          return Promise.resolve({
+            closed_until_iso: null,
+            closed_today: true,
+            raw: 'heute geschlossen',
+          })
+        }
+        return Promise.resolve({ ok: true })
+      })
+      const fx = buildHandler({ callToolOverride: callTool })
+      await fx.handler('transcript_cue', VM_OPEN_AT_15_SNAPSHOT)
+
+      const retryCall = fx.callToolMock.mock.calls.find(
+        (c) => c[0] === 'voice_outbound_schedule_retry',
+      )
+      expect(retryCall).toBeUndefined()
+
+      const notifyCall = fx.callToolMock.mock.calls.find(
+        (c) => c[0] === 'voice_notify_user',
+      )
+      expect(notifyCall?.[1]).toMatchObject({
+        text: expect.stringContaining('hat heute geschlossen'),
+      })
+    })
+
+    it('analyzer rejection → ladder fallback (no retry_at)', async () => {
+      const callTool: CallToolMock = vi.fn().mockImplementation((name) => {
+        if (name === 'voice_analyze_voicemail') {
+          return Promise.reject(new Error('claude_timeout'))
+        }
+        return Promise.resolve({ ok: true })
+      })
+      const fx = buildHandler({ callToolOverride: callTool })
+      await fx.handler('transcript_cue', VM_OPEN_AT_15_SNAPSHOT)
+
+      // Analyzer was attempted (transcript long enough) and warn-logged
+      expect(fx.logWarn).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'voicemail_analyzer_failed' }),
+      )
+
+      const retryCall = fx.callToolMock.mock.calls.find(
+        (c) => c[0] === 'voice_outbound_schedule_retry',
+      )
+      expect(retryCall).toBeDefined()
+      expect(retryCall?.[1]).not.toHaveProperty('retry_at')
+    })
+
+    it('extractVoicemailTranscript drops amd_result markers and joins transcript chunks', () => {
+      const text = extractVoicemailTranscript({
+        eventLog: [
+          { type: 'speech_started', at: 1 },
+          { type: 'transcript', text: 'Hallo, hier ist die Mailbox', at: 2 },
+          { type: 'transcript', text: 'amd_result:voicemail', at: 3 },
+          { type: 'transcript', text: 'ab 15 Uhr wieder erreichbar', at: 4 },
+          { type: 'audio_delta', bytes: 100, at: 5 },
+        ],
+      })
+      expect(text).toBe(
+        'Hallo, hier ist die Mailbox ab 15 Uhr wieder erreichbar',
+      )
+    })
   })
 })

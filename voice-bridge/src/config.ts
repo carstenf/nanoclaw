@@ -278,6 +278,17 @@ export const CASE2_VAD_SILENCE_MS = Number(
   process.env.CASE2_VAD_SILENCE_MS ?? 30000,
 )
 
+/**
+ * Voicemail-Capture-Window (ms): after AMD verdict='voicemail' the classifier
+ * keeps the call open this long to collect the rest of the greeting transcript
+ * before the bridge hangs up. Lets `voice_analyze_voicemail` extract opening
+ * times ("ab 15 Uhr wieder erreichbar") for smart retry-scheduling instead of
+ * the blind 5/15/45/120 ladder. 0 = immediate hangup (legacy behaviour).
+ */
+export const VOICEMAIL_CAPTURE_MS = Number(
+  process.env.VOICEMAIL_CAPTURE_MS ?? 8000,
+)
+
 // Phase-2 /accept session knobs. Single source of truth for turn-detection
 // config — tests grep on SESSION_CONFIG for VOICE-04 / VOICE-05 assertions.
 // REQ-VOICE-05 (barge-in cancellation within 200 ms of counterpart VAD) is an

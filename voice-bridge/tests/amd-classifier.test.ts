@@ -116,7 +116,13 @@ describe('createAmdClassifier', () => {
     CASE2_MAILBOX_CUE_REGEX_V2.lastIndex = 0
   })
 
-  function makeClassifier(overrides: { cadenceMs?: number; silenceMs?: number } = {}) {
+  function makeClassifier(
+    overrides: {
+      cadenceMs?: number
+      silenceMs?: number
+      voicemailCaptureMs?: number
+    } = {},
+  ) {
     return createAmdClassifier({
       callId: 'test-call-1',
       log,
@@ -124,6 +130,11 @@ describe('createAmdClassifier', () => {
       onVoicemail,
       cadenceMs: overrides.cadenceMs ?? 4000,
       silenceMs: overrides.silenceMs ?? 6000,
+      // open_points 2026-04-29: AMD now defers onVoicemail through a capture
+      // window. Default 0 in tests keeps the legacy synchronous semantics so
+      // existing assertions continue to hold; capture-window-aware tests opt
+      // in explicitly via the overrides arg.
+      voicemailCaptureMs: overrides.voicemailCaptureMs ?? 0,
       timers,
     })
   }
@@ -154,7 +165,7 @@ describe('createAmdClassifier', () => {
   it('test 3: amd_result verdict=voicemail → onVoicemail called; no onHuman', () => {
     const c = makeClassifier()
     c.onAmdResult('voicemail')
-    expect(onVoicemail).toHaveBeenCalledWith('amd_result')
+    expect(onVoicemail).toHaveBeenCalledWith('amd_result', expect.any(Object))
     expect(onHuman).not.toHaveBeenCalled()
     expect(c.getVerdict()).toBe('voicemail')
   })
@@ -165,7 +176,7 @@ describe('createAmdClassifier', () => {
     c.onSpeechStarted()
     // Timer A should fire at 4000ms (cadence gate)
     fireTimer(4000)
-    expect(onVoicemail).toHaveBeenCalledWith('cadence_cue')
+    expect(onVoicemail).toHaveBeenCalledWith('cadence_cue', expect.any(Object))
     expect(onHuman).not.toHaveBeenCalled()
     expect(c.getVerdict()).toBe('voicemail')
   })
@@ -174,7 +185,7 @@ describe('createAmdClassifier', () => {
     const c = makeClassifier()
     // No speech events — Timer B fires at 6000ms
     fireTimer(6000)
-    expect(onVoicemail).toHaveBeenCalledWith('silence_mailbox')
+    expect(onVoicemail).toHaveBeenCalledWith('silence_mailbox', expect.any(Object))
     expect(onHuman).not.toHaveBeenCalled()
     expect(c.getVerdict()).toBe('voicemail')
   })
@@ -211,7 +222,7 @@ describe('createAmdClassifier', () => {
   it('test 6: transcript matching mailbox regex → onVoicemail("transcript_cue")', () => {
     const c = makeClassifier()
     c.onTranscript('Der Teilnehmer ist zur Zeit nicht erreichbar. Bitte hinterlassen Sie eine Nachricht.')
-    expect(onVoicemail).toHaveBeenCalledWith('transcript_cue')
+    expect(onVoicemail).toHaveBeenCalledWith('transcript_cue', expect.any(Object))
     expect(onHuman).not.toHaveBeenCalled()
     expect(c.getVerdict()).toBe('voicemail')
   })

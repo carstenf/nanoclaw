@@ -48,6 +48,7 @@ import { sendDiscordAlert } from './alerts.js'
 import {
   CASE2_AMD_CLASSIFIER_PROMPT,
   createAmdClassifier,
+  type AmdEventSnapshot,
   type AmdVoicemailReason,
 } from './amd-classifier.js'
 import { setAmdClassifier } from './tools/dispatch.js'
@@ -80,6 +81,12 @@ type OutboundOnVoicemailActiveOutbound = {
    * Tante Anke" rather than the case_2-specific "...bei Restaurant ...").
    */
   counterpart_label?: string
+  /**
+   * open_points 2026-04-29 smart-retry: language of the call so
+   * voice_analyze_voicemail can extract opening times with the right system
+   * prompt. Defaults to 'de' when undefined.
+   */
+  lang?: 'de' | 'en' | 'it'
 }
 
 type OutboundOnVoicemailCoreClient = {
@@ -111,10 +118,17 @@ export interface BuildOutboundOnVoicemailHandlerParams {
  * Build the AMD onVoicemail callback for any outbound call. Step 2D rename
  * from buildCase2OnVoicemailHandler — Step 2A made AMD universal, so the
  * voicemail path runs for case_2 + generic outbound alike.
+ *
+ * open_points 2026-04-29 (smart-retry): the AMD classifier now passes the
+ * captured eventLog snapshot. We extract the voicemail greeting transcript,
+ * call voice_analyze_voicemail to mine opening times, and either:
+ *   - smart-retry at the next opening time (closed_until_iso) + 15 min
+ *   - skip the retry if the greeting says "closed for the rest of today"
+ *   - fall back to the 5/15/45/120 ladder when no actionable info found
  */
 export function buildOutboundOnVoicemailHandler(
   params: BuildOutboundOnVoicemailHandlerParams,
-): (reason: AmdVoicemailReason) => Promise<void> {
+): (reason: AmdVoicemailReason, snapshot: AmdEventSnapshot) => Promise<void> {
   const { callId, activeOutbound, casePayload, coreMcpForAmd, openai, log } =
     params
 
@@ -142,12 +156,17 @@ export function buildOutboundOnVoicemailHandler(
     return activeOutbound.target_phone
   })()
 
-  return async function onVoicemail(reason: AmdVoicemailReason): Promise<void> {
+  return async function onVoicemail(
+    reason: AmdVoicemailReason,
+    snapshot: AmdEventSnapshot,
+  ): Promise<void> {
+    const voicemailText = extractVoicemailTranscript(snapshot)
     log.info({
       event: 'case_2_amd_voicemail_verdict',
       call_id: callId,
       reason,
       task_id: activeOutbound.task_id,
+      transcript_len: voicemailText.length,
     })
     try {
       await openai.realtime.calls.hangup(callId)
@@ -158,30 +177,66 @@ export function buildOutboundOnVoicemailHandler(
         err: (e as Error)?.message,
       })
     }
-    // Schedule a retry via Core MCP. After Step 1 (commit 2b77b83) Andy
-    // uses voice_request_outbound_call for ALL outbound calls — case_payload
-    // never carries calendar_date/idempotency_key anymore, so the bridge
-    // always routes to voice_outbound_schedule_retry (which synthesises
-    // today's calendar_date + a fresh idempotency_key per attempt).
-    // 5/15/45/120-min ladder + 5/day cap — see voice-outbound-retry.ts.
-    if (coreMcpForAmd) {
+
+    // open_points 2026-04-29 smart-retry: ask Core to mine opening info from
+    // the captured greeting. ANALYZE_MIN_LEN guards against IVR beep-only
+    // captures or whisper-noise that wouldn't add signal over the ladder.
+    let analyzer: {
+      closed_until_iso: string | null
+      closed_today: boolean
+      raw: string
+    } = { closed_until_iso: null, closed_today: false, raw: '' }
+    if (
+      coreMcpForAmd &&
+      voicemailText.length >= ANALYZE_MIN_TRANSCRIPT_LEN
+    ) {
       try {
-        await coreMcpForAmd.callTool('voice_outbound_schedule_retry', {
-          call_id: callId,
-          target_phone: activeOutbound.target_phone,
-          prev_outcome: amdReasonToPrevOutcome(reason),
-        })
+        const analyzeRaw = await coreMcpForAmd.callTool(
+          'voice_analyze_voicemail',
+          {
+            call_id: callId,
+            transcript: voicemailText,
+            lang: activeOutbound.lang ?? 'de',
+          },
+        )
+        const parsed = parseAnalyzerEnvelope(analyzeRaw)
+        if (parsed) {
+          analyzer = parsed
+          log.info({
+            event: 'voicemail_analyzer_done',
+            call_id: callId,
+            closed_until_iso: analyzer.closed_until_iso,
+            closed_today: analyzer.closed_today,
+            raw_len: analyzer.raw.length,
+          })
+        }
       } catch (e: unknown) {
         log.warn({
-          event: 'outbound_schedule_retry_failed',
+          event: 'voicemail_analyzer_failed',
           call_id: callId,
           err: (e as Error)?.message,
         })
       }
+    }
+
+    if (!coreMcpForAmd) {
+      params.setAmdClassifier(null)
+      return
+    }
+
+    const smartRetryAt = analyzer.closed_until_iso
+      ? addMinutesIso(analyzer.closed_until_iso, 15)
+      : null
+    const skipRetry = analyzer.closed_today && !smartRetryAt
+
+    if (skipRetry) {
+      // "Closed for the rest of today" without a specific re-open time: drop
+      // the ladder and tell Carsten so he can decide whether to re-trigger
+      // tomorrow manually.
       try {
         await coreMcpForAmd.callTool('voice_notify_user', {
           urgency: 'info',
-          text: `Voicemail erkannt bei ${resolvedLabel} (${reason}). Naechster Versuch in Kuerze.`,
+          text: `❌ ${resolvedLabel} hat heute geschlossen (Mailbox: "${analyzer.raw || 'no quote'}"). Kein automatischer Retry.`,
           call_id: callId,
         })
       } catch (e: unknown) {
@@ -191,9 +246,99 @@ export function buildOutboundOnVoicemailHandler(
           err: (e as Error)?.message,
         })
       }
+      params.setAmdClassifier(null)
+      return
     }
+
+    try {
+      await coreMcpForAmd.callTool('voice_outbound_schedule_retry', {
+        call_id: callId,
+        target_phone: activeOutbound.target_phone,
+        prev_outcome: amdReasonToPrevOutcome(reason),
+        ...(smartRetryAt ? { retry_at: smartRetryAt } : {}),
+      })
+    } catch (e: unknown) {
+      log.warn({
+        event: 'outbound_schedule_retry_failed',
+        call_id: callId,
+        err: (e as Error)?.message,
+      })
+    }
+
+    try {
+      const notifyText = smartRetryAt
+        ? `🕐 Mailbox bei ${resolvedLabel} sagt: "${analyzer.raw || 'opening info'}". Smart-Retry geplant fuer ${smartRetryAt}.`
+        : `Voicemail erkannt bei ${resolvedLabel} (${reason}). Naechster Versuch in Kuerze.`
+      await coreMcpForAmd.callTool('voice_notify_user', {
+        urgency: 'info',
+        text: notifyText,
+        call_id: callId,
+      })
+    } catch (e: unknown) {
+      log.warn({
+        event: 'case_2_notify_failed',
+        call_id: callId,
+        err: (e as Error)?.message,
+      })
+    }
+
     params.setAmdClassifier(null)
   }
+}
+
+/** Min transcript chars before we bother asking the analyzer. */
+const ANALYZE_MIN_TRANSCRIPT_LEN = 30
+
+/**
+ * Concatenate transcript chunks from the AMD eventLog into one greeting
+ * string, dropping the synthetic 'amd_result:<verdict>' marker entries the
+ * classifier emits when the model replies via function_call instead of audio.
+ */
+export function extractVoicemailTranscript(snapshot: AmdEventSnapshot): string {
+  const parts: string[] = []
+  for (const evt of snapshot.eventLog) {
+    if (evt.type !== 'transcript') continue
+    if (evt.text.startsWith('amd_result:')) continue
+    parts.push(evt.text.trim())
+  }
+  return parts.join(' ').replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * voice_analyze_voicemail returns either:
+ *   - the bare result object (NanoclawMcpClient._extractResult unwraps the
+ *     {ok, result} envelope on success), OR
+ *   - the {ok:false, error} envelope on Sonnet failure.
+ * Walk both shapes defensively; on anything unexpected return null so the
+ * caller falls back to the ladder.
+ */
+function parseAnalyzerEnvelope(
+  raw: unknown,
+): { closed_until_iso: string | null; closed_today: boolean; raw: string } | null {
+  if (!raw || typeof raw !== 'object') return null
+  const obj = raw as Record<string, unknown>
+  // Direct shape (post-extractResult unwrap).
+  if ('closed_until_iso' in obj || 'closed_today' in obj || 'raw' in obj) {
+    return {
+      closed_until_iso:
+        typeof obj.closed_until_iso === 'string' && obj.closed_until_iso.length > 0
+          ? obj.closed_until_iso
+          : null,
+      closed_today: obj.closed_today === true,
+      raw: typeof obj.raw === 'string' ? obj.raw : '',
+    }
+  }
+  // Fallback: legacy {ok:true, result:{...}} envelope.
+  if (obj.ok === true && obj.result && typeof obj.result === 'object') {
+    return parseAnalyzerEnvelope(obj.result)
+  }
+  return null
+}
+
+function addMinutesIso(iso: string, minutes: number): string | null {
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return null
+  return new Date(t + minutes * 60_000).toISOString()
 }
 
 export function registerWebhookRoute(
@@ -670,6 +815,7 @@ export function registerAcceptRoute(
               task_id: activeOutbound.task_id,
               target_phone: activeOutbound.target_phone,
               counterpart_label: activeOutbound.counterpart_label,
+              lang: activeOutbound.lang,
             },
             casePayload,
             coreMcpForAmd,

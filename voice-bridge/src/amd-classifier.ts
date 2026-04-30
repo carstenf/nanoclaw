@@ -22,7 +22,11 @@
 //
 // ASCII-umlaut convention enforced project-wide (see persona/baseline.ts header).
 
-import { CASE2_VAD_CADENCE_MS, CASE2_VAD_SILENCE_MS } from './config.js'
+import {
+  CASE2_VAD_CADENCE_MS,
+  CASE2_VAD_SILENCE_MS,
+  VOICEMAIL_CAPTURE_MS,
+} from './config.js'
 import type { Logger } from 'pino'
 
 // ---- Prompt ----
@@ -90,11 +94,22 @@ export interface AmdClassifierOpts {
   callId: string
   log: Logger
   onHuman: (snapshot: AmdEventSnapshot) => void
-  onVoicemail: (reason: AmdVoicemailReason) => void
+  /**
+   * Fired once the verdict has settled to voicemail. The snapshot contains the
+   * full eventLog accumulated up to (and during) the optional capture window,
+   * so callers can re-extract the greeting transcript for analysis.
+   */
+  onVoicemail: (reason: AmdVoicemailReason, snapshot: AmdEventSnapshot) => void
   /** cadence gate ms (Timer A). Default CASE2_VAD_CADENCE_MS (4000ms). */
   cadenceMs?: number
   /** silence gate ms (Timer B). Default CASE2_VAD_SILENCE_MS (6000ms). */
   silenceMs?: number
+  /**
+   * Voicemail-capture window (ms): once the verdict settles to voicemail,
+   * keep collecting transcript chunks for this long before firing onVoicemail.
+   * 0 = fire immediately (legacy behaviour). Default VOICEMAIL_CAPTURE_MS.
+   */
+  voicemailCaptureMs?: number
   /** DI for timers (tests). */
   timers?: {
     setTimeout: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
@@ -126,6 +141,7 @@ export interface AmdClassifier {
 export function createAmdClassifier(opts: AmdClassifierOpts): AmdClassifier {
   const cadenceMs = opts.cadenceMs ?? CASE2_VAD_CADENCE_MS
   const silenceMs = opts.silenceMs ?? CASE2_VAD_SILENCE_MS
+  const voicemailCaptureMs = opts.voicemailCaptureMs ?? VOICEMAIL_CAPTURE_MS
   const timers = opts.timers ?? {
     setTimeout: (fn, ms) => setTimeout(fn, ms),
     clearTimeout: (id) => clearTimeout(id),
@@ -136,6 +152,11 @@ export function createAmdClassifier(opts: AmdClassifierOpts): AmdClassifier {
   let audioLeaked = false
   let speechStartedObserved = false
   let speechStoppedObserved = false
+  // Voicemail-capture-window: between settleVoicemail() and onVoicemail-fire,
+  // continue appending transcript chunks to eventLog so the caller has the
+  // full greeting (incl. opening times like "ab 15 Uhr") to analyze.
+  let inCaptureWindow = false
+  let captureTimer: ReturnType<typeof setTimeout> | null = null
 
   const eventLog: AmdSidebandEvent[] = []
 
@@ -173,16 +194,40 @@ export function createAmdClassifier(opts: AmdClassifierOpts): AmdClassifier {
     opts.onHuman({ eventLog: [...eventLog] })
   }
 
-  function settleVoicemail(reason: AmdVoicemailReason): void {
-    if (verdict !== 'pending' || stopped) return
-    verdict = 'voicemail'
-    clearTimers()
+  function fireVoicemail(reason: AmdVoicemailReason): void {
+    inCaptureWindow = false
+    captureTimer = null
     opts.log.info({
       event: 'case_2_voicemail_hangup',
       call_id: opts.callId,
       reason,
+      event_log_size: eventLog.length,
     })
-    opts.onVoicemail(reason)
+    opts.onVoicemail(reason, { eventLog: [...eventLog] })
+  }
+
+  function settleVoicemail(reason: AmdVoicemailReason): void {
+    if (verdict !== 'pending' || stopped) return
+    verdict = 'voicemail'
+    clearTimers()
+
+    if (voicemailCaptureMs > 0) {
+      // Defer onVoicemail by the capture window — keep onTranscript active so
+      // late chunks (opening times after the mailbox cue) land in eventLog.
+      inCaptureWindow = true
+      opts.log.info({
+        event: 'voicemail_capture_window_armed',
+        call_id: opts.callId,
+        reason,
+        capture_ms: voicemailCaptureMs,
+      })
+      captureTimer = timers.setTimeout(() => {
+        if (stopped) return
+        fireVoicemail(reason)
+      }, voicemailCaptureMs)
+      return
+    }
+    fireVoicemail(reason)
   }
 
   return {
@@ -221,7 +266,15 @@ export function createAmdClassifier(opts: AmdClassifierOpts): AmdClassifier {
     },
 
     onTranscript(text: string): void {
-      if (stopped || verdict !== 'pending') return
+      if (stopped) return
+      // Capture-window: verdict is already 'voicemail'; keep collecting
+      // transcript chunks for the analyzer but skip the regex/VAD logic that
+      // only matters pre-verdict.
+      if (inCaptureWindow) {
+        eventLog.push({ type: 'transcript', text, at: Date.now() })
+        return
+      }
+      if (verdict !== 'pending') return
       eventLog.push({ type: 'transcript', text, at: Date.now() })
 
       // Stage 1: regex match — immediate transcript cue
@@ -291,6 +344,11 @@ export function createAmdClassifier(opts: AmdClassifierOpts): AmdClassifier {
     stop(): void {
       stopped = true
       clearTimers()
+      if (captureTimer !== null) {
+        timers.clearTimeout(captureTimer)
+        captureTimer = null
+      }
+      inCaptureWindow = false
     },
 
     getVerdict(): AmdVerdict {
