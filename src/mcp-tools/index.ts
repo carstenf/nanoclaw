@@ -37,7 +37,6 @@ import { makeVoiceNotifyUser, TOOL_NAME as VOICE_NOTIFY_USER_TOOL_NAME } from '.
 import { makeVoiceCase2ScheduleRetry, TOOL_NAME as VOICE_CASE_2_RETRY_TOOL_NAME } from './voice-case-2-retry.js';
 import { makeVoiceOutboundScheduleRetry, TOOL_NAME as VOICE_OUTBOUND_RETRY_TOOL_NAME } from './voice-outbound-retry.js';
 import { makeVoiceSetLanguage, TOOL_NAME as VOICE_SET_LANGUAGE_TOOL_NAME } from './voice-set-language.js';
-import { makeVoiceStartCase2Call, TOOL_NAME as VOICE_START_CASE_2_TOOL_NAME } from './voice-start-case-2-call.js';
 import { makeVoiceWakeUp } from './voice-wake-up.js';
 import {
   makeVoiceTriggersInit,
@@ -565,18 +564,9 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     }),
   );
 
-  // Phase 5 Plan 05-02 (Case-2 Wave 2): voice_start_case_2_call — D-5 args + D-7 idempotency.
-  // Core-MCP-only. NOT in Bridge allowlist (REQ-TOOLS-09 ceiling = 15, unchanged).
-  registry.register(
-    VOICE_START_CASE_2_TOOL_NAME,
-    makeVoiceStartCase2Call({
-      getDatabase,
-      bridgeUrl: BRIDGE_OUTBOUND_URL,
-      bridgeAuthToken: BRIDGE_OUTBOUND_AUTH_TOKEN || undefined,
-      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-case-2-start.jsonl` : undefined,
-    }),
-    { mutating: true },
-  );
+  // (Phase 5 voice_start_case_2_call retired 2026-04-29 — Andy uses
+  // voice_request_outbound_call for ALL outbound calls, see open_points
+  // 2026-04-27 Step 1 + 2A-D for the merge sequence.)
 
   // Phase 05.5 Plan 01 Task 4 (D-8, D-24): voice_triggers_init + voice_triggers_transcript.
   // Container-agent reasoning triggers. Phase 05.6 Plan 01 Task 2 replaced the

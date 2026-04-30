@@ -100,8 +100,6 @@ Strict E.164 (starts with `+`, digits only after). Users often type with spaces/
 - `0170 8036426` → reject with "Bitte gib eine internationale Nummer mit +49..." — don't guess country code
 - `+1-555-123-4567` → `+15551234567` ✓
 
-## DEPRECATED: `voice_start_case_2_call`
+## Legacy Phrasing
 
-There is also a legacy tool `voice_start_case_2_call` for restaurant reservations. **Do NOT use it.** It's kept temporarily for backwards compatibility but is being retired (open_points 2026-04-28 #2 — Case 1+2 merge). Always prefer `voice_request_outbound_call`.
-
-If you accidentally see Carsten say "starte Case-2" or similar — that's the legacy phrasing. Translate it to a regular `voice_request_outbound_call` with appropriate goal text.
+If you see Carsten say "starte Case-2" or "ruf das Restaurant an mit Case-2" — that's old phrasing for what is now just `voice_request_outbound_call`. Translate it to a regular call with appropriate goal text. The `voice_start_case_2_call` tool was retired 2026-04-29 (commit retiring legacy case-2).

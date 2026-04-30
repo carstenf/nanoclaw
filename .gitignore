@@ -56,3 +56,8 @@ agents-sdk-docs
 # Root-level SQLite runtime files
 /nanoclaw.db
 /state.db
+
+# Voice-bridge runtime traces (per-call JSONL + bridge logs).
+# Local-only; not committed. The /home/carsten_bot/nanoclaw/voice-stack/runs
+# path is separately managed (older Hetzner stack).
+/voice-container/

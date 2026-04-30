@@ -86,7 +86,6 @@ import { ResetMonthlyCapSchema } from './mcp-tools/voice-reset-monthly-cap.js';
 import { GetDayMonthCostSumSchema } from './mcp-tools/voice-get-day-month-cost-sum.js';
 import { OnTranscriptTurnSchema } from './mcp-tools/voice-on-transcript-turn.js';
 import { VoiceNotifyUserSchema } from './mcp-tools/voice-notify-user.js';
-import { VoiceStartCase2CallSchema } from './mcp-tools/voice-start-case-2-call.js';
 import { VoiceCase2ScheduleRetrySchema } from './mcp-tools/voice-case-2-retry.js';
 import { VoiceOutboundScheduleRetrySchema } from './mcp-tools/voice-outbound-retry.js';
 import { VoiceSetLanguageSchema } from './mcp-tools/voice-set-language.js';
@@ -243,11 +242,6 @@ const TOOL_META: Record<string, ToolMeta> =
       description:
         'Notify Carsten via the most-recent active channel (WhatsApp/Discord) with >50-word override to Discord.',
       shape: VoiceNotifyUserSchema.shape,
-    },
-    'voice_start_case_2_call': {
-      description:
-        'Trigger a Case-2 outbound restaurant-reservation call (D-5 args, D-7 idempotency).',
-      shape: VoiceStartCase2CallSchema.shape,
     },
     'voice_case_2_schedule_retry': {
       description:
