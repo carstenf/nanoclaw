@@ -136,11 +136,6 @@ describe('webhook onVoicemail — voice_outbound_schedule_retry generic path', (
           prev_outcome: 'voicemail',
         }),
       )
-      // Phase A1/A2 invariant: bridge MUST NOT call the retired case_2 tool.
-      const case2Call = fx.callToolMock.mock.calls.find(
-        (c) => c[0] === 'voice_case_2_schedule_retry',
-      )
-      expect(case2Call).toBeUndefined()
     })
   }
 

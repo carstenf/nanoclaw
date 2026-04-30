@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
+import type { ClaudeMessage } from './claude-client.js';
+
 import {
   makeVoiceAnalyzeVoicemail,
   parseAnalyzerJson,
@@ -8,7 +10,7 @@ import { BadRequestError } from './voice-on-transcript-turn.js';
 
 function makeDeps(
   overrides: Partial<{
-    callClaude: (sys: string, msgs: Array<{ role: 'user'; content: string }>) => Promise<string>;
+    callClaude: (sys: string, msgs: ClaudeMessage[]) => Promise<string>;
     jsonlPath: string;
     now: () => number;
   }> = {},
@@ -83,9 +85,9 @@ describe('voice_analyze_voicemail', () => {
   });
 
   it('lang defaults to "de" when omitted', async () => {
-    const callClaude = vi.fn(async () =>
-      '{"closed_until_iso":null,"closed_today":false,"raw":""}',
-    );
+    const callClaude = vi
+      .fn<(sys: string, msgs: ClaudeMessage[]) => Promise<string>>()
+      .mockResolvedValue('{"closed_until_iso":null,"closed_today":false,"raw":""}');
     const handler = makeVoiceAnalyzeVoicemail(makeDeps({ callClaude }));
     await handler({
       transcript: 'Hallo, hier ist die Mailbox.',
@@ -95,9 +97,9 @@ describe('voice_analyze_voicemail', () => {
   });
 
   it('passes lang=en to a different system prompt', async () => {
-    const callClaude = vi.fn(async () =>
-      '{"closed_until_iso":null,"closed_today":false,"raw":""}',
-    );
+    const callClaude = vi
+      .fn<(sys: string, msgs: ClaudeMessage[]) => Promise<string>>()
+      .mockResolvedValue('{"closed_until_iso":null,"closed_today":false,"raw":""}');
     const handler = makeVoiceAnalyzeVoicemail(makeDeps({ callClaude }));
     await handler({
       transcript: 'Hello, this is voicemail.',

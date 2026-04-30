@@ -172,14 +172,6 @@ export interface OutboundRouterDeps {
   queueMax?: number
   maxDurationMs?: number
   escalationMs?: number
-  /**
-   * Plan 05-03 Task 4: Core MCP client for Case-2 outcome routing.
-   * Optional — if absent, Case-2 routing is skipped (backward compat for
-   * callers that don't inject it, e.g. legacy Phase-3 tests).
-   */
-  coreClient?: {
-    callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>
-  }
 }
 
 export interface OutboundRouter {
@@ -201,104 +193,6 @@ export class QueueFullError extends Error {
   constructor() {
     super('outbound queue is full')
     this.name = 'QueueFullError'
-  }
-}
-
-// ---- Case-2 outcome routing ----
-
-/**
- * Plan 05-03 Task 4: After a Case-2 call ends, emit the appropriate
- * voice_notify_user urgency tier and, for retry-eligible outcomes,
- * voice_case_2_schedule_retry.
- *
- * Outcome priority: task.outcome takes precedence over task.error (the model
- * sets task.outcome via onCallEnd metadata; task.error is set by originate
- * failures or AMD/VAD detection paths).
- */
-async function reportBackCase2(
-  task: OutboundTask,
-  coreClient: NonNullable<OutboundRouterDeps['coreClient']>,
-  log?: OutboundRouterDeps['log'],
-): Promise<void> {
-  const casePayload = (task.case_payload ?? {}) as Record<string, unknown>
-  const restaurantName = String(casePayload.restaurant_name ?? 'Restaurant')
-  const idempotencyKey = String(casePayload.idempotency_key ?? task.task_id)
-  const calendarDate = String(casePayload.requested_date ?? '')
-
-  const verdict = task.outcome ?? (task.error as string | undefined)
-
-  log?.info({
-    event: 'case_2_reportback',
-    task_id: task.task_id,
-    verdict,
-    outcome: task.outcome,
-    error: task.error,
-  })
-
-  switch (verdict) {
-    case 'success': {
-      const requestedTime = String(casePayload.requested_time ?? '')
-      const partySize = Number(casePayload.party_size ?? 1)
-      await coreClient.callTool('voice_notify_user', {
-        urgency: 'info',
-        text: `Reservierung bestätigt: ${restaurantName} am ${calendarDate} um ${requestedTime} für ${partySize} Person${partySize !== 1 ? 'en' : ''}.`,
-        call_id: task.openai_call_id,
-        task_id: task.task_id,
-      })
-      break
-    }
-
-    case 'out_of_tolerance': {
-      const counterOffer = task.counter_offer ?? ''
-      await coreClient.callTool('voice_notify_user', {
-        urgency: 'decision',
-        text: `Restaurant ${restaurantName} hat ein Gegenangebot: ${counterOffer}. Bitte entscheiden.`,
-        call_id: task.openai_call_id,
-        task_id: task.task_id,
-        counter_offer: counterOffer,
-      })
-      break
-    }
-
-    case 'voicemail_detected':
-    case 'line_busy':
-    case 'no_answer': {
-      let retryResult: unknown
-      try {
-        retryResult = await coreClient.callTool('voice_case_2_schedule_retry', {
-          task_id: task.task_id,
-          target_phone: task.target_phone,
-          case_payload: casePayload,
-          prev_outcome: verdict,
-          idempotency_key: idempotencyKey,
-          calendar_date: calendarDate,
-        })
-      } catch {
-        retryResult = null
-      }
-      const retryRes = retryResult as { error?: string } | null
-      if (retryRes?.error === 'daily_cap_reached') {
-        await coreClient.callTool('voice_notify_user', {
-          urgency: 'alert',
-          text: `Tägliches Anruflimit für ${restaurantName} erreicht. Bitte manuell buchen: ${task.target_phone}.`,
-          call_id: task.openai_call_id,
-          task_id: task.task_id,
-        })
-      } else {
-        await coreClient.callTool('voice_notify_user', {
-          urgency: 'info',
-          text: `Anruf bei ${restaurantName} war nicht erfolgreich (${verdict}). Nächster Versuch geplant.`,
-          call_id: task.openai_call_id,
-          task_id: task.task_id,
-          prev_outcome: verdict,
-        })
-      }
-      break
-    }
-
-    default:
-      // Unknown outcome — no routing action
-      break
   }
 }
 
@@ -451,16 +345,6 @@ export function createOutboundRouter(deps: OutboundRouterDeps): OutboundRouter {
       await deps.reportBack(task)
     } catch {
       /* best-effort */
-    }
-
-    // Case-2 per-outcome routing via Core MCP. Runs after deps.reportBack so
-    // the generic path always fires first. Skipped when coreClient is absent.
-    if (task.case_type === 'case_2' && deps.coreClient) {
-      try {
-        await reportBackCase2(task, deps.coreClient, deps.log)
-      } catch {
-        /* best-effort — outcome routing must not block queue advancement */
-      }
     }
 
     await triggerExecute()

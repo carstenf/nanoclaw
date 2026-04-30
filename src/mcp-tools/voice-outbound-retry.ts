@@ -1,29 +1,31 @@
 // src/mcp-tools/voice-outbound-retry.ts
-// Step 2C (open_points 2026-04-28): voice_outbound_schedule_retry — generic
-// retry-scheduling MCP tool for ANY outbound voicemail/no-answer.
+// voice_outbound_schedule_retry — canonical retry-scheduling MCP tool for any
+// outbound voicemail/no-answer/busy. Step 3 Phase A3 (open_points 2026-04-30)
+// inlined the former voice_case_2_schedule_retry implementation here, so this
+// is the single source for the 5/15/45/120-min ladder + 5/day cap.
 //
-// Why a separate tool from voice_case_2_schedule_retry:
-//   - voice_case_2_schedule_retry requires `calendar_date` + `idempotency_key`
-//     (sourced from voice_start_case_2_call's restaurant booking digest).
-//     voice_request_outbound_call (Andy's unified outbound entry) has no
-//     such structured fields — only target_phone + goal text.
-//   - Generalizing voice_case_2 in-place would break the Case-2 chaining
-//     contract (multiple attempts share one idempotency_key for the same
-//     booking). The clean separation lets both coexist until Step 3 collapses
-//     them into one canonical tool.
-//
-// Implementation: thin wrapper around voice_case_2_schedule_retry. Synthesises
-// today's calendar_date and a fresh idempotency_key per attempt, then
-// delegates. Fresh keys per attempt sidestep the UNIQUE constraint on
-// voice_case_2_attempts.idempotency_key — generic outbound retries do not
-// need cross-attempt chaining (each is its own atomic retry of "reach this
-// person at this number").
-//
-// Same 5/15/45/120-min ladder + 5/day cap as case_2 (config.ts
-// CASE_2_RETRY_LADDER_MIN + CASE_2_DAILY_CAP, shared until Step 3 renames).
+// Behaviour:
+//   - Daily cap: max CASE_2_DAILY_CAP attempts per (target_phone, calendar_date).
+//   - Ladder: 5/15/45/120 min offsets for attempts 1→2, 2→3, 3→4, 4→5.
+//   - retry_at override: bypass the ladder when the voicemail-analyzer extracted
+//     a concrete re-opening time. calendar_date is derived from retry_at
+//     (Berlin local) so a "tomorrow 09:00" override lands in tomorrow's bucket.
+//   - INSERT OR FAIL with up-to-10 PK retries (concurrent-call race protection).
+//   - JSONL audit trail at data/voice-outbound-retry.jsonl.
+//   - Delegates to TOOLS-07 voice_schedule_retry for the actual scheduling.
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
+import Database from 'better-sqlite3';
 import { z } from 'zod';
+
+import {
+  CASE_2_RETRY_LADDER_MIN,
+  CASE_2_DAILY_CAP,
+  DATA_DIR,
+} from '../config.js';
+import { logger } from '../logger.js';
 
 import { BadRequestError } from './voice-on-transcript-turn.js';
 import type { ToolHandler } from './index.js';
@@ -33,9 +35,6 @@ if (!/^[a-zA-Z0-9_]{1,64}$/.test(TOOL_NAME)) {
   throw new Error(`TOOL_NAME '${TOOL_NAME}' does not match ^[a-zA-Z0-9_]{1,64}$`);
 }
 
-// Generic outbound retry schema — no calendar_date, no idempotency_key.
-// prev_outcome enum mirrors voice_case_2_schedule_retry's plus 'silence' for
-// AMD-silence verdicts the case_2 path didn't enumerate.
 export const VoiceOutboundScheduleRetrySchema = z.object({
   call_id: z.string().optional(),
   target_phone: z.string().regex(/^\+[1-9]\d{1,14}$/, 'target_phone must be E.164'),
@@ -56,14 +55,18 @@ export type VoiceOutboundScheduleRetryInput = z.infer<
   typeof VoiceOutboundScheduleRetrySchema
 >;
 
+export type VoiceOutboundScheduleRetryResult =
+  | { ok: true; result: { scheduled: true; attempt_no: number; not_before_ts: string } }
+  | { ok: false; error: 'daily_cap_reached' | 'db_error' | 'schedule_retry_failed' | 'internal' };
+
 export interface VoiceOutboundScheduleRetryDeps {
-  /**
-   * The voice_case_2_schedule_retry handler — invoked with synthesised
-   * calendar_date + idempotency_key. Provided via DI so unit tests can stub
-   * the cap/ladder/scheduler chain.
-   */
-  scheduleCase2Retry: (args: unknown) => Promise<unknown>;
-  /** Injectable clock for testing — defaults to Date.now. */
+  /** Accessor to the SQLite DB (same DI pattern as other Phase-5 tools). */
+  getDatabase: () => Database.Database;
+  /** TOOLS-07 voice_schedule_retry handler — this tool wraps it. */
+  scheduleRetry: (args: unknown) => Promise<unknown>;
+  /** JSONL path for audit trail. Default DATA_DIR/voice-outbound-retry.jsonl. */
+  jsonlPath?: string;
+  /** Injectable clock for testing. */
   now?: () => number;
 }
 
@@ -81,15 +84,13 @@ function berlinIsoDate(epochMs: number): string {
     month: '2-digit',
     day: '2-digit',
   }).format(dt);
-  // 'en-CA' yields YYYY-MM-DD already.
   return parts;
 }
 
 /**
  * Mint a fresh idempotency_key per attempt. UNIQUE on
- * voice_case_2_attempts.idempotency_key forbids reusing a key, so generic
- * outbound retries each get their own digest of (phone | iso-ts | random).
- * 64 lowercase hex chars to satisfy voice_case_2_schedule_retry's regex.
+ * voice_case_2_attempts.idempotency_key forbids reusing a key, so each retry
+ * gets a digest of (phone | iso-ts | random). 64 lowercase hex.
  */
 function freshIdempotencyKey(targetPhone: string, now: number): string {
   const random = crypto.randomBytes(16).toString('hex');
@@ -99,12 +100,25 @@ function freshIdempotencyKey(targetPhone: string, now: number): string {
     .digest('hex');
 }
 
+function appendJsonl(filePath: string, entry: object): void {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.appendFileSync(filePath, JSON.stringify(entry) + '\n');
+  } catch {
+    // non-fatal
+  }
+}
+
 export function makeVoiceOutboundScheduleRetry(
   deps: VoiceOutboundScheduleRetryDeps,
 ): ToolHandler {
+  const jsonlPath =
+    deps.jsonlPath ?? path.join(DATA_DIR, 'voice-outbound-retry.jsonl');
   const nowFn = deps.now ?? (() => Date.now());
 
-  return async function voiceOutboundScheduleRetry(args: unknown) {
+  return async function voiceOutboundScheduleRetry(
+    args: unknown,
+  ): Promise<VoiceOutboundScheduleRetryResult> {
     const parseResult = VoiceOutboundScheduleRetrySchema.safeParse(args);
     if (!parseResult.success) {
       const firstIssue = parseResult.error.issues[0];
@@ -116,28 +130,177 @@ export function makeVoiceOutboundScheduleRetry(
 
     const { call_id, target_phone, prev_outcome, retry_at } = parseResult.data;
     const now = nowFn();
+
     // calendar_date derives from retry_at when provided so a "tomorrow 9 am"
-    // smart-retry counts against tomorrow's daily-cap bucket (and shares no
-    // attempt_no space with today's regular retries).
+    // smart-retry counts against tomorrow's daily-cap bucket.
     const calendar_date = retry_at
       ? berlinIsoDate(Date.parse(retry_at))
       : berlinIsoDate(now);
     const idempotency_key = freshIdempotencyKey(target_phone, now);
 
-    // Map 'silence' (Step 2A AMD verdict) to 'voicemail' for the case_2
-    // schema — the case_2 enum doesn't include 'silence' yet. Treats
-    // silence-after-pickup the same as voicemail for retry scheduling
-    // (counts as a failed attempt, keeps the ladder progressing).
+    // Map 'silence' (Step 2A AMD verdict) to 'voicemail' for outcome storage —
+    // legacy enum doesn't include 'silence'; treat as voicemail.
     const mappedOutcome =
       prev_outcome === 'silence' ? 'voicemail' : prev_outcome;
 
-    return deps.scheduleCase2Retry({
-      call_id,
-      target_phone,
+    let db: Database.Database;
+    try {
+      db = deps.getDatabase();
+    } catch (err) {
+      logger.warn({ event: 'voice_outbound_retry_db_error', err });
+      return { ok: false, error: 'db_error' };
+    }
+
+    // Step 1: COUNT existing attempts for this (phone, date)
+    let count: number;
+    try {
+      const row = db
+        .prepare(
+          'SELECT COUNT(*) as n FROM voice_case_2_attempts WHERE target_phone=? AND calendar_date=?',
+        )
+        .get(target_phone, calendar_date) as { n: number };
+      count = row.n;
+    } catch (err) {
+      logger.warn({ event: 'voice_outbound_retry_db_error', err });
+      return { ok: false, error: 'db_error' };
+    }
+
+    // Step 2: Daily cap check
+    if (count >= CASE_2_DAILY_CAP) {
+      appendJsonl(jsonlPath, {
+        ts: new Date().toISOString(),
+        event: 'outbound_retry_daily_cap_reached',
+        call_id: call_id ?? null,
+        target_phone_hash: crypto.createHash('sha256').update(target_phone).digest('hex').slice(0, 12),
+        calendar_date,
+        count,
+      });
+      return { ok: false, error: 'daily_cap_reached' };
+    }
+
+    // Step 3: Compute attempt_no and ladder offset
+    const attempt_no = count + 1;
+    const ladder_idx = attempt_no - 1;
+
+    // Defense-in-depth: ladder exhausted (attempt >= 5) → cap (only matters
+    // when retry_at is NOT supplied; with an override, the ladder is bypassed
+    // but cap still applies via Step 2 above).
+    if (!retry_at && ladder_idx >= CASE_2_RETRY_LADDER_MIN.length) {
+      appendJsonl(jsonlPath, {
+        ts: new Date().toISOString(),
+        event: 'outbound_retry_daily_cap_reached',
+        call_id: call_id ?? null,
+        target_phone_hash: crypto.createHash('sha256').update(target_phone).digest('hex').slice(0, 12),
+        calendar_date,
+        count,
+        reason: 'ladder_exhausted',
+      });
+      return { ok: false, error: 'daily_cap_reached' };
+    }
+
+    // Step 4: Compute not_before_ts. retry_at override bypasses the ladder.
+    const not_before_ts = retry_at
+      ? new Date(retry_at).toISOString()
+      : new Date(now + CASE_2_RETRY_LADDER_MIN[ladder_idx]! * 60000).toISOString();
+    const created_at = new Date(now).toISOString();
+
+    // Step 5: INSERT OR FAIL — retry on PK collision (concurrent-call race).
+    let insertedAttemptNo = attempt_no;
+    let inserted = false;
+
+    for (let r = 0; r < 10; r++) {
+      try {
+        db.prepare(
+          `INSERT INTO voice_case_2_attempts
+             (target_phone, calendar_date, attempt_no, scheduled_for, idempotency_key, created_at, outcome)
+           VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+        ).run(target_phone, calendar_date, insertedAttemptNo, not_before_ts, idempotency_key, created_at);
+        inserted = true;
+        break;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.toLowerCase().includes('unique') || msg.toLowerCase().includes('primary key')) {
+          insertedAttemptNo++;
+          if (insertedAttemptNo > CASE_2_DAILY_CAP) {
+            return { ok: false, error: 'daily_cap_reached' };
+          }
+          continue;
+        }
+        logger.warn({ event: 'voice_outbound_retry_db_error', err });
+        return { ok: false, error: 'db_error' };
+      }
+    }
+
+    if (!inserted) {
+      return { ok: false, error: 'db_error' };
+    }
+
+    // Step 6: Delegate to TOOLS-07 voice_schedule_retry
+    let retryResult: unknown;
+    try {
+      retryResult = await deps.scheduleRetry({
+        call_id,
+        case_type: 'case_2',
+        target_phone,
+        not_before_ts,
+      });
+    } catch (err) {
+      logger.warn({ event: 'voice_outbound_retry_tools07_error', err });
+      try {
+        db.prepare(
+          `UPDATE voice_case_2_attempts SET outcome='schedule_failed'
+           WHERE target_phone=? AND calendar_date=? AND attempt_no=?`,
+        ).run(target_phone, calendar_date, insertedAttemptNo);
+      } catch {
+        /* best-effort */
+      }
+      return { ok: false, error: 'schedule_retry_failed' };
+    }
+
+    // Step 7: Check TOOLS-07 result
+    const r = retryResult as { ok?: boolean };
+    if (!r?.ok) {
+      try {
+        db.prepare(
+          `UPDATE voice_case_2_attempts SET outcome='schedule_failed'
+           WHERE target_phone=? AND calendar_date=? AND attempt_no=?`,
+        ).run(target_phone, calendar_date, insertedAttemptNo);
+      } catch {
+        /* best-effort */
+      }
+      appendJsonl(jsonlPath, {
+        ts: new Date().toISOString(),
+        event: 'outbound_retry_schedule_failed',
+        call_id: call_id ?? null,
+        target_phone_hash: crypto.createHash('sha256').update(target_phone).digest('hex').slice(0, 12),
+        calendar_date,
+        attempt_no: insertedAttemptNo,
+        prev_outcome: mappedOutcome ?? null,
+      });
+      return { ok: false, error: 'schedule_retry_failed' };
+    }
+
+    // Step 8: Success
+    appendJsonl(jsonlPath, {
+      ts: new Date().toISOString(),
+      event: 'outbound_retry_scheduled',
+      call_id: call_id ?? null,
+      target_phone_hash: crypto.createHash('sha256').update(target_phone).digest('hex').slice(0, 12),
       calendar_date,
+      attempt_no: insertedAttemptNo,
+      not_before_ts,
+      prev_outcome: mappedOutcome ?? null,
       idempotency_key,
-      ...(mappedOutcome ? { prev_outcome: mappedOutcome } : {}),
-      ...(retry_at ? { retry_at } : {}),
+      retry_at_override: retry_at ?? null,
     });
+
+    return {
+      ok: true,
+      result: {
+        scheduled: true,
+        attempt_no: insertedAttemptNo,
+        not_before_ts,
+      },
+    };
   };
 }

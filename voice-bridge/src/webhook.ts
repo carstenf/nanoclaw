@@ -54,22 +54,13 @@ import {
 import { setAmdClassifier } from './tools/dispatch.js'
 
 // ---------------------------------------------------------------------------
-// Case-2 onVoicemail handler factory.
+// onVoicemail handler factory.
 //
-// Constructs voice_case_2_schedule_retry tool-call args matching the zod
-// schema at src/mcp-tools/voice-case-2-retry.ts:
-//   { call_id, target_phone, calendar_date, prev_outcome, idempotency_key }
-//
-// All four AMD classifier reasons ('amd_result' | 'cadence_cue' |
-// 'silence_mailbox' | 'transcript_cue') are "picked up but mailbox"
-// variants and all map to zod enum 'voicemail'. 'no_answer' / 'busy' fire
-// from outbound-router error paths, not here.
-//
-// Fail-fast guard: if casePayload is missing requested_date or
-// idempotency_key, log case_2_schedule_retry_missing_fields and skip the
-// retry tool call. Sending empty strings would fail zod .length(64).regex
-// at Core with -32602 — log-and-skip is the only correct path (the retry
-// is orphaned but observable).
+// Constructs voice_outbound_schedule_retry tool-call args after AMD verdict
+// 'voicemail'. All four AMD classifier reasons ('amd_result' | 'cadence_cue' |
+// 'silence_mailbox' | 'transcript_cue') are "picked up but mailbox" variants
+// and all map to zod enum 'voicemail'. 'no_answer' / 'busy' fire from outbound-
+// router error paths, not here.
 // ---------------------------------------------------------------------------
 
 type OutboundOnVoicemailActiveOutbound = {

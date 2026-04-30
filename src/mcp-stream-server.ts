@@ -86,7 +86,6 @@ import { ResetMonthlyCapSchema } from './mcp-tools/voice-reset-monthly-cap.js';
 import { GetDayMonthCostSumSchema } from './mcp-tools/voice-get-day-month-cost-sum.js';
 import { OnTranscriptTurnSchema } from './mcp-tools/voice-on-transcript-turn.js';
 import { VoiceNotifyUserSchema } from './mcp-tools/voice-notify-user.js';
-import { VoiceCase2ScheduleRetrySchema } from './mcp-tools/voice-case-2-retry.js';
 import { VoiceOutboundScheduleRetrySchema } from './mcp-tools/voice-outbound-retry.js';
 import { VoiceSetLanguageSchema } from './mcp-tools/voice-set-language.js';
 import { VoiceTriggersInitSchema } from './mcp-tools/voice-triggers-init.js';
@@ -243,14 +242,9 @@ const TOOL_META: Record<string, ToolMeta> =
         'Notify Carsten via the most-recent active channel (WhatsApp/Discord) with >50-word override to Discord.',
       shape: VoiceNotifyUserSchema.shape,
     },
-    'voice_case_2_schedule_retry': {
-      description:
-        'Schedule a Case-2 retry with ladder (5/15/45/120 min) and daily cap of 5.',
-      shape: VoiceCase2ScheduleRetrySchema.shape,
-    },
     'voice_outbound_schedule_retry': {
       description:
-        'Generic outbound retry with the same 5/15/45/120-min ladder and 5/day cap. Use for any outbound voicemail; no calendar_date or idempotency_key required.',
+        'Generic outbound retry with the 5/15/45/120-min ladder and 5/day cap. Optional retry_at ISO override bypasses the ladder for smart-retry from voicemail-analyzer output.',
       shape: VoiceOutboundScheduleRetrySchema.shape,
     },
     'voice_set_language': {

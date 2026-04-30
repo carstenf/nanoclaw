@@ -63,11 +63,12 @@ export interface VoicePriceSnapshotRow {
  */
 export function createSchema(database: Database.Database): void {
   database.exec(`
-    -- Plan 05-02 (Case-2 Wave 2): voice_case_2_attempts mirror for in-memory unit tests.
-    -- Production DB creates this table in src/db.ts createSchema(). This re-export
-    -- lets unit tests for voice_case_2_schedule_retry and voice_start_case_2_call spin
-    -- up only the Case-2 table without dragging the full NanoClaw schema.
-    -- Pattern mirrors the voice_call_costs mirror that already exists here.
+    -- voice_case_2_attempts mirror for in-memory unit tests. Step 3 Phase A3
+    -- inlined the case_2 retry tool into voice_outbound_schedule_retry but
+    -- kept the table name pending Phase C (rename to voice_outbound_attempts).
+    -- Production DB creates this table in src/db.ts createSchema(). This
+    -- re-export lets unit tests for voice_outbound_schedule_retry spin up
+    -- only the retry table without dragging the full NanoClaw schema.
     CREATE TABLE IF NOT EXISTS voice_case_2_attempts (
       target_phone        TEXT NOT NULL,
       calendar_date       TEXT NOT NULL,
