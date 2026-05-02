@@ -84,6 +84,7 @@ import {
   makeVoiceTranscriptHandler,
   makeVoiceDiscordPostHandler,
 } from './channels/voice-triggers.js';
+import { VoiceMcpClient } from './channels/voice-mcp.js';
 import { buildDefaultRegistry } from './mcp-tools/index.js';
 import {
   wireVoiceChannel,
@@ -1099,14 +1100,44 @@ async function main(): Promise<void> {
       tryInjectVoiceRequest,
       warmupContainer: () => triggerWakeUp('voice-ask-core-warmup', 'warmup'),
     }),
-    // V2.2: HTTP-routes that voice-mcp's bouncer-tools call so Bridge no
-    // longer needs an MCP connection to NanoClaw — voice-mcp is the single
-    // endpoint and these mirror the legacy MCP-tool surface for slow-brain
-    // triggers + the bridge utility tool (Discord transcript posting).
+    // V2.2 (legacy fallback): HTTP-routes for voice-mcp's HTTP-bouncer
+    // tools. V2.3 replaces this with the WebSocket-trigger pattern below;
+    // routes stay temporarily for graceful rollout but voice-mcp no longer
+    // calls them.
     voiceInitHandler: makeVoiceInitHandler(sharedRegistry),
     voiceTranscriptHandler: makeVoiceTranscriptHandler(sharedRegistry),
     voiceDiscordPostHandler: makeVoiceDiscordPostHandler(sharedRegistry),
   });
+
+  // V2.3: long-lived WebSocket client to voice-mcp on Hetzner — pattern
+  // identical to channels/discord.ts: NanoClaw initiates outbound, holds
+  // the connection open, receives push triggers, replies. Replaces
+  // Bridge → NanoClaw:3201 inbound in V2.2 with NanoClaw → voice-mcp
+  // outbound. NanoClaw never binds an inbound voice-mcp port.
+  const voiceMcpEnv = readEnvFile([
+    'VOICE_MCP_TRIGGERS_URL',
+    'VOICE_MCP_BEARER',
+  ]);
+  const voiceMcpTriggersUrl =
+    process.env.VOICE_MCP_TRIGGERS_URL ?? voiceMcpEnv.VOICE_MCP_TRIGGERS_URL ?? '';
+  const voiceMcpBearer =
+    process.env.VOICE_MCP_BEARER ?? voiceMcpEnv.VOICE_MCP_BEARER ?? '';
+  if (voiceMcpTriggersUrl && voiceMcpBearer) {
+    const voiceMcpClient = new VoiceMcpClient({
+      url: voiceMcpTriggersUrl,
+      bearer: voiceMcpBearer,
+      registry: sharedRegistry,
+      voiceRespondManager,
+      tryInjectVoiceRequest,
+      warmupContainer: () => triggerWakeUp('voice-mcp-warmup', 'warmup'),
+    });
+    voiceMcpClient.start();
+  } else {
+    logger.info({
+      event: 'voice_mcp_client_disabled',
+      reason: 'VOICE_MCP_TRIGGERS_URL or VOICE_MCP_BEARER unset',
+    });
+  }
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {
