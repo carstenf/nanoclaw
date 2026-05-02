@@ -8,36 +8,17 @@ import { logger } from '../logger.js';
 import {
   VOICE_DISCORD_ALLOWED_CHANNELS,
   VOICE_DISCORD_TIMEOUT_MS,
-  GOOGLE_MAPS_API_KEY,
-  GOOGLE_MAPS_TIMEOUT_MS,
   CONTRACTS_PATH,
   PRACTICE_PROFILE_PATH,
 } from '../config.js';
 import { SlowBrainSessionManager } from './slow-brain-session.js';
 import { makeVoiceOnTranscriptTurn } from './voice-on-transcript-turn.js';
-import { makeVoiceCheckCalendar } from './voice-check-calendar.js';
-import { makeVoiceCreateCalendarEntry } from './voice-create-calendar-entry.js';
-import { makeVoiceDeleteCalendarEntry } from './voice-delete-calendar-entry.js';
-import { makeVoiceUpdateCalendarEntry } from './voice-update-calendar-entry.js';
-import { getCalendarClient } from './calendar-client.js';
 import { makeVoiceSendDiscordMessage } from './voice-send-discord-message.js';
-import { makeVoiceGetTravelTime } from './voice-get-travel-time.js';
 import { makeVoiceGetContract } from './voice-get-contract.js';
 import { makeVoiceGetPracticeProfile } from './voice-get-practice-profile.js';
 import { makeVoiceScheduleRetry } from './voice-schedule-retry.js';
-import { makeVoiceAskCore } from './voice-ask-core.js';
-import { makeVoiceRequestOutboundCall } from './voice-request-outbound-call.js';
-import { makeVoiceRecordTurnCost } from './voice-record-turn-cost.js';
-import { makeVoiceFinalizeCallCost } from './voice-finalize-call-cost.js';
-import { makeVoiceGetDayMonthCostSum } from './voice-get-day-month-cost-sum.js';
-import { makeVoiceResetMonthlyCap } from './voice-reset-monthly-cap.js';
 import { makeVoiceSearchCompetitors } from './voice-search-competitors.js';
-import { makeVoiceInsertPriceSnapshot } from './voice-insert-price-snapshot.js';
-import { makeVoiceNotifyUser, TOOL_NAME as VOICE_NOTIFY_USER_TOOL_NAME } from './voice-notify-user.js';
-import { makeVoiceOutboundScheduleRetry, TOOL_NAME as VOICE_OUTBOUND_RETRY_TOOL_NAME } from './voice-outbound-retry.js';
-import { makeVoiceAnalyzeVoicemail, TOOL_NAME as VOICE_ANALYZE_VOICEMAIL_TOOL_NAME } from './voice-analyze-voicemail.js';
 import { makeVoiceSetLanguage, TOOL_NAME as VOICE_SET_LANGUAGE_TOOL_NAME } from './voice-set-language.js';
-import { makeVoiceSetOperatorConfig, TOOL_NAME as VOICE_SET_OPERATOR_CONFIG_TOOL_NAME } from './voice-set-operator-config.js';
 import { makeVoiceWakeUp } from './voice-wake-up.js';
 import {
   makeVoiceTriggersInit,
@@ -283,49 +264,6 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     }),
   );
 
-  registry.register(
-    'voice_check_calendar',
-    makeVoiceCheckCalendar({
-      calendarClient: () => getCalendarClient(),
-      jsonlPath: deps.dataDir
-        ? `${deps.dataDir}/voice-calendar.jsonl`
-        : undefined,
-    }),
-  );
-
-  registry.register(
-    'voice_create_calendar_entry',
-    makeVoiceCreateCalendarEntry({
-      calendarClient: () => getCalendarClient(),
-      jsonlPath: deps.dataDir
-        ? `${deps.dataDir}/voice-calendar.jsonl`
-        : undefined,
-    }),
-    { mutating: true },
-  );
-
-  registry.register(
-    'voice_delete_calendar_entry',
-    makeVoiceDeleteCalendarEntry({
-      calendarClient: () => getCalendarClient(),
-      jsonlPath: deps.dataDir
-        ? `${deps.dataDir}/voice-calendar.jsonl`
-        : undefined,
-    }),
-    { mutating: true },
-  );
-
-  registry.register(
-    'voice_update_calendar_entry',
-    makeVoiceUpdateCalendarEntry({
-      calendarClient: () => getCalendarClient(),
-      jsonlPath: deps.dataDir
-        ? `${deps.dataDir}/voice-calendar.jsonl`
-        : undefined,
-    }),
-    { mutating: true },
-  );
-
   // voice_send_discord_message — only register when callback is provided AND allowlist is non-empty
   if (deps.sendDiscordMessage && VOICE_DISCORD_ALLOWED_CHANNELS.size > 0) {
     const log = deps.log ?? logger;
@@ -359,31 +297,6 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
         allowlist_size: VOICE_DISCORD_ALLOWED_CHANNELS.size,
       },
       'skipping voice_send_discord_message — no callback or empty allowlist',
-    );
-  }
-
-  // voice_get_travel_time — only register when GOOGLE_MAPS_API_KEY is set
-  if (GOOGLE_MAPS_API_KEY.length > 0) {
-    const log = deps.log ?? logger;
-    log.info(
-      { event: 'mcp_tool_registering', tool: 'voice_get_travel_time' },
-      'registered tool voice_get_travel_time',
-    );
-    registry.register(
-      'voice_get_travel_time',
-      makeVoiceGetTravelTime({
-        apiKey: GOOGLE_MAPS_API_KEY,
-        timeoutMs: GOOGLE_MAPS_TIMEOUT_MS,
-        jsonlPath: deps.dataDir
-          ? `${deps.dataDir}/voice-maps.jsonl`
-          : undefined,
-      }),
-    );
-  } else {
-    const log = deps.log ?? logger;
-    log.info(
-      { event: 'mcp_tool_skipped', tool: 'voice_get_travel_time' },
-      'voice_get_travel_time skipped: no GOOGLE_MAPS_API_KEY',
     );
   }
 
@@ -432,35 +345,9 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       .filter(Boolean)[0] ??
       '');
 
-  // voice_ask_core — always registered; graceful skill_not_configured when skill absent
-  // topic='andy' → IPC injection into existing whatsapp_main container; reply
-  //                comes back via the voice_respond MCP-Tool. NO --rm fallback.
-  // other topics  → echo-skill / Claude inference path
-  registry.register(
-    'voice_ask_core',
-    makeVoiceAskCore({
-      loadSkill: (topic) => loadSkill(topic, { skillsDir: SKILLS_DIR }),
-      callClaude: (sys, msgs, o) =>
-        callClaudeViaOneCli(sys, msgs, {
-          timeoutMs: o?.timeoutMs,
-          maxTokens: o?.maxTokens,
-        }),
-      sendDiscord: deps.sendDiscordMessage,
-      andyDiscordChannel: andyDiscordChannel || undefined,
-      jsonlPath: deps.dataDir
-        ? `${deps.dataDir}/voice-ask-core.jsonl`
-        : undefined,
-      timeoutMs: ASK_CORE_CLAUDE_TIMEOUT_MS,
-      maxTokens: ASK_CORE_MAX_TOKENS_PER_CALL,
-      voiceRespondManager,
-      voiceRequestTimeoutMs: ASK_CORE_ANDY_TIMEOUT_MS,
-      tryInjectVoiceRequest: deps.tryInjectVoiceRequest,
-    }),
-  );
-
   // voice_respond — Andy → Voice delivery channel. Resolves the pending
-  // Promise registered by voice_ask_core (existing-container path) so the
-  // voice-bridge gets Andy's reply as the ask_core tool result.
+  // Promise registered by /voice/ask_core HTTP channel handler so the voice-
+  // bridge gets Andy's reply as the ask_core tool result.
   registry.register(
     'voice_respond',
     makeVoiceRespond({
@@ -468,86 +355,6 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       sendDiscord: deps.sendDiscordMessage,
       andyDiscordChannel: andyDiscordChannel || undefined,
     }),
-  );
-
-  // voice_request_outbound_call — always registered; forwards to Bridge /outbound
-  registry.register(
-    'voice_request_outbound_call',
-    makeVoiceRequestOutboundCall({
-      bridgeUrl: BRIDGE_OUTBOUND_URL,
-      bridgeAuthToken: BRIDGE_OUTBOUND_AUTH_TOKEN || undefined,
-      jsonlPath: deps.dataDir
-        ? `${deps.dataDir}/voice-outbound.jsonl`
-        : undefined,
-    }),
-    { mutating: true },
-  );
-
-  // Phase 4 (INFRA-06): Bridge-internal cost housekeeping tools.
-  // Always registered — no external prereq. Bridge posts per-turn and per-call
-  // rows as it observes response.done / session.closed events.
-  registry.register(
-    'voice_record_turn_cost',
-    makeVoiceRecordTurnCost({
-      insertTurnCost: (row) => insertTurnCost(getDatabase(), row),
-      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-cost.jsonl` : undefined,
-    }),
-  );
-
-  registry.register(
-    'voice_finalize_call_cost',
-    makeVoiceFinalizeCallCost({
-      upsertCallCost: (row) => upsertCallCost(getDatabase(), row),
-      sumTurnCosts: (call_id) => {
-        const r = getDatabase()
-          .prepare(
-            'SELECT COALESCE(SUM(cost_eur), 0) AS s, COUNT(*) AS n FROM voice_turn_costs WHERE call_id = ?',
-          )
-          .get(call_id) as { s: number; n: number };
-        return { sum_eur: r.s, count: r.n };
-      },
-      // Phase 4 Plan 04-02 (COST-03 variant b): auto-suspend after monthly
-      // cap reached, triggered inside finalize — atomic with the upsert.
-      sumCostCurrentMonth: () => sumCostCurrentMonth(getDatabase()),
-      setRouterState,
-      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-cost.jsonl` : undefined,
-    }),
-  );
-
-  // Phase 4 Plan 04-02: /accept-time cost gate + manual cap reset.
-  // voice_get_day_month_cost_sum is read by voice-bridge/src/cost/gate.ts on
-  // every incoming call. voice_reset_monthly_cap is the manual override
-  // Operator invokes (via iPhone/Chat) after a €25 monthly breach.
-  registry.register(
-    'voice_get_day_month_cost_sum',
-    makeVoiceGetDayMonthCostSum({
-      sumCostCurrentDay: () => sumCostCurrentDay(getDatabase()),
-      sumCostCurrentMonth: () => sumCostCurrentMonth(getDatabase()),
-      isSuspended: () => getRouterState('voice_channel_suspended') === '1',
-    }),
-  );
-
-  registry.register(
-    'voice_reset_monthly_cap',
-    makeVoiceResetMonthlyCap({
-      getRouterState,
-      setRouterState,
-      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-cost.jsonl` : undefined,
-    }),
-    { mutating: true },
-  );
-
-  // Phase 4 Plan 04-04 (INFRA-07): voice_insert_price_snapshot — written by
-  // the Hetzner pricing-refresh cron via Core MCP bearer auth. Feeds the
-  // voice_price_snapshots table that recon-invoice + manual drift review
-  // consume. Pitfall 5: NEVER auto-mutates prices.ts — snapshot + alert only.
-  registry.register(
-    'voice_insert_price_snapshot',
-    makeVoiceInsertPriceSnapshot({
-      insertPriceSnapshot: (row) => insertPriceSnapshot(getDatabase(), row),
-      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-cost.jsonl` : undefined,
-    }),
-    { mutating: true },
   );
 
   // Phase 4 Plan 04-03 (TOOLS-05): voice_search_competitors.
@@ -626,36 +433,6 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     }),
   );
 
-  // voice_outbound_schedule_retry — canonical retry-scheduling tool. Step 3
-  // Phase A3 (open_points 2026-04-30) inlined the former case_2 wrapper here.
-  // Core-MCP-only. NOT in Bridge allowlist (REQ-TOOLS-09 ceiling = 15, unchanged).
-  registry.register(
-    VOICE_OUTBOUND_RETRY_TOOL_NAME,
-    makeVoiceOutboundScheduleRetry({
-      getDatabase,
-      scheduleRetry: (args) => registry.invoke('voice_schedule_retry', args),
-      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-outbound-retry.jsonl` : undefined,
-    }),
-    { mutating: true },
-  );
-
-  // voice_analyze_voicemail — extract opening info from a captured voicemail
-  // greeting transcript. Used by voice-bridge after AMD-verdict=voicemail to
-  // drive smart retry-scheduling instead of the blind 5/15/45/120 ladder.
-  // 2026-04-30 refactor: routes through voice_ask_core(topic='andy') so the
-  // voice-channel keeps zero direct Anthropic dependency. mutating:false
-  // (Andy answers, no DB write here; ask_core's own logging applies).
-  registry.register(
-    VOICE_ANALYZE_VOICEMAIL_TOOL_NAME,
-    makeVoiceAnalyzeVoicemail({
-      callAskCore: (args) => registry.invoke('voice_ask_core', args),
-      jsonlPath: deps.dataDir
-        ? `${deps.dataDir}/voice-analyze-voicemail.jsonl`
-        : undefined,
-    }),
-    { mutating: false },
-  );
-
   // Phase 06.x: voice_set_language — mid-call language switch tool. mutating
   // is false because the only state mutated is the per-call gateway entry
   // (voice-channel internal); no external system writes happen. The tool
@@ -667,56 +444,8 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
     { mutating: false },
   );
 
-  // v1.4.0: voice_set_operator_config — bot-managed deployment config.
-  // Persists operator_name / operator_cli_number to ~/.config/nanoclaw/
-  // voice-config.json so Andy can self-update them through chat. The config
-  // file is bind-mounted into the bridge container so the next inbound call
-  // picks up the new value without docker restart. Skill instructs Andy to
-  // call this whenever the operator volunteers their name or CLI.
-  registry.register(
-    VOICE_SET_OPERATOR_CONFIG_TOOL_NAME,
-    makeVoiceSetOperatorConfig(),
-    { mutating: false },
-  );
-
-  // Phase 5 Plan 05-01 (SEED-001) / Plan 05-02 Task 5: voice_notify_user — channel-agnostic routing.
-  // Core MCP tool (port 3201); NOT in Bridge allowlist (REQ-TOOLS-09 ceiling unaffected).
-  // Plan 05-02 Task 5: if an external activeSessionTracker is provided (from index.ts startup),
-  // use it — index.ts calls tracker.recordActivity() on every inbound message so routing sees
-  // real data. If no external tracker provided (e.g. tests), create a fresh one.
-  const activeSessionTracker = deps.activeSessionTracker ?? createActiveSessionTracker();
-  registry.register(
-    VOICE_NOTIFY_USER_TOOL_NAME,
-    // mutating: true — sends a Discord/WhatsApp message; mid-call mutation gate.
-    makeVoiceNotifyUser({
-      getActiveChannel: (jid, now) => activeSessionTracker.getActiveChannelFor(jid, now),
-      sendWhatsappMessage: (jid, text) => {
-        // Channel access is via deps injection in the registry — WhatsApp channel not
-        // yet wired at buildDefaultRegistry level. Returns no_whatsapp until Plan 05-02.
-        void jid; void text;
-        return Promise.resolve({ ok: false, error: 'no_whatsapp' });
-      },
-      sendDiscordMessage: (jid, text) => {
-        if (deps.sendDiscordMessage) {
-          // Resolve to Discord's first allowed channel ID when called from Core MCP.
-          // voice_notify_user passes the main-group JID; we map it to the Andy channel.
-          const channelId =
-            ANDY_VOICE_DISCORD_CHANNEL ||
-            (VOICE_DISCORD_ALLOWED_CHANNELS_RAW.split(',').map((s) => s.trim()).filter(Boolean)[0] ?? '');
-          if (!channelId) {
-            return Promise.resolve({ ok: false, error: 'no_discord_channel' });
-          }
-          return deps.sendDiscordMessage(channelId, text).then((r) => ({ ok: r.ok, error: r.ok ? undefined : (r as { ok: false; error: string }).error }));
-        }
-        return Promise.resolve({ ok: false, error: 'no_discord' });
-      },
-      getMainGroupAndJid: deps.getMainGroupAndJid ?? (() => null),
-      isDiscordConnected: () => !!deps.sendDiscordMessage && VOICE_DISCORD_ALLOWED_CHANNELS.size > 0,
-      isWhatsappConnected: () => false, // Wave 2 wires this
-      jsonlPath: deps.dataDir ? `${deps.dataDir}/voice-notify.jsonl` : undefined,
-    }),
-    { mutating: true },
-  );
+  // V2.1: voice_set_operator_config and voice_notify_user moved to voice-mcp
+  // (Hetzner :3300). Andy calls them via mcp__voice__* now.
 
   // voice_wake_up — pre-warm the main container at /accept time. Only
   // registered when triggerWakeUp dep is provided (production wires it in

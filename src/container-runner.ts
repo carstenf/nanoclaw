@@ -337,6 +337,21 @@ async function buildContainerArgs(
     args.push('-e', `NANOCLAW_VOICE_MCP_URL=${nanoclawVoiceMcpUrl}`);
   }
 
+  // v2.1: voice-mcp (Hetzner standalone). When VOICE_MCP_URL + VOICE_MCP_BEARER
+  // are present in NanoClaw's .env, plumb them into the container so the
+  // agent-runner registers 'voice' as an HTTP MCP server in Andy's mcp.json.
+  // Andy then calls voice_request_outbound_call etc. against the standalone
+  // voice-mcp instead of the legacy in-tree NanoClaw tools (port 3201).
+  const voiceMcpEnv = readEnvFile(['VOICE_MCP_URL', 'VOICE_MCP_BEARER']);
+  const voiceMcpUrl =
+    process.env.VOICE_MCP_URL ?? voiceMcpEnv.VOICE_MCP_URL ?? '';
+  const voiceMcpBearer =
+    process.env.VOICE_MCP_BEARER ?? voiceMcpEnv.VOICE_MCP_BEARER ?? '';
+  if (voiceMcpUrl && voiceMcpBearer) {
+    args.push('-e', `VOICE_MCP_URL=${voiceMcpUrl}`);
+    args.push('-e', `VOICE_MCP_BEARER=${voiceMcpBearer}`);
+  }
+
   // OneCLI gateway handles credential injection — containers never see real secrets.
   // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
   const onecliApplied = await onecli.applyContainerConfig(args, {

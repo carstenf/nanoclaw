@@ -1,5 +1,0 @@
-conf/overlay/vars-override.xml
-env/ai.env
-runs/
-*.pcap
-*.log

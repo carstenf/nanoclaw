@@ -64,31 +64,17 @@ import {
 } from './config.js';
 import type { ToolRegistry } from './mcp-tools/index.js';
 
-// Wave-0 re-exported zod schemas — one per voice.* tool. Each TOOL_META
-// entry references `<X>Schema.shape` so SDK `server.tool()` receives a
-// ZodRawShape and converts it to JSON-Schema for tools/list.
-import { CheckCalendarSchema } from './mcp-tools/voice-check-calendar.js';
-import { CreateEntrySchema } from './mcp-tools/voice-create-calendar-entry.js';
-import { DeleteEntrySchema } from './mcp-tools/voice-delete-calendar-entry.js';
-import { UpdateEntrySchema } from './mcp-tools/voice-update-calendar-entry.js';
+// V2.1: only schemas for tools that NanoClaw still exposes (slow-brain
+// triggers + bridge-utility tools). The 11 fast-brain tools moved to the
+// standalone voice-mcp service on Hetzner — Andy connects to it via
+// mcp__voice__* and Bridge dispatches the time-critical surface there.
 import { SendDiscordMessageSchema } from './mcp-tools/voice-send-discord-message.js';
-import { TravelTimeSchema } from './mcp-tools/voice-get-travel-time.js';
 import { GetContractSchema } from './mcp-tools/voice-get-contract.js';
 import { GetPracticeProfileSchema } from './mcp-tools/voice-get-practice-profile.js';
 import { ScheduleRetrySchema } from './mcp-tools/voice-schedule-retry.js';
-import { AskCoreSchema } from './mcp-tools/voice-ask-core.js';
-import { RecordTurnCostSchema } from './mcp-tools/voice-record-turn-cost.js';
-import { FinalizeCallCostSchema } from './mcp-tools/voice-finalize-call-cost.js';
-import { InsertPriceSnapshotSchema } from './mcp-tools/voice-insert-price-snapshot.js';
 import { SearchCompetitorsSchema } from './mcp-tools/voice-search-competitors.js';
-import { RequestOutboundCallSchema } from './mcp-tools/voice-request-outbound-call.js';
-import { ResetMonthlyCapSchema } from './mcp-tools/voice-reset-monthly-cap.js';
-import { GetDayMonthCostSumSchema } from './mcp-tools/voice-get-day-month-cost-sum.js';
 import { OnTranscriptTurnSchema } from './mcp-tools/voice-on-transcript-turn.js';
-import { VoiceNotifyUserSchema } from './mcp-tools/voice-notify-user.js';
-import { VoiceOutboundScheduleRetrySchema } from './mcp-tools/voice-outbound-retry.js';
 import { VoiceSetLanguageSchema } from './mcp-tools/voice-set-language.js';
-import { VoiceSetOperatorConfigSchema } from './mcp-tools/voice-set-operator-config.js';
 import { VoiceTriggersInitSchema } from './mcp-tools/voice-triggers-init.js';
 import { VoiceTriggersTranscriptSchema } from './mcp-tools/voice-triggers-transcript.js';
 import { VoiceRespondSchema } from './mcp-tools/voice-respond.js';
@@ -160,33 +146,10 @@ interface ToolMeta {
 }
 const TOOL_META: Record<string, ToolMeta> =
   {
-    'voice_check_calendar': {
-      description:
-        'Check calendar availability for a given date and duration. Returns available/conflicts + free slots.',
-      shape: CheckCalendarSchema.shape,
-    },
-    'voice_create_calendar_entry': {
-      description:
-        'Create a calendar entry with date/time/title/attendees. Idempotent via call_id+turn_id.',
-      shape: CreateEntrySchema.shape,
-    },
-    'voice_delete_calendar_entry': {
-      description: 'Delete a calendar entry by id.',
-      shape: DeleteEntrySchema.shape,
-    },
-    'voice_update_calendar_entry': {
-      description: 'Update selected fields of a calendar entry.',
-      shape: UpdateEntrySchema.shape,
-    },
     'voice_send_discord_message': {
       description:
         'Send a Discord DM to Operator — idempotent via content hash.',
       shape: SendDiscordMessageSchema.shape,
-    },
-    'voice_get_travel_time': {
-      description:
-        'Get travel time from origin to destination via Google Maps Distance Matrix.',
-      shape: TravelTimeSchema.shape,
     },
     'voice_get_contract': {
       description: 'Read the current Core contract document (read-only).',
@@ -201,70 +164,21 @@ const TOOL_META: Record<string, ToolMeta> =
       description: 'Schedule a retry of a failed outbound call.',
       shape: ScheduleRetrySchema.shape,
     },
-    'voice_ask_core': {
-      description:
-        'Async query to the Slow-Brain — returns instructions_update patch.',
-      shape: AskCoreSchema.shape,
-      skipSyntheticIds: true,
-    },
-    'voice_record_turn_cost': {
-      description:
-        'Record a per-turn usage cost into the cost ledger. Idempotent via (call_id, turn_id).',
-      shape: RecordTurnCostSchema.shape,
-    },
-    'voice_finalize_call_cost': {
-      description:
-        'Finalize the aggregated cost for a voice call on hangup.',
-      shape: FinalizeCallCostSchema.shape,
-    },
-    'voice_insert_price_snapshot': {
-      description: 'Insert a pricing snapshot for drift detection.',
-      shape: InsertPriceSnapshotSchema.shape,
-    },
     'voice_search_competitors': {
       description:
         'Search for competitor offers (graceful not_configured fallback).',
       shape: SearchCompetitorsSchema.shape,
-    },
-    'voice_request_outbound_call': {
-      description:
-        'Request an outbound call — NanoClaw→Bridge (Case 6b).',
-      shape: RequestOutboundCallSchema.shape,
-    },
-    'voice_reset_monthly_cap': {
-      description: 'Reset the monthly cost cap counter.',
-      shape: ResetMonthlyCapSchema.shape,
-    },
-    'voice_get_day_month_cost_sum': {
-      description:
-        'Return today + current-month cumulative cost in EUR.',
-      shape: GetDayMonthCostSumSchema.shape,
     },
     'voice_on_transcript_turn': {
       description:
         'Bridge→Core: push a transcript turn for Slow-Brain processing.',
       shape: OnTranscriptTurnSchema.shape,
     },
-    'voice_notify_user': {
-      description:
-        'Notify Operator via the most-recent active channel (WhatsApp/Discord) with >50-word override to Discord.',
-      shape: VoiceNotifyUserSchema.shape,
-    },
-    'voice_outbound_schedule_retry': {
-      description:
-        'Generic outbound retry with the 5/15/45/120-min ladder and 5/day cap. Optional retry_at ISO override bypasses the ladder for smart-retry from voicemail-analyzer output.',
-      shape: VoiceOutboundScheduleRetrySchema.shape,
-    },
     'voice_set_language': {
       description:
         'Mid-call language switch. Validates lang ∈ per-call lang_whitelist (Phase 06.x). Returns re-rendered persona instructions; the Bridge applies via two-step session.update (audio + instructions).',
       shape: VoiceSetLanguageSchema.shape,
       skipSyntheticIds: true,
-    },
-    'voice_set_operator_config': {
-      description:
-        "Persist operator profile (name + personal CLI) to ~/.config/nanoclaw/voice-config.json. Call when the operator volunteers their name (\"ich heiße X\") or phone number (\"meine Nummer ist +49…\"). At least one of operator_name / operator_cli_number must be set; both can be set together. operator_cli_number must be E.164 (leading +, country code, digits, no spaces). Used by personas (operator_name) and case_6b inbound CLI matching (operator_cli_number).",
-      shape: VoiceSetOperatorConfigSchema.shape,
     },
     'voice_triggers_init': {
       description:

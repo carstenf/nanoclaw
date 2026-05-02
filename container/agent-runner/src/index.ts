@@ -415,14 +415,14 @@ function buildVoiceRequestPrompt(callId: string, userRequest: string): string {
     '## DEINE ROLLE',
     '',
     'Du bist Andy in voice-mode. Du hast Zugriff zu allen Tools: WebSearch, WebFetch,',
-    'mcp__nanoclaw-voice__*, mcp__gmail__*, mcp__gcalendar__*, Bash, Read, Grep usw.',
+    'mcp__voice__*, mcp__nanoclaw__*, mcp__gmail__*, mcp__gcalendar__*, Bash, Read, Grep usw.',
     'Optimiere fuer SCHNELLE Antwort. Bei Wetter/Live-Daten: max 1 WebSearch (5-10s).',
     'Wenn du die Antwort schon weisst, antworte direkt ohne Recherche.',
     '',
     '## ANTWORT-PFAD — HARTE REGEL',
     '',
     'Antworte AUSSCHLIESSLICH durch genau EINEN Aufruf des Tools',
-    '**mcp__nanoclaw-voice__voice_respond** mit folgenden Args:',
+    '**mcp__nanoclaw__voice_respond** mit folgenden Args:',
     '',
     '  {',
     `    "call_id": "${callId}",`,
@@ -580,9 +580,12 @@ async function runQuery(
         'Skill',
         'NotebookEdit',
         'mcp__nanoclaw__*',
-        // Phase 05.4 Bug-2: voice MCP tools on the host (see mcpServers
-        // block below). Hyphen in server name preserved in the tool prefix.
-        'mcp__nanoclaw-voice__*',
+        // v2.1: standalone voice-mcp (Hetzner) — voice_request_outbound_call,
+        // calendar tools, travel-time, ask_core, etc. Replaces the legacy
+        // host-side nanoclaw-voice MCP (Andy no longer accesses it directly;
+        // bridge utility tools like voice_send_discord_message stay there but
+        // are bridge-only).
+        'mcp__voice__*',
         'mcp__gmail__*',
         'mcp__gcalendar__*',
       ],
@@ -600,21 +603,20 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
-        // Phase 05.4 Bug-2: HTTP MCP client to the host's nanoclaw-voice
-        // stream server (mcp-stream-server.ts, port 3201, bound 0.0.0.0).
-        // Exposes `voice_request_outbound_call` and `voice_start_case_2_call`
-        // (REQ-C6B-03) so Andy can initiate telephone tasks through the
-        // spec-defined MCP surface instead of the legacy `make_call` IPC.
-        // Only registered when both URL and bearer are set in the container
-        // env (plumbed by src/container-runner.ts) — otherwise omitted so
-        // local dev without the host service still boots.
-        ...(process.env.NANOCLAW_VOICE_MCP_URL && process.env.MCP_STREAM_BEARER
+        // v2.1: standalone voice-mcp on Hetzner (or wherever VOICE_MCP_URL
+        // points). Andy's outbound-call + calendar + travel-time + ask_core
+        // tools live here. Replaces the legacy host-side nanoclaw-voice MCP
+        // server — Bridge still talks to it directly for slow-brain triggers
+        // (voice_init_trigger / voice_transcript_trigger) and utility tools
+        // (voice_send_discord_message / voice_analyze_voicemail), but Andy
+        // does not.
+        ...(process.env.VOICE_MCP_URL && process.env.VOICE_MCP_BEARER
           ? {
-              'nanoclaw-voice': {
+              voice: {
                 type: 'http' as const,
-                url: process.env.NANOCLAW_VOICE_MCP_URL,
+                url: process.env.VOICE_MCP_URL,
                 headers: {
-                  Authorization: `Bearer ${process.env.MCP_STREAM_BEARER}`,
+                  Authorization: `Bearer ${process.env.VOICE_MCP_BEARER}`,
                 },
               },
             }
