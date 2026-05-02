@@ -194,36 +194,9 @@ export const BRIDGE_OUTBOUND_URL =
 export const BRIDGE_OUTBOUND_AUTH_TOKEN =
   process.env.BRIDGE_OUTBOUND_AUTH_TOKEN ?? '';
 
-// ----- Plan 04-03 (AC-07): StreamableHTTP MCP transport -----
-// Second MCP surface on port 3201 exposes the SAME ToolRegistry via the
-// @modelcontextprotocol/sdk StreamableHTTPServerTransport. Port 3200 stays
-// for the home-grown Bridge REST fassade (Phase 3 unchanged).
-// Pitfall 6 (historical — now superseded by Phase 05.4 Bug-2): originally
-// bound explicitly to 10.0.0.2 (WG interface). Phase 05.4 Bug-2 changed the
-// default to 0.0.0.0 so the container-agent on the Docker bridge can reach
-// the endpoint via `host.docker.internal:3201` per REQ-C6B-03. Bearer auth
-// (MCP_STREAM_BEARER) remains mandatory at the application layer; external
-// exposure is gated by the host firewall.
-// Pitfall 8: handler wrapper synthesizes chat-prefixed call_id/turn_id so
-// debug invocations never collide with live-call idempotency keys.
-export const MCP_STREAM_PORT = Number(process.env.MCP_STREAM_PORT ?? 3201);
-export const MCP_STREAM_BIND = process.env.MCP_STREAM_BIND ?? '0.0.0.0';
-// MCP_STREAM_BEARER is provisioned via OneCLI (onecli add-secret). When empty
-// the server does NOT start (fail-loud — no insecure default).
-export const MCP_STREAM_BEARER = process.env.MCP_STREAM_BEARER ?? '';
-// Phase 4.5 Plan 01 (D-3): session-based StreamableHTTP transport.
-// Idle TTL per session; sweep evicts sessions inactive longer than this.
-// Active (in-flight) sessions are NEVER swept — lastActivity bumps on every
-// request. Default: 30 minutes.
-export const MCP_STREAM_SESSION_TTL_MS = Number(
-  process.env.MCP_STREAM_SESSION_TTL_MS ?? 30 * 60 * 1000,
-);
-// Hard cap on concurrent sessions to bound DoS surface (T-4.5-A). Excess
-// initialize requests are rejected with 503 `session_cap_reached` and logged
-// as `mcp_session_cap_rejected`. Default 50 — expected real load ≤ 10.
-export const MCP_STREAM_MAX_SESSIONS = Number(
-  process.env.MCP_STREAM_MAX_SESSIONS ?? 50,
-);
+// V2.3: legacy port 3201 (StreamableHTTP MCP + /voice/* HTTP-channel) was
+// retired. Bridge talks to voice-mcp on Hetzner :3150 only; voice-mcp pushes
+// triggers to NanoClaw via WebSocket. NanoClaw binds no inbound voice port.
 
 // ----- Plan 05-01 (SEED-001): channel-routing session tracker -----
 // Window within which inbound activity is considered "active session".

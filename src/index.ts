@@ -77,13 +77,6 @@ import { recallMemory, retainMemory } from './hindsight.js';
 import { makeCall, startVoiceServer } from './voice-server.js';
 import { makeFreeswitchCall, initFreeswitchVoice } from './freeswitch-voice.js';
 import { startMcpServer } from './mcp-server.js';
-import { startMcpStreamServer } from './mcp-stream-server.js';
-import { makeVoiceAskCoreHandler } from './channels/voice-ask-core.js';
-import {
-  makeVoiceInitHandler,
-  makeVoiceTranscriptHandler,
-  makeVoiceDiscordPostHandler,
-} from './channels/voice-triggers.js';
 import { VoiceMcpClient } from './channels/voice-mcp.js';
 import { buildDefaultRegistry } from './mcp-tools/index.js';
 import {
@@ -1090,25 +1083,6 @@ async function main(): Promise<void> {
     registry: sharedRegistry,
     deps: { sendDiscordMessage, getMainGroupAndJid },
   });
-  // startMcpStreamServer is a no-op when MCP_STREAM_BEARER env is unset.
-  // v2.0: voice-ask-core HTTP channel handler is wired alongside the MCP
-  // catchall so voice-mcp's voice_ask_core tool can POST /voice/ask_core.
-  startMcpStreamServer({
-    registry: sharedRegistry,
-    voiceAskCoreHandler: makeVoiceAskCoreHandler({
-      voiceRespondManager,
-      tryInjectVoiceRequest,
-      warmupContainer: () => triggerWakeUp('voice-ask-core-warmup', 'warmup'),
-    }),
-    // V2.2 (legacy fallback): HTTP-routes for voice-mcp's HTTP-bouncer
-    // tools. V2.3 replaces this with the WebSocket-trigger pattern below;
-    // routes stay temporarily for graceful rollout but voice-mcp no longer
-    // calls them.
-    voiceInitHandler: makeVoiceInitHandler(sharedRegistry),
-    voiceTranscriptHandler: makeVoiceTranscriptHandler(sharedRegistry),
-    voiceDiscordPostHandler: makeVoiceDiscordPostHandler(sharedRegistry),
-  });
-
   // V2.3: long-lived WebSocket client to voice-mcp on Hetzner — pattern
   // identical to channels/discord.ts: NanoClaw initiates outbound, holds
   // the connection open, receives push triggers, replies. Replaces
