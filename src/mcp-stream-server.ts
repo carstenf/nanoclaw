@@ -118,6 +118,15 @@ export interface McpStreamDeps {
    * (express-style middleware signature.)
    */
   voiceAskCoreHandler?: (req: Request, res: Response) => Promise<void>;
+  /**
+   * V2.2: optional voice-init / transcript / discord-post HTTP-channel
+   * handlers. With these wired, voice-mcp can talk to NanoClaw via plain
+   * HTTP for slow-brain triggers + Bridge utility tools — Bridge no longer
+   * needs to MCP-connect to port 3201 directly.
+   */
+  voiceInitHandler?: (req: Request, res: Response) => Promise<void>;
+  voiceTranscriptHandler?: (req: Request, res: Response) => Promise<void>;
+  voiceDiscordPostHandler?: (req: Request, res: Response) => Promise<void>;
 }
 
 // -----------------------------------------------------------------------------
@@ -408,10 +417,15 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
   // applied via the middleware chain (peerAllowlistMiddleware + the auth
   // gate in the catchall — re-applied here so nothing leaks past).
   // -------------------------------------------------------------------------
-  if (deps.voiceAskCoreHandler) {
-    const handler = deps.voiceAskCoreHandler;
-    app.post('/voice/ask_core', async (req: Request, res: Response) => {
-      // Bearer check (catchall does it for /; this path is its own route).
+  // V2.2: helper that wraps any /voice/* HTTP handler with bearer auth +
+  // try/catch. Same shape as the per-route try block we used for
+  // /voice/ask_core but DRY across init/transcript/discord_post/ask_core.
+  const mountVoiceRoute = (
+    path: string,
+    handler: (req: Request, res: Response) => Promise<void>,
+    eventOnThrow: string,
+  ) => {
+    app.post(path, async (req: Request, res: Response) => {
       if (MCP_STREAM_BEARER) {
         const auth = req.header('authorization') ?? '';
         if (auth !== `Bearer ${MCP_STREAM_BEARER}`) {
@@ -424,16 +438,45 @@ export function buildMcpStreamApp(deps: McpStreamDeps): express.Application {
       } catch (err) {
         log.warn(
           {
-            event: 'voice_ask_core_handler_threw',
+            event: eventOnThrow,
             err: err instanceof Error ? err.message : String(err),
           },
-          'voice ask_core handler threw',
+          `${path} handler threw`,
         );
         if (!res.headersSent) {
           res.status(500).json({ ok: false, error: 'internal' });
         }
       }
     });
+  };
+
+  if (deps.voiceAskCoreHandler) {
+    mountVoiceRoute(
+      '/voice/ask_core',
+      deps.voiceAskCoreHandler,
+      'voice_ask_core_handler_threw',
+    );
+  }
+  if (deps.voiceInitHandler) {
+    mountVoiceRoute(
+      '/voice/init',
+      deps.voiceInitHandler,
+      'voice_init_handler_threw',
+    );
+  }
+  if (deps.voiceTranscriptHandler) {
+    mountVoiceRoute(
+      '/voice/transcript',
+      deps.voiceTranscriptHandler,
+      'voice_transcript_handler_threw',
+    );
+  }
+  if (deps.voiceDiscordPostHandler) {
+    mountVoiceRoute(
+      '/voice/discord_post',
+      deps.voiceDiscordPostHandler,
+      'voice_discord_post_handler_threw',
+    );
   }
 
   // -------------------------------------------------------------------------

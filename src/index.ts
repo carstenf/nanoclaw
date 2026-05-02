@@ -79,6 +79,11 @@ import { makeFreeswitchCall, initFreeswitchVoice } from './freeswitch-voice.js';
 import { startMcpServer } from './mcp-server.js';
 import { startMcpStreamServer } from './mcp-stream-server.js';
 import { makeVoiceAskCoreHandler } from './channels/voice-ask-core.js';
+import {
+  makeVoiceInitHandler,
+  makeVoiceTranscriptHandler,
+  makeVoiceDiscordPostHandler,
+} from './channels/voice-triggers.js';
 import { buildDefaultRegistry } from './mcp-tools/index.js';
 import {
   wireVoiceChannel,
@@ -1094,6 +1099,13 @@ async function main(): Promise<void> {
       tryInjectVoiceRequest,
       warmupContainer: () => triggerWakeUp('voice-ask-core-warmup', 'warmup'),
     }),
+    // V2.2: HTTP-routes that voice-mcp's bouncer-tools call so Bridge no
+    // longer needs an MCP connection to NanoClaw — voice-mcp is the single
+    // endpoint and these mirror the legacy MCP-tool surface for slow-brain
+    // triggers + the bridge utility tool (Discord transcript posting).
+    voiceInitHandler: makeVoiceInitHandler(sharedRegistry),
+    voiceTranscriptHandler: makeVoiceTranscriptHandler(sharedRegistry),
+    voiceDiscordPostHandler: makeVoiceDiscordPostHandler(sharedRegistry),
   });
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
