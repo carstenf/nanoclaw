@@ -74,8 +74,6 @@ import osNode from 'node:os';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 import { recallMemory, retainMemory } from './hindsight.js';
-import { makeCall, startVoiceServer } from './voice-server.js';
-import { makeFreeswitchCall, initFreeswitchVoice } from './freeswitch-voice.js';
 import { startMcpServer } from './mcp-server.js';
 import { VoiceMcpClient } from './channels/voice-mcp.js';
 import { buildDefaultRegistry } from './mcp-tools/index.js';
@@ -990,10 +988,6 @@ async function main(): Promise<void> {
         throw new Error(`Channel does not support delete`);
       return channel.deleteMessage(jid, messageId);
     },
-    makeCall: (to, goal, chatJid, voiceMode) =>
-      makeCall(to, goal, chatJid, voiceMode),
-    makeFreeswitchCall: (to, goal, chatJid, voice) =>
-      makeFreeswitchCall(to, goal, chatJid, voice),
     onTasksChanged: () => {
       const tasks = getAllTasks();
       const taskRows = tasks.map((t) => ({
@@ -1011,25 +1005,6 @@ async function main(): Promise<void> {
       }
     },
   });
-  startVoiceServer({
-    sendMessage: (jid, text) => {
-      const channel = findChannel(channels, jid);
-      if (!channel) throw new Error(`No channel for JID: ${jid}`);
-      return channel.sendMessage(jid, text);
-    },
-  });
-  const voiceDeps = {
-    sendMessage: (jid: string, text: string) => {
-      const channel = findChannel(channels, jid);
-      if (!channel) throw new Error(`No channel for JID: ${jid}`);
-      return channel.sendMessage(jid, text);
-    },
-    getMainJid: () => {
-      const entry = Object.entries(registeredGroups).find(([, g]) => g.isMain);
-      return entry?.[0];
-    },
-  };
-  initFreeswitchVoice(voiceDeps);
   const sendDiscordMessage = async (
     channelId: string,
     text: string,

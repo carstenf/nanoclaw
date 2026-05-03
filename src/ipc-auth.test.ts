@@ -64,8 +64,6 @@ beforeEach(() => {
     getAvailableGroups: () => [],
     writeGroupsSnapshot: () => {},
     onTasksChanged: () => {},
-    makeCall: async () => {},
-    makeFreeswitchCall: async () => {},
   };
 });
 

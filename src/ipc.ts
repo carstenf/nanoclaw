@@ -17,18 +17,11 @@ import { RegisteredGroup } from './types.js';
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
   deleteMessage: (jid: string, messageId: string) => Promise<void>;
-  makeCall: (
-    to: string,
-    goal: string,
-    chatJid: string,
-    voiceMode?: string,
-  ) => Promise<void>;
-  makeFreeswitchCall: (
-    to: string,
-    goal: string,
-    chatJid: string,
-    voice?: string,
-  ) => Promise<void>;
+  // Phase 05.4 Block-6 (2026-04-24) deleted the make_call / make_sipgate_call
+  // IPC dispatch types; outbound calls now run through voice_request_outbound_
+  // call on voice-mcp. The corresponding `makeCall` / `makeFreeswitchCall`
+  // deps were removed in V2.4 cleanup along with src/voice-server.ts and
+  // src/freeswitch-voice.ts.
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
