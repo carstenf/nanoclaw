@@ -63,7 +63,7 @@ export interface HealthCheckDeps {
   now?: () => number;
 }
 
-const DEFAULT_VOICE_BRIDGE_HEALTH = 'http://10.0.0.2:4402/health';
+const DEFAULT_VOICE_BRIDGE_HEALTH = 'http://10.0.0.1:3151/health';
 const DEFAULT_ONECLI = { host: 'localhost', port: 10255 };
 const DEFAULT_TIMEOUT_MS = 3_000;
 

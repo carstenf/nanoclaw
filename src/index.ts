@@ -873,6 +873,7 @@ async function main(): Promise<void> {
     'DISCORD_ALERT_WEBHOOK_URL',
     'SIPGATE_TOKEN_ID',
     'SIPGATE_TOKEN',
+    'VOICE_BRIDGE_HEALTH_URL',
   ]);
   const discordAlertUrl =
     process.env.DISCORD_ALERT_WEBHOOK_URL ??
@@ -956,6 +957,9 @@ async function main(): Promise<void> {
           channels,
           sendDiscordAlert,
           containerImage: process.env.CONTAINER_IMAGE,
+          voiceBridgeHealthUrl:
+            process.env.VOICE_BRIDGE_HEALTH_URL ??
+            alertEnv.VOICE_BRIDGE_HEALTH_URL,
           sipgateAuth:
             alertEnv.SIPGATE_TOKEN_ID && alertEnv.SIPGATE_TOKEN
               ? { tokenId: alertEnv.SIPGATE_TOKEN_ID, token: alertEnv.SIPGATE_TOKEN }
