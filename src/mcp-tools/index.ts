@@ -14,6 +14,7 @@ import {
 import { SlowBrainSessionManager } from './slow-brain-session.js';
 import { makeVoiceOnTranscriptTurn } from './voice-on-transcript-turn.js';
 import { makeVoiceSendDiscordMessage } from './voice-send-discord-message.js';
+import { makeVoiceFinalizeCallCost } from './voice-finalize-call-cost.js';
 import { makeVoiceGetContract } from './voice-get-contract.js';
 import { makeVoiceGetPracticeProfile } from './voice-get-practice-profile.js';
 import { makeVoiceScheduleRetry } from './voice-schedule-retry.js';
@@ -299,6 +300,22 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
       'skipping voice_send_discord_message — no callback or empty allowlist',
     );
   }
+
+  // voice_finalize_call_cost — stub that deregisters the call from the
+  // mid-call mutation gateway (cost-tracking deprecated 2026-05-05). Bridge
+  // calls this on session.closed; without it, calls stay registered as
+  // active and the post-call transcript chunks get rejected by the
+  // REQ-DIR-17 gate as mid-call mutations. Mutating=false because this
+  // IS the call-end signal — it must run regardless of active-call state.
+  registry.register(
+    'voice_finalize_call_cost',
+    makeVoiceFinalizeCallCost(),
+    { mutating: false },
+  );
+  (deps.log ?? logger).info(
+    { event: 'mcp_tool_registering', tool: 'voice_finalize_call_cost' },
+    'registered tool voice_finalize_call_cost',
+  );
 
   // voice_get_contract — always registered; graceful not_configured when file absent
   registry.register(
