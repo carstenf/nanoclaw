@@ -286,7 +286,13 @@ export function buildDefaultRegistry(deps: RegistryDeps = {}): ToolRegistry {
           : undefined,
         timeoutMs: VOICE_DISCORD_TIMEOUT_MS,
       }),
-      { mutating: true },
+      // Bridge-only utility (post-call transcript chunks). Bridge invokes
+      // BEFORE voice_finalize_call_cost deregisters the call, so REQ-DIR-17
+      // gateway with mutating=true rejects every chunk → transcripts never
+      // reach Discord. Defense-in-depth still holds: persona prompt (layer 1)
+      // forbids Andy from calling it, allowlist gates the channel, dedup-TTL
+      // gates content. Layer 2 gateway off for this specific tool only.
+      { mutating: false },
     );
   } else {
     const log = deps.log ?? logger;
