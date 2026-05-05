@@ -84,8 +84,16 @@ export function handleVoiceResponseMarker(
     },
     'voice_response marker — routing to VoiceRespondManager',
   );
+  // Empty voice_short → bridge gets nothing to speak → silence → FS
+  // idle_timeout (10s) hangs up the call. Andy may have posted detail to
+  // Discord on the regular output path; fall back to a short pointer so
+  // the caller hears something and the line stays open.
+  const voice_short =
+    text.length > 0
+      ? text
+      : 'Die ausführliche Antwort steht auf Discord.';
   manager.resolve(output.call_id, {
-    voice_short: text,
+    voice_short,
     discord_long: output.discord_long ?? null,
   });
   return true;

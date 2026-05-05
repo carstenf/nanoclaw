@@ -348,6 +348,36 @@ describe('voice-channel pipeline (host-side: container output → manager.resolv
     });
   });
 
+  it('voice_response marker with empty body (only <internal>) resolves with Discord-pointer fallback', async () => {
+    const manager = new VoiceRespondManager();
+    const pending = manager.register('rtc_e2e_empty', 5000);
+
+    const resultPromise = runContainerAgent(
+      testGroup,
+      testInput,
+      () => {},
+      async (output) => {
+        handleVoiceResponseMarker(output, manager);
+      },
+    );
+
+    emitOutputMarker(fakeProc, {
+      status: 'voice_response',
+      result: '<internal>Tool-call: WebSearch — no answer produced</internal>',
+      call_id: 'rtc_e2e_empty',
+      discord_long: null,
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    await resultPromise;
+    const resolved = await pending;
+    expect(resolved.voice_short.length).toBeGreaterThan(0);
+    expect(resolved.voice_short.toLowerCase()).toContain('discord');
+  });
+
   it('voice_response marker with no matching pending: handler logs but does not crash', async () => {
     const manager = new VoiceRespondManager();
     // No register() — marker arrives for unknown call_id.
