@@ -214,34 +214,50 @@ function deriveAnrede(caseType: string, lang: Lang): AnredeAxis {
 // ---------------------------------------------------------------------------
 
 /**
- * Replace the dual SCHWEIGEN_LADDER block in baseline.md with the single
- * block matching the call direction. The baseline ships:
+ * Replace any dual direction-tagged block in baseline.md with the single
+ * block matching the call direction. The baseline ships pairs like:
  *
- *   <!-- BEGIN SCHWEIGEN_LADDER call_direction=inbound --> ... <!-- END ... -->
- *   <!-- BEGIN SCHWEIGEN_LADDER call_direction=outbound --> ... <!-- END ... -->
+ *   <!-- BEGIN <BLOCK> call_direction=inbound  --> ... <!-- END <BLOCK> -->
+ *   <!-- BEGIN <BLOCK> call_direction=outbound --> ... <!-- END <BLOCK> -->
  *
- * After this transform exactly one ladder remains; the other is dropped.
+ * After this transform exactly one block remains; the other is dropped.
+ *
+ * Used today by SCHWEIGEN_LADDER (silence-handling text differs by
+ * direction) and GREETING (operator-greet vs self-introduction).
  */
-function pickSchweigenLadder(baseline: string, direction: string): string {
-  const wantedTag = `BEGIN SCHWEIGEN_LADDER call_direction=${direction}`;
+function pickDirectionBlock(
+  baseline: string,
+  blockName: string,
+  direction: string,
+): string {
+  const wantedTag = `BEGIN ${blockName} call_direction=${direction}`;
   const otherTag = direction === 'inbound'
-    ? 'BEGIN SCHWEIGEN_LADDER call_direction=outbound'
-    : 'BEGIN SCHWEIGEN_LADDER call_direction=inbound';
+    ? `BEGIN ${blockName} call_direction=outbound`
+    : `BEGIN ${blockName} call_direction=inbound`;
+  const endTag = `END ${blockName}`;
 
-  // Drop the OTHER ladder block entirely (BEGIN to END inclusive of the markers).
+  // Drop the OTHER block entirely (BEGIN to END inclusive of the markers).
   const dropOther = new RegExp(
-    `\\n?<!--\\s*${otherTag}\\s*-->[\\s\\S]*?<!--\\s*END SCHWEIGEN_LADDER\\s*-->`,
+    `\\n?<!--\\s*${otherTag}\\s*-->[\\s\\S]*?<!--\\s*${endTag}\\s*-->`,
     'g',
   );
 
   // Strip the wanted block's BEGIN/END comment markers but keep the body.
   const keepWantedBegin = new RegExp(`<!--\\s*${wantedTag}\\s*-->\\s*\\n?`, 'g');
-  const keepWantedEnd = /<!--\s*END SCHWEIGEN_LADDER\s*-->\s*\n?/g;
+  const keepWantedEnd = new RegExp(`<!--\\s*${endTag}\\s*-->\\s*\\n?`, 'g');
 
   return baseline
     .replace(dropOther, '')
     .replace(keepWantedBegin, '')
     .replace(keepWantedEnd, '');
+}
+
+/**
+ * Backwards-compat wrapper for callers still naming the legacy function.
+ * Forwarded to pickDirectionBlock with blockName='SCHWEIGEN_LADDER'.
+ */
+function pickSchweigenLadder(baseline: string, direction: string): string {
+  return pickDirectionBlock(baseline, 'SCHWEIGEN_LADDER', direction);
 }
 
 // ---------------------------------------------------------------------------
@@ -377,10 +393,12 @@ export function renderPersona(
   const goal = input.goal && input.goal.length > 0 ? input.goal : derived.goal;
   const context = derived.context;
 
-  // 1. Pick the SCHWEIGEN block matching call_direction (drops the other
-  //    block entirely). Done on baseline before placeholder substitution
-  //    because the BEGIN/END markers are baseline-only.
+  // 1. Pick the direction-tagged blocks (SCHWEIGEN_LADDER + GREETING)
+  //    matching call_direction; drop the other variant. Done on baseline
+  //    before placeholder substitution because the BEGIN/END markers are
+  //    baseline-only.
   let body = pickSchweigenLadder(skill.baseline, input.call_direction);
+  body = pickDirectionBlock(body, 'GREETING', input.call_direction);
 
   // 2. Append overlay (if any). Overlays are pure prose — no placeholders
   //    of their own that the baseline doesn't already define for case_6b.
