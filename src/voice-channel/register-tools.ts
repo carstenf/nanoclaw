@@ -29,6 +29,7 @@ import type { ToolRegistry, RegistryDeps } from '../mcp-tools/index.js';
 import { makeVoiceOnTranscriptTurn } from '../mcp-tools/voice-on-transcript-turn.js';
 import { makeVoiceSendDiscordMessage } from '../mcp-tools/voice-send-discord-message.js';
 import { makeVoiceFinalizeCallCost } from '../mcp-tools/voice-finalize-call-cost.js';
+import { makeVoiceRecordTurnCost } from '../mcp-tools/voice-record-turn-cost.js';
 import { makeVoiceGetContract } from '../mcp-tools/voice-get-contract.js';
 import { makeVoiceGetPracticeProfile } from '../mcp-tools/voice-get-practice-profile.js';
 import { makeVoiceScheduleRetry } from '../mcp-tools/voice-schedule-retry.js';
@@ -127,20 +128,57 @@ export function registerVoiceTools(
     );
   }
 
-  // voice_finalize_call_cost — stub that deregisters the call from the
-  // mid-call mutation gateway (cost-tracking deprecated 2026-05-05). Bridge
-  // calls this on session.closed; without it, calls stay registered as
-  // active and the post-call transcript chunks get rejected by the
-  // REQ-DIR-17 gate as mid-call mutations. Mutating=false because this
-  // IS the call-end signal — it must run regardless of active-call state.
+  // Resolve Andy's Discord channel here (was inline below before 2026-05-07)
+  // because voice_finalize_call_cost needs it for the post-call summary.
+  // Used by voice_respond as well — same value, single resolve.
+  const andyDiscordChannel: string =
+    ANDY_VOICE_DISCORD_CHANNEL ||
+    (VOICE_DISCORD_ALLOWED_CHANNELS_RAW.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)[0] ??
+      '');
+
+  // voice_finalize_call_cost — deregisters the call from the mid-call
+  // mutation gateway. Bridge calls this on session.closed; without it,
+  // calls stay registered as active and the post-call transcript chunks
+  // get rejected by the REQ-DIR-17 gate as mid-call mutations.
+  // Mutating=false because this IS the call-end signal — it must run
+  // regardless of active-call state.
+  // 2026-05-07: extended with post-call summary (per-call EUR + day/month
+  // ledger SUM + OpenAI org month-to-date USD + budget rest). When
+  // sendDiscordMessage + andyDiscordChannel are wired, every call ends
+  // with a Discord post in the voice channel.
   registry.register(
     'voice_finalize_call_cost',
-    makeVoiceFinalizeCallCost(),
+    makeVoiceFinalizeCallCost({
+      sendDiscordMessage: deps.sendDiscordMessage,
+      discordChannelId: andyDiscordChannel || undefined,
+    }),
     { mutating: false },
   );
   log.info(
-    { event: 'mcp_tool_registering', tool: 'voice_finalize_call_cost' },
+    {
+      event: 'mcp_tool_registering',
+      tool: 'voice_finalize_call_cost',
+      summary_wired: !!(deps.sendDiscordMessage && andyDiscordChannel),
+    },
     'registered tool voice_finalize_call_cost',
+  );
+
+  // voice_record_turn_cost — bridge fires per response.done with the
+  // OpenAI Realtime usage + computed EUR cost. Persists into
+  // voice_turn_costs ledger. Re-introduced 2026-05-07 after the 2026-05-05
+  // deprecation, because Carsten wants per-call cost summaries posted to
+  // Discord (Phase C) and the ledger is the source of truth for both per-
+  // call and monthly aggregates.
+  registry.register(
+    'voice_record_turn_cost',
+    makeVoiceRecordTurnCost(),
+    { mutating: false },
+  );
+  log.info(
+    { event: 'mcp_tool_registering', tool: 'voice_record_turn_cost' },
+    'registered tool voice_record_turn_cost',
   );
 
   // voice_get_contract — always registered; graceful not_configured when file absent
@@ -178,15 +216,6 @@ export function registerVoiceTools(
     }),
     { mutating: true },
   );
-
-  // Resolve Andy's Discord channel: use explicit ANDY_VOICE_DISCORD_CHANNEL if set,
-  // otherwise fall back to the first allowed channel from VOICE_DISCORD_ALLOWED_CHANNELS.
-  const andyDiscordChannel: string =
-    ANDY_VOICE_DISCORD_CHANNEL ||
-    (VOICE_DISCORD_ALLOWED_CHANNELS_RAW.split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)[0] ??
-      '');
 
   // voice_respond — Andy → Voice delivery channel. Resolves the pending
   // Promise registered by /voice/ask_core HTTP channel handler so the voice-

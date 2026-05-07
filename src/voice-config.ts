@@ -36,6 +36,18 @@ import { logger } from './logger.js';
 export interface VoiceConfig {
   operator_name?: string;
   operator_cli_number?: string;
+  /**
+   * Monthly OpenAI budget in EUR. When set, the post-call summary
+   * (voice_finalize_call_cost on the bridge's session-end hook) shows
+   * "rest = budget - month-to-date" so Carsten sees how much is left.
+   * Unset / 0 → summary omits the budget line.
+   *
+   * Source of truth for the cost number is OpenAI's /v1/organization/costs
+   * (admin API) — covers ALL projects on the org, not just NanoClaw, so a
+   * 50 EUR budget here means "50 EUR across the whole OpenAI account this
+   * month".
+   */
+  monthly_budget_eur?: number;
 }
 
 /**
@@ -102,7 +114,10 @@ export function writeVoiceConfig(
     if (value === undefined || value === '' || value === null) {
       delete next[k];
     } else {
-      next[k] = value as string;
+      // Type-assert via record indexer so the writer accepts both string
+      // (operator_*) and number (monthly_budget_eur) fields without losing
+      // VoiceConfig's structural typing on read.
+      (next as Record<string, unknown>)[k] = value;
     }
   }
 
