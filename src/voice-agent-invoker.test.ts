@@ -217,28 +217,48 @@ function fakeSkillWithSwitch(caseType: string): VoicePersonaSkillFiles {
 }
 
 describe('renderPersona — lang_switch_block (language-neutral, Phase 06.x)', () => {
-  it('no whitelist → DE active: instructs to speak German, no switch tool, second-attempt-English rule', () => {
+  // 2026-05-07 case=unknown bug fix (rtc_u7_Dcwy0gtAf0ZukGsujyMQy): when the
+  // bridge can't classify the call (e.g. CLI whitelist miss), it sends an
+  // empty/undefined lang_whitelist. effectiveLangWhitelist defaults to all
+  // SUPPORTED_LANGS so the persona stays multilingual instead of degrading to
+  // refusal-mode. The opt-in monoglot path is `['de']` (single-lang explicit).
+  it('no whitelist → DE active: defaults to all SUPPORTED_LANGS, switch tool offered', () => {
     const out = renderPersona(
       fakeSkillWithSwitch('case_2'),
       makeInitInput({ case_type: 'case_2', call_direction: 'outbound', lang: 'de' }),
     );
-    expect(out).toContain('Speak German throughout');
-    // Second-attempt-English fallback rule must be present.
-    expect(out).toMatch(/second time|second attempt|insists/i);
-    expect(out).toContain('English');
-    expect(out).not.toContain('voice_set_language');
+    expect(out).toContain('Start this call in German');
+    expect(out).toContain('German / English / Italian');
+    expect(out).toContain('voice_set_language');
+    expect(out).toContain('en/it');
     // No quoted refusal phrase — wording must be language-neutral.
     expect(out).not.toMatch(/"[^"]*Entschuldigung[^"]*"/);
     expect(out).not.toMatch(/"[^"]*Sorry[^"]*"/);
   });
 
-  it('no whitelist → EN active: instructs to speak English, no switch tool', () => {
+  it('no whitelist → EN active: defaults to all SUPPORTED_LANGS, switch tool offered', () => {
     const out = renderPersona(
       fakeSkillWithSwitch('case_2'),
       makeInitInput({ case_type: 'case_2', call_direction: 'outbound', lang: 'en' }),
     );
-    expect(out).toContain('Speak English throughout');
-    expect(out).not.toContain('voice_set_language');
+    expect(out).toContain('Start this call in English');
+    expect(out).toContain('English / German / Italian');
+    expect(out).toContain('voice_set_language');
+    expect(out).toContain('de/it');
+  });
+
+  it('empty whitelist [] → defaults to all SUPPORTED_LANGS (same as undefined)', () => {
+    const out = renderPersona(
+      fakeSkillWithSwitch('case_2'),
+      makeInitInput({
+        case_type: 'case_2',
+        call_direction: 'outbound',
+        lang: 'de',
+        lang_whitelist: [],
+      }),
+    );
+    expect(out).toContain('Start this call in German');
+    expect(out).toContain('voice_set_language');
   });
 
   it('whitelist [de,en,it] starting in de → switch instruction listing English / Italian + switchable codes', () => {
@@ -276,7 +296,10 @@ describe('renderPersona — lang_switch_block (language-neutral, Phase 06.x)', (
     expect(out).toContain('voice_set_language');
   });
 
-  it('whitelist contains only the active lang → behaves like no whitelist (no switchables)', () => {
+  it('explicit single-lang whitelist [de] → opt-in monoglot, refusal mode (NOT defaulted)', () => {
+    // Single-lang whitelist is the explicit opt-in to refusal mode (e.g. Andy
+    // deliberately wants to lock the call to German). Distinguished from
+    // empty/undefined which defaults to all SUPPORTED_LANGS.
     const out = renderPersona(
       fakeSkillWithSwitch('case_2'),
       makeInitInput({
@@ -288,6 +311,9 @@ describe('renderPersona — lang_switch_block (language-neutral, Phase 06.x)', (
     );
     expect(out).toContain('Speak German throughout');
     expect(out).not.toContain('voice_set_language');
+    // Second-attempt-English fallback rule must be present.
+    expect(out).toMatch(/second time|second attempt|insists/i);
+    expect(out).toContain('English');
   });
 
   it('IT whitelist → starts in Italian, names allowed langs in English form', () => {

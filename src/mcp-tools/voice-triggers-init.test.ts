@@ -29,6 +29,7 @@ import {
 // Phase 05.6 Plan 01 Task 4: REQ-DIR-17 active-call set assertion.
 import {
   isCallActive,
+  getActiveWhitelist,
   _resetActiveSet,
 } from '../voice-mid-call-gateway.js';
 
@@ -323,6 +324,58 @@ describe('voice_triggers_init — real defaultInvokeAgent integration (Phase 05.
     // After handler completes, the call_id is still active (matching
     // deregister lives in voice_finalize_call_cost — Test 8 in that file).
     expect(isCallActive('call-r17-test')).toBe(true);
+    _resetActiveSet();
+  });
+
+  // 2026-05-07 case=unknown bug fix: when the bridge can't classify a call
+  // it sends an empty/undefined lang_whitelist. The gateway must default to
+  // all SUPPORTED_LANGS so voice_set_language doesn't reject every switch
+  // attempt with 'lang_not_in_whitelist' while the persona thinks it can
+  // switch. See effectiveLangWhitelist in voice-agent-invoker.ts.
+  it('Test 7b: undefined lang_whitelist → gateway stores all SUPPORTED_LANGS default', async () => {
+    _resetActiveSet();
+    const invokerDeps: VoiceAgentInvokerDeps = {
+      loadSkillFiles: fakeSkill,
+    };
+    const handler = makeVoiceTriggersInit({
+      invokeAgent: (input) => defaultInvokeAgent(input, invokerDeps),
+      jsonlPath: tmpJsonl(),
+    });
+    // No lang_whitelist supplied — case=unknown path.
+    await handler(makeValidArgs({ call_id: 'call-default-whitelist' }));
+    expect(getActiveWhitelist('call-default-whitelist')).toEqual(['de', 'en', 'it']);
+    _resetActiveSet();
+  });
+
+  it('Test 7c: empty lang_whitelist [] → gateway stores all SUPPORTED_LANGS default', async () => {
+    _resetActiveSet();
+    const invokerDeps: VoiceAgentInvokerDeps = {
+      loadSkillFiles: fakeSkill,
+    };
+    const handler = makeVoiceTriggersInit({
+      invokeAgent: (input) => defaultInvokeAgent(input, invokerDeps),
+      jsonlPath: tmpJsonl(),
+    });
+    await handler(
+      makeValidArgs({ call_id: 'call-empty-whitelist', lang_whitelist: [] }),
+    );
+    expect(getActiveWhitelist('call-empty-whitelist')).toEqual(['de', 'en', 'it']);
+    _resetActiveSet();
+  });
+
+  it('Test 7d: explicit single-lang [de] → gateway stores it verbatim (opt-in monoglot)', async () => {
+    _resetActiveSet();
+    const invokerDeps: VoiceAgentInvokerDeps = {
+      loadSkillFiles: fakeSkill,
+    };
+    const handler = makeVoiceTriggersInit({
+      invokeAgent: (input) => defaultInvokeAgent(input, invokerDeps),
+      jsonlPath: tmpJsonl(),
+    });
+    await handler(
+      makeValidArgs({ call_id: 'call-monoglot', lang_whitelist: ['de'] }),
+    );
+    expect(getActiveWhitelist('call-monoglot')).toEqual(['de']);
     _resetActiveSet();
   });
 

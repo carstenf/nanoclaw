@@ -47,7 +47,10 @@ import type { ToolHandler } from './index.js';
 // Phase 05.6 Plan 01 Task 2: re-export the real defaultInvokeAgent so callers
 // (incl. mcp-tools/index.ts and the Wave-1 live-cutover synth test) get the
 // real container-runner integration without any AGENT-NOT-WIRED fallback.
-import { defaultInvokeAgent as realDefaultInvokeAgent } from '../voice-agent-invoker.js';
+import {
+  defaultInvokeAgent as realDefaultInvokeAgent,
+  effectiveLangWhitelist,
+} from '../voice-agent-invoker.js';
 export const defaultInvokeAgent = realDefaultInvokeAgent;
 // Phase 05.6 Plan 01 Task 4: register the active call before invoking the
 // agent. The matching deregister lives in voice-finalize-call-cost.ts.
@@ -162,9 +165,16 @@ export function makeVoiceTriggersInit(deps: VoiceTriggersInitDeps): ToolHandler 
     // Phase 06.x: also seed the call's starting lang + whitelist so
     // voice_set_language can validate switch-attempts against the per-call
     // allowed set.
+    // Apply the same default the renderer uses (effectiveLangWhitelist) so
+    // the gateway and the persona instruction stay in sync — otherwise a
+    // case=unknown call would render multilingual instructions but
+    // voice_set_language would still reject switches with
+    // 'lang_not_in_whitelist'. See effectiveLangWhitelist for context on the
+    // case=unknown bug (call rtc_u7_Dcwy0gtAf0ZukGsujyMQy, 2026-05-07).
+    const effective_whitelist = effectiveLangWhitelist(parsed.data.lang_whitelist);
     registerActiveCall(parsed.data.call_id, {
       lang: parsed.data.lang,
-      lang_whitelist: parsed.data.lang_whitelist ?? [],
+      lang_whitelist: [...effective_whitelist],
       render_ctx: {
         case_type: parsed.data.case_type,
         call_direction: parsed.data.call_direction,

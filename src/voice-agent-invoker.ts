@@ -349,11 +349,39 @@ const LANG_NAME_EN: Record<Lang, string> = {
   it: 'Italian',
 };
 
+/**
+ * Resolve the effective per-call lang whitelist. When the caller supplies
+ * `undefined` or an empty array, default to all SUPPORTED_LANGS — covers the
+ * case=unknown path where the bridge couldn't classify the call (e.g. CLI
+ * whitelist miss for inbound-from-Carsten in 2026-05-07 call
+ * rtc_u7_Dcwy0gtAf0ZukGsujyMQy). Without this default, `voice_set_language`
+ * rejected every switch attempt and the persona was instructed to refuse
+ * off-language counterparts.
+ *
+ * Explicit single-lang whitelist (e.g. `['de']`) is honored as the opt-in
+ * monoglot mode — useful when Andy deliberately wants to lock the call to
+ * one language. Caller can also pass `['de','en']` to allow a strict 2-lang
+ * subset.
+ *
+ * Used at two boundaries:
+ *  - `buildLangSwitchBlock` (this file) — renders the persona instruction.
+ *  - `voice_triggers_init` handler — registers the effective whitelist with
+ *    the active-call gateway so `voice_set_language` validates against the
+ *    same set the persona sees.
+ */
+export function effectiveLangWhitelist(
+  whitelist: readonly Lang[] | undefined,
+): readonly Lang[] {
+  if (whitelist && whitelist.length > 0) return whitelist;
+  return SUPPORTED_LANGS;
+}
+
 function buildLangSwitchBlock(
   active: Lang,
   whitelist: readonly Lang[] | undefined,
 ): string {
-  const switchable = (whitelist ?? []).filter((l) => l !== active);
+  const effective = effectiveLangWhitelist(whitelist);
+  const switchable = effective.filter((l) => l !== active);
 
   // Language-neutral instruction text. Written in English (the model's
   // instruction-language) so a single phrasing serves all three persona
