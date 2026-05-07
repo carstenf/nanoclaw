@@ -17,7 +17,7 @@ import {
   PRACTICE_PROFILE_PATH,
   ANDY_VOICE_DISCORD_CHANNEL,
   VOICE_DISCORD_ALLOWED_CHANNELS_RAW,
-} from '../config.js';
+} from './config.js';
 import { logger } from '../logger.js';
 import {
   createTask,
