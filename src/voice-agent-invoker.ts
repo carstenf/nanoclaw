@@ -84,13 +84,27 @@ const CASE_OVERLAY_MAP: Record<string, string | null> = {
   case_6b: 'overlays/case-6b-inbound-operator.md',
 };
 
-// Multilingual layout (Phase 06.x): per-language baselines + overlays under
-// `i18n/{lang}/`. Loader prefers `i18n/{lang}/`, falls back to the flat
-// layout (`baseline.md` + `overlays/...`) so a language without a folder
-// degrades gracefully to the German default content.
+// Multilingual layout (DRY refactor 2026-05-07): single shared `baseline.md`
+// + flat `overlays/`. Per-language phrases live INLINE in baseline.md as
+// "DE: ... / EN: ... / IT: ..." example lists; the model picks the example
+// matching its current Speaking-language directive (gpt-realtime is
+// multilingual). The renderer substitutes `{{speaking_language}}` from the
+// `lang` arg below — no per-language file lookup needed.
+//
+// Earlier Phase 06.x architecture had per-language folders
+// (`i18n/{lang}/baseline.md`) which duplicated 90% of the content across
+// 3 baselines. Replaced because (a) gpt-realtime handles multilingual
+// natively and (b) keeping 3 baselines in sync was a maintenance trap
+// (DE-baseline 5.5. update never reached EN/IT — caught this 7.5.).
 const SUPPORTED_LANGS = ['de', 'en', 'it'] as const;
 type Lang = typeof SUPPORTED_LANGS[number];
 const DEFAULT_LANG: Lang = 'de';
+
+const LANG_DESCRIPTIVE: Record<Lang, string> = {
+  de: 'German (de-DE)',
+  en: 'English',
+  it: 'Italian (it-IT)',
+};
 
 /**
  * Operator name used by the persona templates (replaces the `{{operator_name}}`
@@ -135,26 +149,24 @@ export interface VoiceAgentInvokerDeps {
  * Default skill-files reader. Reads from VOICE_PERSONAS_DIR on the host.
  * Throws if SKILL.md or baseline.md are missing — those are non-recoverable.
  *
- * Layout resolution:
- *   1. `i18n/{lang}/baseline.md` + `i18n/{lang}/overlays/...` (multilingual).
- *   2. Falls back to flat `baseline.md` + `overlays/...` (legacy DE-only).
- * This lets Step 2 land the i18n folder structure without breaking the
- * default DE path before the move is in.
+ * Layout (DRY refactor 2026-05-07): single shared baseline.md + flat
+ * overlays/. Per-language phrases live inline in baseline.md as multilingual
+ * examples; only the `{{speaking_language}}` placeholder differs per lang
+ * and is substituted by the renderer below. The `lang` arg is kept for the
+ * substitution step + the lang_switch_block whitelist; mid-call language
+ * switching (voice_set_language) re-renders with the new lang value.
  */
 export function loadVoicePersonaSkillDefault(
   caseType: string,
-  lang: Lang = DEFAULT_LANG,
+  _lang: Lang = DEFAULT_LANG,
 ): VoicePersonaSkillFiles {
   const skill = fs.readFileSync(
     path.join(VOICE_PERSONAS_DIR, 'SKILL.md'),
     'utf8',
   );
 
-  const langDir = path.join(VOICE_PERSONAS_DIR, 'i18n', lang);
-  const langBaseline = path.join(langDir, 'baseline.md');
-  const flatBaseline = path.join(VOICE_PERSONAS_DIR, 'baseline.md');
   const baseline = fs.readFileSync(
-    fs.existsSync(langBaseline) ? langBaseline : flatBaseline,
+    path.join(VOICE_PERSONAS_DIR, 'baseline.md'),
     'utf8',
   );
 
@@ -162,9 +174,7 @@ export function loadVoicePersonaSkillDefault(
   let overlay = '';
   let overlayPath: string | null = null;
   if (overlayRel) {
-    const langOverlay = path.join(langDir, overlayRel);
-    const flatOverlay = path.join(VOICE_PERSONAS_DIR, overlayRel);
-    overlayPath = fs.existsSync(langOverlay) ? langOverlay : flatOverlay;
+    overlayPath = path.join(VOICE_PERSONAS_DIR, overlayRel);
     try {
       overlay = fs.readFileSync(overlayPath, 'utf8');
     } catch {
@@ -419,6 +429,11 @@ export function renderPersona(
     anrede_capitalized: anrede.capitalized,
     anrede_pronoun: anrede.pronoun,
     anrede_disclosure: anrede.disclosure,
+    // DRY refactor 2026-05-07: speaking_language is the only per-language
+    // placeholder in the shared baseline. Substituting it from the lang arg
+    // is enough because gpt-realtime is multilingual — it picks the matching
+    // example phrase from the inline DE/EN/IT lists in baseline.md.
+    speaking_language: LANG_DESCRIPTIVE[lang],
     lang_switch_block,
     // Phone-bot identifies with the same name the operator uses for the
     // WhatsApp/Discord agent. Resolved process.env → ~/nanoclaw/.env →

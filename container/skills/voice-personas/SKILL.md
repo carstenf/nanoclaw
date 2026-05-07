@@ -1,6 +1,6 @@
 ---
 name: voice-personas
-description: When voice_triggers_init or voice_triggers_transcript fires, load i18n/{lang}/baseline.md + the matching i18n/{lang}/overlays/{case_type}.md, substitute placeholders, return the rendered string as instructions. Default lang=de; en + it supported.
+description: When voice_triggers_init or voice_triggers_transcript fires, load baseline.md + the matching overlays/{case_type}.md, substitute placeholders (including {{speaking_language}} from the lang arg), return the rendered string as instructions. Single shared baseline + flat overlays — gpt-realtime is multilingual so per-language phrases live inline as DE/EN/IT examples in baseline.md, not in separate files. Mid-call language switching (voice_set_language) re-renders with the new lang.
 ---
 
 # voice-personas — persona assembly for the voice channel
@@ -22,23 +22,34 @@ Both triggers receive `case_type` (e.g. `case_2`, `case_6b`) plus call metadata.
 
 ## Files
 
-Multilingual layout (Phase 06.x — 2026-04-28). Per-language baselines +
-overlays under `i18n/{lang}/`. Renderer reads from `i18n/{lang}/` based on
-the `lang` arg passed to `voice_triggers_init`; default `lang='de'`.
+Single-baseline DRY layout (refactor 2026-05-07). One shared baseline +
+flat overlays/. Per-language phrases live inline as multilingual examples
+("DE: ... / EN: ... / IT: ...") — gpt-realtime is multilingual and picks
+the example matching its current Speaking-language directive. Replaces
+the older `i18n/{de,en,it}/` per-language tree (90% duplicate content
+that drifted out of sync between languages).
 
 | File | Purpose |
 |---|---|
-| `i18n/{de,en,it}/baseline.md` | Universal baseline (~515 tokens). Identity, ROLE, PERSONALITY, REFERENCE PRONUNCIATIONS, INSTRUCTIONS/RULES, CONVERSATION FLOW, SAFETY & ESCALATION. Holds all `{{...}}` placeholders. |
-| `i18n/{de,en,it}/overlays/case-6b-inbound-operator.md` | Case-6b overlay — inbound from {{operator_name}} (CLI whitelist). TASK + calendar / travel-time / ASK_CORE / END_CALL hard-rule. |
+| `baseline.md` | Universal baseline. Identity, ROLE, PERSONALITY, REFERENCE PRONUNCIATIONS, INSTRUCTIONS/RULES, CONVERSATION FLOW, SAFETY & ESCALATION. Holds all `{{...}}` placeholders including `{{speaking_language}}`. |
+| `overlays/case-6b-inbound-operator.md` | Case-6b overlay — inbound from {{operator_name}} (CLI whitelist). TASK + calendar / travel-time tool guidance. |
+| `overlays/case-6b-inbound-carsten.md` | Case-6b overlay — inbound from Carsten specifically. Adds "warm familiar tone, allow more casual phrasing" guidance. |
 
-**Outbound (case_2 / generic) renders baseline-only (Step 2B 2026-04-28).**
-The case-2 restaurant overlay was deleted; the call brief now flows in via the `goal` placeholder Andy supplied to `voice_request_outbound_call`, and `counterpart_label` addresses the right entity. Sonnet/Realtime is fully capable of handling restaurant reservations, doctor appointments, callbacks, and generic inquiries straight from the goal text. If a future case demands scripted decision rules (e.g. legal-style negotiations), introduce a new overlay file rather than reviving the case-2 one.
+**Outbound (case_2 / generic) renders baseline-only.** The case-2
+restaurant overlay was deleted; the call brief now flows in via the `goal`
+placeholder Andy supplied to `voice_request_outbound_call`, and
+`counterpart_label` addresses the right entity. The Realtime model handles
+restaurant reservations, doctor appointments, callbacks, and generic
+inquiries straight from the goal text. If a future case demands scripted
+decision rules (e.g. legal-style negotiations), introduce a new overlay
+file rather than reviving the case-2 one.
 
-Languages supported v1: `de` (default), `en`, `it`. Adding a new overlay or
-case_type means adding it for EVERY supported language — the loader has a
-defensive flat-fallback (legacy `baseline.md` + `overlays/`) but those
-files do not exist in v1, so a missing language file causes an `agent_unavailable`
-that the Bridge surfaces via FALLBACK_PERSONA.
+Languages supported v1: `de` (default), `en`, `it`. Whitelist controls
+mid-call switching (`voice_set_language`); the model can switch fluidly
+between any two whitelisted langs while on the same call. Adding a fourth
+language is just adding "ZH: ..." style examples to baseline.md and
+extending the whitelist + LANG_DESCRIPTIVE map in
+`src/voice-agent-invoker.ts`. No new files needed.
 
 Case-3 / Case-4 overlays are added in later phases. Case-1 (hotel) is deferred to v2+.
 
@@ -47,17 +58,17 @@ Case-3 / Case-4 overlays are added in later phases. Case-1 (hotel) is deferred t
 The container-agent performs these steps verbatim when a trigger fires:
 
 1. Resolve `lang` (default `'de'` if omitted).
-2. Read `i18n/{lang}/baseline.md`.
-3. Read `i18n/{lang}/overlays/{case_type}.md` (mapping table below). If the overlay file does not exist, use baseline only and log a warning.
+2. Read `baseline.md` (single shared file).
+3. Read `overlays/{case_type}.md` (mapping table below). If the overlay file does not exist, use baseline only and log a warning.
 4. Concatenate baseline body + `\n\n` + overlay body into one string.
-5. Substitute every `{{placeholder}}` token (see Placeholders below). After substitution there must be no `{{...}}` tokens left.
+5. Substitute every `{{placeholder}}` token (see Placeholders below). `{{speaking_language}}` resolves to "German (de-DE)" / "English" / "Italian (it-IT)" based on `lang`. After substitution there must be no `{{...}}` tokens left.
 6. Return the rendered string as `instructions` (init) or `instructions_update` (transcript).
 
 The Bridge receives a fully-rendered string with no `{{...}}` tokens left. The Bridge does NOT do any substitution.
 
 ## case_type-to-overlay mapping
 
-Paths are relative to `i18n/{lang}/`.
+Paths are relative to `voice-personas/`.
 
 | `case_type` | Overlay file |
 |---|---|
