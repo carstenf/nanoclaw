@@ -84,10 +84,40 @@ After the merge, you should have:
 - `src/channels/active-session-tracker.ts` (+ test) — voice_notify_user routing
 - `src/cost-ledger.ts` (+ test) — voice cost SQLite accessors
 - `container/agent-runner/src/voice-request.ts`
-- `container/skills/voice-outbound/` — container-side outbound voice skill
-- `container/skills/voice-personas/` — DE/EN/IT personas + Case-2/6b overlays
 - `systemd/voice-trace-sweep.{service,timer}` (optional)
 - `INTEGRATION.md` (reference for the patches in Phase 3 — can be deleted after applying)
+
+### Pull container voice-skills from mcp-voice-channel
+
+The voice personas (DE/EN/IT baselines, Case-2/6b overlays) and the
+outbound-call skill live with the voice-channel infrastructure
+(`carstenf/mcp-voice-channel`), not in this NanoClaw-side skill — any
+agent harness using voice-channel needs them, so they're the canonical
+property of the voice-channel repo.
+
+Either clone mcp-voice-channel temporarily and copy the skills directory:
+
+```bash
+git clone --depth 1 https://github.com/carstenf/mcp-voice-channel /tmp/mvc
+mkdir -p container/skills
+cp -r /tmp/mvc/andy-skills/voice-personas container/skills/
+cp -r /tmp/mvc/andy-skills/voice-outbound container/skills/
+rm -rf /tmp/mvc
+```
+
+Or, if you already have mcp-voice-channel cloned locally (e.g., because
+you deployed the voice-stack from this same checkout in the single-host
+case), reference its andy-skills/ directly:
+
+```bash
+mkdir -p container/skills
+cp -r /path/to/mcp-voice-channel/andy-skills/voice-personas container/skills/
+cp -r /path/to/mcp-voice-channel/andy-skills/voice-outbound container/skills/
+```
+
+The voice-personas skill is loaded by `voice-agent-invoker.ts` whenever
+`voice_triggers_init` or `voice_triggers_transcript` fires.
+voice-outbound is loaded when Andy needs to dispatch an outbound call.
 
 ### Apply integration patches to shared files
 
