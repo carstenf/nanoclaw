@@ -74,20 +74,27 @@ git commit --no-edit
 ```
 
 After the merge, you should have:
-- `src/voice-channel/` (8 files: index, manager, protocol, wiring, orchestrator, register-tools, config, types)
+- `src/voice-channel/` (7 files: index, manager, protocol, wiring, orchestrator, register-tools, config)
 - `src/voice-*.ts` (5 sources + 5 tests)
 - `src/mcp-tools/voice-*.ts` (12 sources + 10 tests)
-- `src/channels/voice-mcp.ts`
+- `src/mcp-tools/slow-brain-session.ts` (+ test) — per-call session manager
+- `src/mcp-tools/claude-client.ts` (+ test) — Anthropic API client via OneCLI
+- `src/mcp-tools/skill-loader.ts` (+ test) — voice ask-core skill resolver
+- `src/channels/voice-mcp.ts` — WS client to voice-mcp:3150
+- `src/channels/active-session-tracker.ts` (+ test) — voice_notify_user routing
+- `src/cost-ledger.ts` (+ test) — voice cost SQLite accessors
 - `container/agent-runner/src/voice-request.ts`
+- `container/skills/voice-outbound/` — container-side outbound voice skill
+- `container/skills/voice-personas/` — DE/EN/IT personas + Case-2/6b overlays
 - `systemd/voice-trace-sweep.{service,timer}` (optional)
 - `INTEGRATION.md` (reference for the patches in Phase 3 — can be deleted after applying)
 
 ### Apply integration patches to shared files
 
-The merge above adds new files. Now apply the patches to four shared files,
+The merge above adds new files. Now apply the patches to six shared files,
 each adding small hooks that delegate to the voice-channel module. Read
 `INTEGRATION.md` from the merged tree for the exact diffs; the patches are
-small (1-10 lines each):
+small (1-50 lines each):
 
 1. **`src/mcp-tools/index.ts`** — import `registerVoiceTools` and call it
    inside `buildDefaultRegistry`, re-export `voiceTriggerQueue`, extend
@@ -105,15 +112,20 @@ small (1-10 lines each):
    `ASK_CORE_*`, `BRIDGE_OUTBOUND_*`, `VOICE_NOTIFY_LONG_TEXT_WORD_THRESHOLD`,
    `CASE_2_*` from `voice-channel/config.js`).
 
-4. **`container/agent-runner/src/index.ts`** — import the three exports
+4. **`src/group-queue.ts`** — add the `sendVoiceRequest(jid, callId, prompt)`
+   method (~15 lines) that drops a `voice_request` IPC envelope into the
+   active container's input directory. Import `buildVoiceRequestEnvelope`
+   from `./voice-channel/protocol.js`.
+
+5. **`src/db.ts`** — add the voice cost-ledger schema (3 tables:
+   `voice_call_costs`, `voice_turn_costs`, `voice_price_snapshots`) to the
+   `createSchema()` function. ~30 lines.
+
+6. **`container/agent-runner/src/index.ts`** — import the three exports
    from `./voice-request.js`, add the `isVoiceRequestEnvelope` branch in
    `drainIpcInput`, replace the success-emit with the
-   `takePendingVoiceRequest()` switch.
-
-If `GroupQueue` (`src/group-queue.ts`) doesn't already implement
-`sendVoiceRequest(jid, callId, prompt)`, add that small method (writes a
-`{ type: 'voice_request', call_id, prompt }` envelope to the container's
-input directory). About 15 lines.
+   `takePendingVoiceRequest()` switch, and add the `ContainerVoiceResponse`
+   type to the output union.
 
 ### Validate code changes
 
