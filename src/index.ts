@@ -75,12 +75,13 @@ import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 import { recallMemory, retainMemory } from './hindsight.js';
 import { startMcpServer } from './mcp-server.js';
-import { VoiceMcpClient } from './channels/voice-mcp.js';
 import { buildDefaultRegistry } from './mcp-tools/index.js';
-import {
-  wireVoiceChannel,
-  handleVoiceResponseMarker,
-} from './voice-channel/index.js';
+// Voice-channel orchestrator (host-side wiring). Single import: the
+// /add-voice-channel skill removes this line + the setupVoiceOrchestrator
+// call below + every `voice.*` reference. The orchestrator encapsulates
+// VoiceRespondManager, tryInjectVoiceRequest, triggerWakeUp,
+// handleResponseMarker, isWakeUpTurn, and the VoiceMcpClient WS lifecycle.
+import { setupVoiceOrchestrator } from './voice-channel/index.js';
 import { createActiveSessionTracker } from './channels/active-session-tracker.js';
 
 // Re-export for backwards compatibility during refactor
@@ -94,62 +95,19 @@ let messageLoopRunning = false;
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
-// Phase 05.6-04 follow-up: voice-channel wiring. wireVoiceChannel constructs
-// the singleton VoiceRespondManager (Andy's promise-correlation map) and the
-// tryInjectVoiceRequest helper (host-side IPC injector). Both flow into
-// buildDefaultRegistry so voice_ask_core (registers) and voice_respond
-// (resolves) share the same map. handleVoiceResponseMarker (used in the
-// runAgent callback below) routes container-emitted voice_response markers
-// to the same manager.
-const { manager: voiceRespondManager, tryInjectVoiceRequest } =
-  wireVoiceChannel({
-    getMainJid: () =>
-      Object.entries(registeredGroups).find(([, g]) => g.isMain)?.[0] ?? null,
-    sendVoiceRequest: (jid, callId, prompt) =>
-      queue.sendVoiceRequest(jid, callId, prompt),
-  });
 
-/**
- * open_points 2026-04-27 #1: voice-bridge fires this fire-and-forget at
- * /accept time so the main container is up + idle by the time the first
- * ask_core arrives. Inserts a sentinel `<voice_wake_up>` message in the
- * DB and triggers the existing message-check pipeline. If main container
- * is up: pipeline absorbs the turn; persona instruction tells Andy to
- * silently no-op; output suppression in runAgent callback skips
- * Discord/WhatsApp post (sentinel detection on prompt). If main container
- * is down: enqueueMessageCheck spawns it. Either way the container ends
- * up idle-waiting for ask_core within 3-5 s of /accept.
- */
-function triggerWakeUp(callId: string, reason: string): boolean {
-  const mainEntry = Object.entries(registeredGroups).find(
-    ([, g]) => g.isMain,
-  );
-  if (!mainEntry) return false;
-  const [mainJid, mainGroup] = mainEntry;
-  const sentinel = `<voice_wake_up call_id="${callId}" reason="${reason}" />`;
-  const now = new Date().toISOString();
-  storeMessage({
-    id: `wakeup-${callId}-${Date.now()}`,
-    chat_jid: mainJid,
-    sender: 'voice-bridge',
-    sender_name: 'voice-bridge',
-    content: sentinel,
-    timestamp: now,
-    is_from_me: false,
-    is_bot_message: false,
-  });
-  queue.enqueueMessageCheck(mainJid);
-  logger.info(
-    {
-      event: 'wakeup_sentinel_queued',
-      call_id: callId,
-      reason,
-      main_group: mainGroup.name,
-    },
-    'voice wake-up sentinel queued + enqueueMessageCheck triggered',
-  );
-  return true;
-}
+// Voice-channel orchestrator. Host-side wiring (VoiceRespondManager,
+// tryInjectVoiceRequest, triggerWakeUp, handleResponseMarker, WS client
+// lifecycle) all live behind this single setup call. /add-voice-channel
+// skill removes the import above + this assignment + every `voice.*`
+// reference downstream. Side-effect-free at construction; startWsClient()
+// is invoked separately after the registry is built.
+const voice = setupVoiceOrchestrator({
+  getRegisteredGroups: () => registeredGroups,
+  sendVoiceRequest: (jid, callId, prompt) =>
+    queue.sendVoiceRequest(jid, callId, prompt),
+  enqueueMessageCheck: (jid) => queue.enqueueMessageCheck(jid),
+});
 
 const onecli = new OneCLI({ url: ONECLI_URL });
 
@@ -361,10 +319,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // open_points 2026-04-27 #1: detect a voice wake-up turn so we can
   // suppress channel.sendMessage even if Andy ignores the persona instruction
   // and emits something like "ok". The sentinel is inserted into the DB by
-  // triggerWakeUp() above; processGroupMessages reads it via getMessagesSince
+  // voice.triggerWakeUp(); processGroupMessages reads it via getMessagesSince
   // and includes it in the formatted prompt. Belt-and-suspenders: persona
   // says "stay silent", this guard ensures it.
-  const isWakeUpTurn = prompt.includes('<voice_wake_up');
+  const isWakeUpTurn = voice.isWakeUpTurn(prompt);
 
   await channel.setTyping?.(chatJid, true);
   let hadError = false;
@@ -377,7 +335,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     // (voice_respond MCP tool also has a Discord fallback for after-90s
     // arrivals; here the answer is in time and the voice-bot still on the
     // line.)
-    if (handleVoiceResponseMarker(result, voiceRespondManager)) {
+    if (voice.handleResponseMarker(result, voice.manager)) {
       resetIdleTimer();
       queue.notifyIdle(chatJid);
       return;
@@ -1047,50 +1005,22 @@ async function main(): Promise<void> {
   // Single-source ToolRegistry shared between the legacy REST fassade
   // (port 3200, Bridge consumer) and the Phase-4 Plan-04-03 StreamableHTTP
   // transport (port 3201, Chat-Claude consumer). AC-07 invariant.
-  // tryInjectVoiceRequest + voiceRespondManager come from the top-level
-  // wireVoiceChannel() call; voice-ask-core uses them for the topic='andy'
-  // existing-container path (no --rm fallback).
+  // Voice-channel deps come from the top-level setupVoiceOrchestrator call.
   const sharedRegistry = buildDefaultRegistry({
     sendDiscordMessage,
     getMainGroupAndJid,
     activeSessionTracker,
-    tryInjectVoiceRequest,
-    voiceRespondManager,
-    triggerWakeUp,
+    tryInjectVoiceRequest: voice.tryInjectVoiceRequest,
+    voiceRespondManager: voice.manager,
+    triggerWakeUp: voice.triggerWakeUp,
   });
   startMcpServer({
     registry: sharedRegistry,
     deps: { sendDiscordMessage, getMainGroupAndJid },
   });
-  // V2.3: long-lived WebSocket client to voice-mcp on Hetzner — pattern
-  // identical to channels/discord.ts: NanoClaw initiates outbound, holds
-  // the connection open, receives push triggers, replies. Replaces
-  // Bridge → NanoClaw:3201 inbound in V2.2 with NanoClaw → voice-mcp
-  // outbound. NanoClaw never binds an inbound voice-mcp port.
-  const voiceMcpEnv = readEnvFile([
-    'VOICE_MCP_TRIGGERS_URL',
-    'VOICE_MCP_BEARER',
-  ]);
-  const voiceMcpTriggersUrl =
-    process.env.VOICE_MCP_TRIGGERS_URL ?? voiceMcpEnv.VOICE_MCP_TRIGGERS_URL ?? '';
-  const voiceMcpBearer =
-    process.env.VOICE_MCP_BEARER ?? voiceMcpEnv.VOICE_MCP_BEARER ?? '';
-  if (voiceMcpTriggersUrl && voiceMcpBearer) {
-    const voiceMcpClient = new VoiceMcpClient({
-      url: voiceMcpTriggersUrl,
-      bearer: voiceMcpBearer,
-      registry: sharedRegistry,
-      voiceRespondManager,
-      tryInjectVoiceRequest,
-      warmupContainer: () => triggerWakeUp('voice-mcp-warmup', 'warmup'),
-    });
-    voiceMcpClient.start();
-  } else {
-    logger.info({
-      event: 'voice_mcp_client_disabled',
-      reason: 'VOICE_MCP_TRIGGERS_URL or VOICE_MCP_BEARER unset',
-    });
-  }
+  // Voice-channel WS client (NanoClaw → voice-mcp:3150 on Hetzner). No-op
+  // when VOICE_MCP_TRIGGERS_URL / VOICE_MCP_BEARER are unset.
+  voice.startWsClient(sharedRegistry);
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {

@@ -27,3 +27,8 @@ export {
   type VoiceChannelDeps,
   type VoiceChannelWiring,
 } from './wiring.js';
+export {
+  setupVoiceOrchestrator,
+  type VoiceOrchestrator,
+  type VoiceOrchestratorDeps,
+} from './orchestrator.js';
