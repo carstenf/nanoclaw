@@ -23,6 +23,15 @@ import {
   PreCompactHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
+// Voice-channel IPC envelope handling. /add-voice-channel skill removes
+// this import + every voice-request reference + the voice-channel guard
+// in drainIpcInput + the takePendingVoiceRequest call in the result-emit
+// path; deletes ./voice-request.js.
+import {
+  isVoiceRequestEnvelope,
+  consumeVoiceRequest,
+  takePendingVoiceRequest,
+} from './voice-request.js';
 
 interface ContainerInput {
   prompt: string;
@@ -332,18 +341,13 @@ function shouldClose(): boolean {
  * Drain all pending IPC input messages.
  * Returns messages found, or empty array.
  */
-// Phase 05.6-04 follow-up: when a voice_request IPC envelope is consumed,
-// remember its call_id so the next assistant `result` can be tagged with a
-// `voice_response` output-marker (host then routes to VoiceRespondManager
-// instead of the Discord channel). Andy doesn't have to call voice_respond
-// explicitly — agent-runner does the rerouting transparently.
-//
-// IPC contract: VoiceRequestEnvelope (input) and VoiceResponseMarker (output)
-// shapes are defined in src/voice-channel/protocol.ts on the host side.
-// This file lives in a separate TS project and re-declares the shapes
-// inline (drainIpcInput below + writeOutput in the result path). When you
-// change a field, update both ends.
-let pendingVoiceRequestCallId: string | null = null;
+// Phase 05.6-04 follow-up: voice_request IPC envelope handling lives in
+// ./voice-request.ts (refactor 2026-05-07). drainIpcInput delegates the
+// envelope path; the result-emit path calls takePendingVoiceRequest().
+// IPC contract: VoiceRequestEnvelope (input) and VoiceResponseMarker
+// (output) shapes are mirrored on the host side in
+// src/voice-channel/protocol.ts. When you change a field, update both
+// ends.
 
 function drainIpcInput(): string[] {
   try {
@@ -361,17 +365,12 @@ function drainIpcInput(): string[] {
         fs.unlinkSync(filePath);
         if (data.type === 'message' && data.text) {
           messages.push(data.text);
-        } else if (
-          data.type === 'voice_request' &&
-          typeof data.call_id === 'string' &&
-          typeof data.prompt === 'string'
-        ) {
-          // Voice channel request — track call_id so the host can route the
-          // assistant's text response to voice_respond. The wrapper hint is
-          // still emitted so Andy knows the request is voice-bound and may
-          // call voice_respond directly (both paths converge).
-          pendingVoiceRequestCallId = data.call_id;
-          messages.push(buildVoiceRequestPrompt(data.call_id, data.prompt));
+        } else if (isVoiceRequestEnvelope(data)) {
+          // Voice channel request — voice-request.ts tracks call_id so
+          // the host routes the assistant's text response via
+          // voice_respond. Wrapper prompt steers Andy toward plain-text
+          // voice-friendly output.
+          messages.push(consumeVoiceRequest(data));
         }
       } catch (err) {
         log(
@@ -391,72 +390,8 @@ function drainIpcInput(): string[] {
   }
 }
 
-/**
- * Build the prompt envelope for a voice-channel request. Andy is in the
- * existing whatsapp_main container — the normal output path goes to
- * WhatsApp/Discord. Voice requests must instead route through the
- * voice_respond MCP tool so the bridge gets the result as a tool reply.
- *
- * Hint is appended in plain text (not a system message) because the SDK
- * injects this string into the existing message stream — there is no
- * separate channel for system-level overrides mid-conversation.
- */
-function buildVoiceRequestPrompt(callId: string, userRequest: string): string {
-  return [
-    '############################################################',
-    '# VOICE-CHANNEL REQUEST — KRITISCH                          #',
-    '############################################################',
-    '',
-    `call_id: ${callId}`,
-    '',
-    'Diese Anfrage kommt ueber den Voice-Channel (Telefon).',
-    'Operator wartet AM TELEFON auf eine Antwort. Der Voice-Bot wartet bis 90s.',
-    '',
-    '## DEINE ROLLE',
-    '',
-    'Du bist Andy in voice-mode. Du hast Zugriff zu allen Tools: WebSearch, WebFetch,',
-    'mcp__voice__*, mcp__nanoclaw__*, mcp__gmail__*, mcp__gcalendar__*, Bash, Read, Grep usw.',
-    'Optimiere fuer SCHNELLE Antwort. Bei Wetter/Live-Daten: max 1 WebSearch (5-10s).',
-    'Wenn du die Antwort schon weisst, antworte direkt ohne Recherche.',
-    '',
-    '## ANTWORT-PFAD — HARTE REGEL',
-    '',
-    'Antworte mit PLAIN TEXT als Assistant-message. Diese erste Text-Antwort',
-    'in diesem Turn wird automatisch ueber den Voice-Channel an den Operator',
-    'vorgelesen — du brauchst KEINEN MCP-Tool-Aufruf dafuer (es gibt KEIN',
-    'mcp__nanoclaw__voice_respond, frueherer Hint war veraltet).',
-    '',
-    'Format:',
-    '  - Deutsche Antwort, max 3 Saetze, max 500 Zeichen.',
-    '  - KEINE Markdown, KEINE Aufzaehlungen, KEINE Emoji — wird vorgelesen.',
-    '  - KEIN <internal>...</internal>-only Output: das wird gestripped und',
-    '    laesst voice_short leer (Operator hoert nur "Antwort steht auf',
-    '    Discord"-Fallback). Schreibe IMMER einen user-facing Satz.',
-    '',
-    '## OPTIONAL: discord_long (lange Form mit Quellen/Details)',
-    '',
-    'Falls du nach der Voice-Antwort noch Details/Quellen auf Discord posten',
-    'willst: rufe NACH deiner Voice-Text-Antwort genau einmal',
-    'mcp__nanoclaw__send_message mit dem langen Text auf. Das ist optional.',
-    '',
-    '## VERBOTEN',
-    '',
-    '- KEIN voice_send_discord_message-Aufruf VOR der Voice-Text-Antwort.',
-    '- KEIN JSON-Block oder Tool-call-Wrapper im Text-Output.',
-    '- KEIN leerer / nur-<internal>-Output.',
-    '',
-    '## BEI UNSICHERHEIT',
-    '',
-    'Antworte mit "Das weiss ich gerade nicht." als Plain-Text. NICHT',
-    'halluzinieren. NICHT raten.',
-    '',
-    '############################################################',
-    '# ANFRAGE                                                    #',
-    '############################################################',
-    '',
-    userRequest,
-  ].join('\n');
-}
+// (buildVoiceRequestPrompt moved to ./voice-request.ts as part of the
+// /add-voice-channel skill extraction, 2026-05-07.)
 
 /**
  * Wait for a new IPC message or _close sentinel.
@@ -687,16 +622,15 @@ async function runQuery(
       // (and skip Discord). Cleared after one emission so subsequent turns
       // in the same query (e.g. follow-up Discord messages) revert to the
       // normal success-marker channel routing.
-      if (pendingVoiceRequestCallId) {
-        const callId = pendingVoiceRequestCallId;
-        pendingVoiceRequestCallId = null;
+      const voiceCallId = takePendingVoiceRequest();
+      if (voiceCallId) {
         log(
-          `Voice-channel response captured for call_id=${callId} (${(textResult || '').length} chars)`,
+          `Voice-channel response captured for call_id=${voiceCallId} (${(textResult || '').length} chars)`,
         );
         writeOutput({
           status: 'voice_response',
           result: textResult || null,
-          call_id: callId,
+          call_id: voiceCallId,
           discord_long: null,
           newSessionId,
         });
