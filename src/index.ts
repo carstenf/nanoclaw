@@ -330,7 +330,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // says "stay silent", this guard ensures it.
   const isWakeUpTurn = voice.isWakeUpTurn(prompt);
 
-  await channel.setTyping?.(chatJid, true);
+  // setTyping can hang indefinitely if Discord's WS goes stale (observed
+  // 2026-05-08). Cap it so the agent run is not blocked on cosmetics.
+  await Promise.race([
+    channel.setTyping?.(chatJid, true),
+    new Promise((resolve) => setTimeout(resolve, 3000)),
+  ]).catch((err) => {
+    logger.warn({ err: String(err) }, 'setTyping failed (non-fatal)');
+  });
   let hadError = false;
   let outputSentToUser = false;
 
