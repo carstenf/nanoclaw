@@ -1,0 +1,206 @@
+/**
+ * MCP tool: voice_get_budget_status
+ *
+ * Andy-facing chat tool. Lets the user ask "wieviel guthaben hab ich noch?"
+ * via WhatsApp / Discord / etc. and get a current OpenAI org month-to-date
+ * spend + budget rest answer.
+ *
+ * Reuses the same data sources as voice_finalize_call_cost:
+ *   - voice-config.json → monthly_budget_eur (operator-set ceiling)
+ *   - openai-cost-client → /v1/organization/costs (5min cache)
+ *   - voice_turn_costs ledger → daily + monthly sums (NanoClaw side)
+ *
+ * Returns structured fields so Andy can format short ("Noch €38.37 von €50")
+ * or long (full breakdown). Includes a `summary_text` matching the
+ * post-call-summary format for one-line copy.
+ */
+import { z } from 'zod';
+
+import { logger } from '../logger.js';
+import { getDatabase } from '../db.js';
+import { readVoiceConfig } from '../voice-config.js';
+import { getMonthToDateUsd } from '../openai-cost-client.js';
+
+import { BadRequestError } from './voice-on-transcript-turn.js';
+import type { ToolHandler } from './index.js';
+
+export const TOOL_NAME = 'voice_get_budget_status' as const;
+
+// Same constant as voice-finalize-call-cost.ts and recon-invoice.ts. Kept
+// in-sync manually because tests pin to specific values; no runtime FX feed.
+const USD_TO_EUR = 0.93;
+
+export const VoiceGetBudgetStatusSchema = z.object({});
+
+export type VoiceGetBudgetStatusInput = z.infer<
+  typeof VoiceGetBudgetStatusSchema
+>;
+
+export interface VoiceGetBudgetStatusResult {
+  ok: true;
+  result: {
+    /** Monthly cap from voice-config.json. undefined = no budget configured. */
+    budget_eur: number | undefined;
+    /** OpenAI org month-to-date in USD (raw from admin API). */
+    openai_month_usd: number | undefined;
+    /** Same value converted via USD_TO_EUR. */
+    openai_month_eur: number | undefined;
+    /** budget_eur - openai_month_eur. Negative when over-budget. */
+    rest_eur: number | undefined;
+    /** voice_turn_costs ledger sum for current UTC day. */
+    day_eur: number;
+    /** voice_turn_costs ledger sum for current UTC month. */
+    month_eur: number;
+    /**
+     * Multi-line German summary mirroring the post-call format. Useful
+     * when the user asks for the full picture; Andy can also ignore this
+     * and format from the structured fields above.
+     */
+    summary_text: string;
+    /** True when OpenAI fetch failed (rest_eur will be undefined then). */
+    openai_fetch_failed: boolean;
+  };
+}
+
+export interface VoiceGetBudgetStatusDeps {
+  db?: import('better-sqlite3').Database;
+  readConfig?: typeof readVoiceConfig;
+  fetchOpenaiMonthUsd?: typeof getMonthToDateUsd;
+  now?: () => Date;
+}
+
+interface LedgerSums {
+  day_eur: number;
+  month_eur: number;
+}
+
+function readLedgerSums(
+  db: import('better-sqlite3').Database,
+  now: Date,
+): LedgerSums {
+  const dayStart = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      0,
+      0,
+      0,
+      0,
+    ),
+  ).toISOString();
+  const monthStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0),
+  ).toISOString();
+  const dayRow = db
+    .prepare(
+      `SELECT COALESCE(SUM(cost_eur), 0) AS s
+       FROM voice_turn_costs WHERE ts >= ?`,
+    )
+    .get(dayStart) as { s: number };
+  const monthRow = db
+    .prepare(
+      `SELECT COALESCE(SUM(cost_eur), 0) AS s
+       FROM voice_turn_costs WHERE ts >= ?`,
+    )
+    .get(monthStart) as { s: number };
+  return { day_eur: dayRow.s, month_eur: monthRow.s };
+}
+
+function fmt(n: number): string {
+  return n.toFixed(2);
+}
+
+export function makeVoiceGetBudgetStatus(
+  deps: VoiceGetBudgetStatusDeps = {},
+): ToolHandler {
+  const nowFn = deps.now ?? (() => new Date());
+  const readConfigFn = deps.readConfig ?? readVoiceConfig;
+  const fetchOpenaiFn = deps.fetchOpenaiMonthUsd ?? getMonthToDateUsd;
+
+  return async function voiceGetBudgetStatus(
+    args: unknown,
+  ): Promise<VoiceGetBudgetStatusResult> {
+    const parsed = VoiceGetBudgetStatusSchema.safeParse(args);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      throw new BadRequestError(
+        String(issue?.path?.[0] ?? 'input'),
+        issue?.message ?? 'invalid',
+      );
+    }
+
+    const now = nowFn();
+    const db = deps.db ?? getDatabase();
+    const sums = readLedgerSums(db, now);
+
+    let budget_eur: number | undefined;
+    try {
+      const cfg = readConfigFn();
+      if (typeof cfg.monthly_budget_eur === 'number' && cfg.monthly_budget_eur > 0) {
+        budget_eur = cfg.monthly_budget_eur;
+      }
+    } catch (err) {
+      logger.warn({
+        event: 'voice_get_budget_status_config_read_failed',
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    let openai_month_usd: number | undefined;
+    let openai_month_eur: number | undefined;
+    let openai_fetch_failed = false;
+    try {
+      const mtd = await fetchOpenaiFn();
+      openai_month_usd = mtd.usd;
+      openai_month_eur = mtd.usd * USD_TO_EUR;
+    } catch (err) {
+      openai_fetch_failed = true;
+      logger.warn({
+        event: 'voice_get_budget_status_openai_fetch_failed',
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    const rest_eur =
+      typeof budget_eur === 'number' && typeof openai_month_eur === 'number'
+        ? budget_eur - openai_month_eur
+        : undefined;
+
+    // Build summary_text — same shape as voice-finalize-call-cost minus the
+    // per-call line (no call running here).
+    const lines: string[] = [];
+    lines.push(`Voice-Guthaben-Status`);
+    lines.push(
+      `• Heute: ${fmt(sums.day_eur)} EUR | Diesen Monat: ${fmt(sums.month_eur)} EUR (NanoClaw-ledger)`,
+    );
+    if (typeof openai_month_usd === 'number' && typeof openai_month_eur === 'number') {
+      lines.push(
+        `• OpenAI org month-to-date: ${fmt(openai_month_eur)} EUR (${openai_month_usd.toFixed(2)} USD)`,
+      );
+      if (typeof budget_eur === 'number' && typeof rest_eur === 'number') {
+        const tag = rest_eur < 0 ? '⚠️ BUDGET ÜBERSCHRITTEN' : 'Rest';
+        lines.push(
+          `• Budget: ${fmt(budget_eur)} EUR/Mo — ${tag}: ${fmt(rest_eur)} EUR`,
+        );
+      }
+    } else {
+      lines.push(`• OpenAI org-cost: nicht abrufbar (admin-key fehlt oder fehler)`);
+    }
+    const summary_text = lines.join('\n');
+
+    return {
+      ok: true,
+      result: {
+        budget_eur,
+        openai_month_usd,
+        openai_month_eur,
+        rest_eur,
+        day_eur: sums.day_eur,
+        month_eur: sums.month_eur,
+        summary_text,
+        openai_fetch_failed,
+      },
+    };
+  };
+}

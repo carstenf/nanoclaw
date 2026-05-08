@@ -35,6 +35,7 @@ import { makeVoiceGetPracticeProfile } from '../mcp-tools/voice-get-practice-pro
 import { makeVoiceScheduleRetry } from '../mcp-tools/voice-schedule-retry.js';
 import { makeVoiceSearchCompetitors } from '../mcp-tools/voice-search-competitors.js';
 import { makeVoiceSetLanguage, TOOL_NAME as VOICE_SET_LANGUAGE_TOOL_NAME } from '../mcp-tools/voice-set-language.js';
+import { makeVoiceGetBudgetStatus, TOOL_NAME as VOICE_GET_BUDGET_STATUS_TOOL_NAME } from '../mcp-tools/voice-get-budget-status.js';
 import { makeVoiceWakeUp } from '../mcp-tools/voice-wake-up.js';
 import {
   makeVoiceTriggersInit,
@@ -316,6 +317,15 @@ export function registerVoiceTools(
   registry.register(
     VOICE_SET_LANGUAGE_TOOL_NAME,
     makeVoiceSetLanguage(),
+    { mutating: false },
+  );
+
+  // 2026-05-08: voice_get_budget_status — Andy-facing chat tool. Lets the
+  // user ask "wieviel guthaben hab ich noch?" via WhatsApp/Discord and
+  // get OpenAI org month-to-date + budget rest. Read-only; mutating=false.
+  registry.register(
+    VOICE_GET_BUDGET_STATUS_TOOL_NAME,
+    makeVoiceGetBudgetStatus(),
     { mutating: false },
   );
 
