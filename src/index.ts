@@ -75,7 +75,7 @@ import pathNode from 'node:path';
 import osNode from 'node:os';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
-import { recallMemory, retainMemory } from './memory.js';
+import { recallMemory } from './memory.js';
 import { startMcpServer } from './mcp-server.js';
 import { buildDefaultRegistry } from './mcp-tools/index.js';
 // Voice-channel orchestrator (host-side wiring). Single import: the
@@ -287,8 +287,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   const rawPrompt = formatMessages(missedMessages, TIMEZONE);
 
   // Inject recalled memories (if a memory provider is configured via
-  // MEMORY_MCP_URL — see src/memory.ts).
-  const memories = await recallMemory(group.folder, rawPrompt);
+  // MEMORY_MCP_URL — see src/memory.ts). Bank id is prefixed with
+  // `nanoclaw:` so that other clients (Claude.ai, Claude Code) can share
+  // the same Hindsight instance without bank collisions.
+  const bank = `nanoclaw:${group.folder}`;
+  const memories = await recallMemory(bank, rawPrompt);
   const prompt = memories
     ? `<memory>\n${memories}\n</memory>\n\n${rawPrompt}`
     : rawPrompt;
@@ -405,10 +408,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     return false;
   }
 
-  // Store the conversation in memory (if a memory provider is configured)
-  if (output === 'success') {
-    void retainMemory(group.folder, rawPrompt);
-  }
+  // 2026-05-08: trunk no longer auto-retains. Andy decides what's durable
+  // and calls mcp__memory__memory_retain selectively (see groups/main/CLAUDE.md
+  // Memory section). Auto-recall stays as the default-cast — read-only,
+  // can't pollute the bank.
 
   return true;
 }

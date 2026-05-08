@@ -336,6 +336,22 @@ async function buildContainerArgs(
     args.push('-e', `VOICE_MCP_BEARER=${voiceMcpBearer}`);
   }
 
+  // Hindsight (or any other MEMORY_MCP_URL provider). Bearer optional.
+  // Andy reaches the wrapper through the host's WG IP, same pattern as
+  // voice-mcp. See container/agent-runner/src/index.ts for the matching
+  // mcpServers.memory block.
+  const memoryMcpEnv = readEnvFile(['MEMORY_MCP_URL', 'MEMORY_MCP_BEARER']);
+  const memoryMcpUrl =
+    process.env.MEMORY_MCP_URL ?? memoryMcpEnv.MEMORY_MCP_URL ?? '';
+  const memoryMcpBearer =
+    process.env.MEMORY_MCP_BEARER ?? memoryMcpEnv.MEMORY_MCP_BEARER ?? '';
+  if (memoryMcpUrl) {
+    args.push('-e', `MEMORY_MCP_URL=${memoryMcpUrl}`);
+    if (memoryMcpBearer) {
+      args.push('-e', `MEMORY_MCP_BEARER=${memoryMcpBearer}`);
+    }
+  }
+
   // OneCLI gateway handles credential injection — containers never see real secrets.
   // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
   const onecliApplied = await onecli.applyContainerConfig(args, {

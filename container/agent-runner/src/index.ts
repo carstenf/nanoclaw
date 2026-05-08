@@ -525,6 +525,7 @@ async function runQuery(
         // bridge utility tools like voice_send_discord_message stay there but
         // are bridge-only).
         'mcp__voice__*',
+        'mcp__memory__*',
         'mcp__gmail__*',
         'mcp__gcalendar__*',
       ],
@@ -557,6 +558,26 @@ async function runQuery(
                 headers: {
                   Authorization: `Bearer ${process.env.VOICE_MCP_BEARER}`,
                 },
+              },
+            }
+          : {}),
+        // Hindsight memory backend (or any other MEMORY_MCP_URL provider).
+        // When the URL is configured, Andy gets `mcp__memory__memory_recall`
+        // and `mcp__memory__memory_retain` tools — see groups/main/CLAUDE.md
+        // Memory section for usage discipline. Bearer is optional (loopback
+        // deployments may run without auth).
+        ...(process.env.MEMORY_MCP_URL
+          ? {
+              memory: {
+                type: 'http' as const,
+                url: process.env.MEMORY_MCP_URL,
+                ...(process.env.MEMORY_MCP_BEARER
+                  ? {
+                      headers: {
+                        Authorization: `Bearer ${process.env.MEMORY_MCP_BEARER}`,
+                      },
+                    }
+                  : {}),
               },
             }
           : {}),

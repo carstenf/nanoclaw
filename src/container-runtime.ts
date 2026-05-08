@@ -75,14 +75,26 @@ export function ensureContainerRuntimeRunning(): void {
   }
 }
 
-/** Kill orphaned NanoClaw containers from previous runs. */
+/** Kill orphaned NanoClaw containers from previous runs.
+ *
+ * Container naming pattern (see container-runner.ts): `nanoclaw-<safeName>-<timestamp>`
+ * where <timestamp> is `Date.now()` — a 13-digit ms epoch. Match exactly that
+ * shape so unrelated docker stacks (e.g. nanoclaw-hindsight-*, nanoclaw-foo-bar)
+ * are not killed.
+ */
+const AGENT_CONTAINER_RE = /^nanoclaw-[a-zA-Z0-9-]+-\d{13,}$/;
+
 export function cleanupOrphans(): void {
   try {
     const output = execSync(
       `${CONTAINER_RUNTIME_BIN} ps --filter name=nanoclaw- --format '{{.Names}}'`,
       { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
     );
-    const orphans = output.trim().split('\n').filter(Boolean);
+    const orphans = output
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .filter((name) => AGENT_CONTAINER_RE.test(name));
     for (const name of orphans) {
       try {
         stopContainer(name);

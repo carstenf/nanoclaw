@@ -115,7 +115,29 @@ When working as a sub-agent or teammate, only use `send_message` if instructed t
 
 ## Memory
 
-Relevant memories from past conversations are injected before your prompt in a `<memory>` block. Use them as context. There are no local memory files to manage.
+You have a persistent memory bank scoped to this group's folder. Two access paths:
+
+**Auto-recall (read).** Before each of your turns, NanoClaw runs a memory search with the latest user message and prepends matching memories in a `<memory>` block. Use them as context.
+
+If the auto-recall did not surface what you need (e.g. user mentioned a name you only half-recognize, or a project you handled months ago), call `mcp__memory__memory_recall` with `group="nanoclaw:<this group's folder>"` and `query="<the entity or topic>"` to do a targeted lookup.
+
+**Selective retain (write).** When the conversation produces something durable, call `mcp__memory__memory_retain` with `group="nanoclaw:<this group's folder>"` and a one-or-two-sentence content string to add it to the bank.
+
+Save:
+- Facts about the user, their preferences, their projects, their stack
+- Decisions made (with the why)
+- Lessons learned, recurring pitfalls
+- Pointers to where things live (paths, URLs, channels)
+
+Do NOT save:
+- Pleasantries, ack messages, transient state
+- Verbatim user messages (the bank is not a chat log)
+- Secrets, credentials, OAuth tokens, API keys
+- Anything already obvious from the codebase, README, or globally-loaded files
+
+If unsure, don't retain. The bank is searched on every future turn — pollution is more expensive than missing one fact.
+
+NanoClaw no longer auto-retains. If you don't call `memory_retain`, nothing is stored.
 
 ## Message Formatting
 

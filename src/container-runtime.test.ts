@@ -95,7 +95,7 @@ describe('cleanupOrphans', () => {
   it('stops orphaned nanoclaw containers', () => {
     // docker ps returns container names, one per line
     mockExecSync.mockReturnValueOnce(
-      'nanoclaw-group1-111\nnanoclaw-group2-222\n',
+      'nanoclaw-group1-1700000000111\nnanoclaw-group2-1700000000222\n',
     );
     // stop calls succeed
     mockExecSync.mockReturnValue('');
@@ -106,16 +106,16 @@ describe('cleanupOrphans', () => {
     expect(mockExecSync).toHaveBeenCalledTimes(3);
     expect(mockExecSync).toHaveBeenNthCalledWith(
       2,
-      `${CONTAINER_RUNTIME_BIN} stop -t 1 nanoclaw-group1-111`,
+      `${CONTAINER_RUNTIME_BIN} stop -t 1 nanoclaw-group1-1700000000111`,
       { stdio: 'pipe' },
     );
     expect(mockExecSync).toHaveBeenNthCalledWith(
       3,
-      `${CONTAINER_RUNTIME_BIN} stop -t 1 nanoclaw-group2-222`,
+      `${CONTAINER_RUNTIME_BIN} stop -t 1 nanoclaw-group2-1700000000222`,
       { stdio: 'pipe' },
     );
     expect(logger.info).toHaveBeenCalledWith(
-      { count: 2, names: ['nanoclaw-group1-111', 'nanoclaw-group2-222'] },
+      { count: 2, names: ['nanoclaw-group1-1700000000111', 'nanoclaw-group2-1700000000222'] },
       'Stopped orphaned containers',
     );
   });
@@ -143,7 +143,7 @@ describe('cleanupOrphans', () => {
   });
 
   it('continues stopping remaining containers when one stop fails', () => {
-    mockExecSync.mockReturnValueOnce('nanoclaw-a-1\nnanoclaw-b-2\n');
+    mockExecSync.mockReturnValueOnce('nanoclaw-a-1700000000001\nnanoclaw-b-1700000000002\n');
     // First stop fails
     mockExecSync.mockImplementationOnce(() => {
       throw new Error('already stopped');
@@ -155,7 +155,37 @@ describe('cleanupOrphans', () => {
 
     expect(mockExecSync).toHaveBeenCalledTimes(3);
     expect(logger.info).toHaveBeenCalledWith(
-      { count: 2, names: ['nanoclaw-a-1', 'nanoclaw-b-2'] },
+      { count: 2, names: ['nanoclaw-a-1700000000001', 'nanoclaw-b-1700000000002'] },
+      'Stopped orphaned containers',
+    );
+  });
+
+  it('skips containers that match the prefix but not the timestamp shape', () => {
+    // Other docker stacks share the `nanoclaw-` prefix but are not agent
+    // containers — e.g. nanoclaw-hindsight-* or user-named stacks.
+    // Only `nanoclaw-<safeName>-<13+digit timestamp>` is an agent container.
+    mockExecSync.mockReturnValueOnce(
+      [
+        'nanoclaw-main-1700000000123', // agent — should be killed
+        'nanoclaw-hindsight-hindsight-1', // hindsight stack — leave alone
+        'nanoclaw-hindsight-hindsight-mcp-1', // hindsight mcp — leave alone
+        'nanoclaw-foo-bar', // some other stack — leave alone
+        '',
+      ].join('\n'),
+    );
+    mockExecSync.mockReturnValue('');
+
+    cleanupOrphans();
+
+    // ps + 1 stop call (only the timestamped one)
+    expect(mockExecSync).toHaveBeenCalledTimes(2);
+    expect(mockExecSync).toHaveBeenNthCalledWith(
+      2,
+      `${CONTAINER_RUNTIME_BIN} stop -t 1 nanoclaw-main-1700000000123`,
+      { stdio: 'pipe' },
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      { count: 1, names: ['nanoclaw-main-1700000000123'] },
       'Stopped orphaned containers',
     );
   });

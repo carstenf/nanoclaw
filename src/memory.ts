@@ -23,6 +23,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
+import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
 const TOOL_RECALL = 'memory_recall' as const;
@@ -38,13 +39,22 @@ async function initClient(): Promise<Client | null> {
 
   initInFlight = (async () => {
     initialized = true;
-    const url = process.env.MEMORY_MCP_URL;
+    // .env is not auto-loaded into process.env (no dotenv import; systemd unit
+    // doesn't EnvironmentFile=). Read explicitly via readEnvFile, with
+    // process.env as fallback for callers that pre-set it (tests, CI).
+    const env = readEnvFile(['MEMORY_MCP_URL', 'MEMORY_MCP_BEARER']);
+    const url = env.MEMORY_MCP_URL || process.env.MEMORY_MCP_URL;
+    const bearer = env.MEMORY_MCP_BEARER || process.env.MEMORY_MCP_BEARER;
     if (!url) {
       logger.info({ event: 'memory_mcp_disabled', reason: 'MEMORY_MCP_URL_unset' });
       return null;
     }
     try {
-      const transport = new StreamableHTTPClientTransport(new URL(url));
+      const transport = new StreamableHTTPClientTransport(new URL(url), {
+        requestInit: bearer
+          ? { headers: { Authorization: `Bearer ${bearer}` } }
+          : undefined,
+      });
       const c = new Client(
         { name: 'nanoclaw-memory-client', version: '1.0.0' },
         { capabilities: {} },
