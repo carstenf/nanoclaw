@@ -28,9 +28,11 @@ import path from 'path';
 import { logger } from './logger.js';
 
 export interface VoiceBalance {
-  /** Prepaid balance amount the operator declared on top-up. */
-  balance_eur: number;
-  /** Currency the operator declared (default 'EUR'). */
+  /** Prepaid balance amount in the declared currency (raw value as the
+   *  operator stated it — OpenAI dashboard is USD-native, so USD is the
+   *  common case). */
+  balance_amount: number;
+  /** Currency the operator declared. */
   currency: 'EUR' | 'USD';
   /** Unix timestamp (seconds) of the top-up declaration. */
   topup_at_unix: number;
@@ -52,13 +54,18 @@ export function readVoiceBalance(override?: string): VoiceBalance | null {
   try {
     const raw = fs.readFileSync(p, 'utf8');
     const parsed = JSON.parse(raw);
-    if (
-      parsed &&
-      typeof parsed.balance_eur === 'number' &&
-      typeof parsed.topup_at_unix === 'number'
-    ) {
+    // 2026-05-08: schema migrated balance_eur → balance_amount + currency.
+    // Read both forms for backward-compat with files written before the
+    // migration; new writes always use balance_amount.
+    const amount =
+      typeof parsed?.balance_amount === 'number'
+        ? parsed.balance_amount
+        : typeof parsed?.balance_eur === 'number'
+          ? parsed.balance_eur
+          : null;
+    if (amount !== null && typeof parsed.topup_at_unix === 'number') {
       return {
-        balance_eur: parsed.balance_eur,
+        balance_amount: amount,
         currency: parsed.currency === 'USD' ? 'USD' : 'EUR',
         topup_at_unix: parsed.topup_at_unix,
       };
@@ -95,7 +102,8 @@ export function writeVoiceBalance(
   logger.info({
     event: 'voice_balance_written',
     path: p,
-    balance_eur: balance.balance_eur,
+    balance_amount: balance.balance_amount,
+    currency: balance.currency,
     topup_at_unix: balance.topup_at_unix,
   });
 }

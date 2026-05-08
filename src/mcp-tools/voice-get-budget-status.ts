@@ -55,14 +55,17 @@ export interface VoiceGetBudgetStatusResult {
     /**
      * Operator-declared prepaid balance from voice-balance.json (set via
      * voice_set_prepaid_balance). undefined = no balance ever declared.
+     * Currency is the one the operator stated (USD / EUR).
      */
-    prepaid_balance_eur: number | undefined;
+    prepaid_balance: number | undefined;
+    /** Currency of the declared balance. */
+    prepaid_currency: 'EUR' | 'USD' | undefined;
     /** ISO timestamp of the topup declaration. */
     topup_at_iso: string | undefined;
-    /** OpenAI cost (EUR) since topup_at_unix — computed via /v1/organization/costs. */
-    spent_since_topup_eur: number | undefined;
-    /** prepaid_balance_eur - spent_since_topup_eur. The "noch verfügbares Guthaben". */
-    prepaid_remaining_eur: number | undefined;
+    /** Cost since topup_at_unix in prepaid_currency (USD raw, or EUR-converted). */
+    spent_since_topup: number | undefined;
+    /** prepaid_balance - spent_since_topup. The "noch verfügbares Guthaben". */
+    prepaid_remaining: number | undefined;
     /**
      * Multi-line German summary mirroring the post-call format. Useful
      * when the user asks for the full picture; Andy can also ignore this
@@ -184,22 +187,28 @@ export function makeVoiceGetBudgetStatus(
         : undefined;
 
     // Prepaid balance state (operator-declared via voice_set_prepaid_balance).
-    let prepaid_balance_eur: number | undefined;
+    // Computation runs in the operator's declared currency: if they said
+    // "7.35 USD" we report remaining in USD (OpenAI dashboard is USD-
+    // native, so USD is the common case); EUR is also supported and
+    // converts the cost-API USD response via USD_TO_EUR.
+    let prepaid_balance: number | undefined;
+    let prepaid_currency: 'EUR' | 'USD' | undefined;
     let topup_at_iso: string | undefined;
-    let spent_since_topup_eur: number | undefined;
-    let prepaid_remaining_eur: number | undefined;
+    let spent_since_topup: number | undefined;
+    let prepaid_remaining: number | undefined;
     try {
       const bal = readBalanceFn();
       if (bal) {
-        prepaid_balance_eur = bal.balance_eur;
+        prepaid_balance = bal.balance_amount;
+        prepaid_currency = bal.currency;
         topup_at_iso = new Date(bal.topup_at_unix * 1000).toISOString();
         try {
           const since = await fetchSinceFn(bal.topup_at_unix);
-          spent_since_topup_eur = since.usd * USD_TO_EUR;
-          prepaid_remaining_eur = bal.balance_eur - spent_since_topup_eur;
+          // OpenAI cost API returns USD. Convert if the operator declared EUR.
+          spent_since_topup =
+            bal.currency === 'USD' ? since.usd : since.usd * USD_TO_EUR;
+          prepaid_remaining = bal.balance_amount - spent_since_topup;
         } catch (err) {
-          // openai_fetch_failed already true at this point if month fetch
-          // failed too; if only the since-fetch failed (rare), still mark.
           openai_fetch_failed = true;
           logger.warn({
             event: 'voice_get_budget_status_since_fetch_failed',
@@ -218,11 +227,15 @@ export function makeVoiceGetBudgetStatus(
     // actually asks about). Budget line is secondary.
     const lines: string[] = [];
     lines.push(`Voice-Guthaben-Status`);
-    if (typeof prepaid_remaining_eur === 'number' && typeof prepaid_balance_eur === 'number') {
+    if (
+      typeof prepaid_remaining === 'number' &&
+      typeof prepaid_balance === 'number' &&
+      typeof prepaid_currency === 'string'
+    ) {
       lines.push(
-        `• OpenAI Restguthaben: ${fmt(prepaid_remaining_eur)} EUR von ${fmt(prepaid_balance_eur)} EUR (Topup: ${topup_at_iso?.slice(0, 10) ?? '?'})`,
+        `• OpenAI Restguthaben: ${fmt(prepaid_remaining)} ${prepaid_currency} von ${fmt(prepaid_balance)} ${prepaid_currency} (Topup: ${topup_at_iso?.slice(0, 10) ?? '?'})`,
       );
-    } else if (typeof prepaid_balance_eur === 'undefined') {
+    } else if (typeof prepaid_balance === 'undefined') {
       lines.push(
         `• OpenAI Restguthaben: nicht trackbar — bitte melde mir den letzten Topup über voice_set_prepaid_balance`,
       );
@@ -254,10 +267,11 @@ export function makeVoiceGetBudgetStatus(
         rest_eur,
         day_eur: sums.day_eur,
         month_eur: sums.month_eur,
-        prepaid_balance_eur,
+        prepaid_balance,
+        prepaid_currency,
         topup_at_iso,
-        spent_since_topup_eur,
-        prepaid_remaining_eur,
+        spent_since_topup,
+        prepaid_remaining,
         summary_text,
         openai_fetch_failed,
       },

@@ -1,8 +1,9 @@
 /**
  * MCP tool: voice_set_prepaid_balance
  *
- * Andy-facing chat tool. User says "ich hab gerade 100 EUR aufgeladen",
- * Andy calls this tool to record the new balance + topup timestamp.
+ * Andy-facing chat tool. User says "ich hab gerade 7.35 USD auf OpenAI
+ * stehen" (or "100 EUR aufgeladen", etc.), Andy calls this tool to record
+ * the new balance + topup timestamp.
  *
  * Why this exists: OpenAI's API does NOT expose remaining prepaid balance
  * (only cumulative spent via /v1/organization/costs). Operator declares
@@ -11,9 +12,10 @@
  *
  * State: ~/.config/nanoclaw/voice-balance.json (single writer = this tool).
  *
- * voice_get_budget_status reads this file and returns
- * prepaid_remaining_eur as part of its response. Bridge post-call summary
- * (Phase 2) will use the same data for the per-call breakdown.
+ * Currency: OpenAI's dashboard is USD-native, so USD is the common case —
+ * pass currency='USD' when the user says dollars. EUR also accepted; the
+ * computation handles both via USD_TO_EUR conversion when comparing
+ * against the EUR-denominated cost API response.
  */
 import { z } from 'zod';
 
@@ -26,14 +28,17 @@ import type { ToolHandler } from './index.js';
 export const TOOL_NAME = 'voice_set_prepaid_balance' as const;
 
 export const VoiceSetPrepaidBalanceSchema = z.object({
-  amount_eur: z
+  amount: z
     .number()
     .nonnegative()
-    .describe('Prepaid balance amount the user just topped up to, in EUR.'),
+    .describe(
+      'Prepaid balance amount as the user stated it (raw number, e.g. 100 for "100 EUR" or 7.35 for "7.35 USD"). Currency goes in the separate field.',
+    ),
   currency: z
     .enum(['EUR', 'USD'])
-    .optional()
-    .describe('Currency of the amount. Defaults to EUR.'),
+    .describe(
+      'Currency of the amount. Use "USD" when the user said dollars (OpenAI dashboard is USD-native). Use "EUR" when the user said euros.',
+    ),
 });
 
 export type VoiceSetPrepaidBalanceInput = z.infer<
@@ -43,7 +48,7 @@ export type VoiceSetPrepaidBalanceInput = z.infer<
 export interface VoiceSetPrepaidBalanceResult {
   ok: true;
   result: {
-    balance_eur: number;
+    balance_amount: number;
     currency: 'EUR' | 'USD';
     topup_at_iso: string;
     summary_text: string;
@@ -76,27 +81,27 @@ export function makeVoiceSetPrepaidBalance(
 
     const now = nowFn();
     const topup_at_unix = Math.floor(now.getTime() / 1000);
-    const currency = parsed.data.currency ?? 'EUR';
+    const { amount, currency } = parsed.data;
 
     writeFn({
-      balance_eur: parsed.data.amount_eur,
+      balance_amount: amount,
       currency,
       topup_at_unix,
     });
 
     logger.info({
       event: 'voice_set_prepaid_balance_ok',
-      balance_eur: parsed.data.amount_eur,
+      balance_amount: amount,
       currency,
       topup_at_iso: now.toISOString(),
     });
 
-    const summary_text = `Prepaid-balance gespeichert: ${parsed.data.amount_eur.toFixed(2)} ${currency} (Topup: ${now.toISOString()}). Restguthaben wird ab jetzt aus diesem Wert minus den OpenAI-Costs seit Topup berechnet.`;
+    const summary_text = `Prepaid-balance gespeichert: ${amount.toFixed(2)} ${currency} (Topup: ${now.toISOString()}). Restguthaben wird ab jetzt aus diesem Wert minus den OpenAI-Costs seit Topup berechnet.`;
 
     return {
       ok: true,
       result: {
-        balance_eur: parsed.data.amount_eur,
+        balance_amount: amount,
         currency,
         topup_at_iso: now.toISOString(),
         summary_text,

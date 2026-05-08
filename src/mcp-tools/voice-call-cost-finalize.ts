@@ -120,18 +120,24 @@ export function makeVoiceCallCostFinalize(
     const delta_usd = Math.max(0, now_usd - snap.baseline_usd);
     const delta_eur = delta_usd * USD_TO_EUR;
 
-    // Read prepaid balance + monthly budget for the full summary.
-    let prepaid_balance_eur: number | undefined;
-    let prepaid_remaining_eur: number | undefined;
+    // Read prepaid balance + monthly budget for the full summary. Currency
+    // follows the operator's declaration (USD-native for OpenAI dashboard,
+    // or EUR if they stated it that way).
+    let prepaid_balance: number | undefined;
+    let prepaid_currency: 'EUR' | 'USD' | undefined;
+    let prepaid_remaining: number | undefined;
     let topup_at_iso: string | undefined;
     try {
       const bal = readVoiceBalance();
       if (bal) {
-        prepaid_balance_eur = bal.balance_eur;
+        prepaid_balance = bal.balance_amount;
+        prepaid_currency = bal.currency;
         topup_at_iso = new Date(bal.topup_at_unix * 1000).toISOString();
         try {
           const since = await getCostsSinceUnix(bal.topup_at_unix);
-          prepaid_remaining_eur = bal.balance_eur - since.usd * USD_TO_EUR;
+          const since_in_balance_ccy =
+            bal.currency === 'USD' ? since.usd : since.usd * USD_TO_EUR;
+          prepaid_remaining = bal.balance_amount - since_in_balance_ccy;
         } catch (err) {
           logger.warn({
             event: 'voice_call_cost_finalize_balance_fetch_failed',
@@ -167,11 +173,15 @@ export function makeVoiceCallCostFinalize(
     if (sec !== null) meta.push(`${sec}s`);
     const metaStr = meta.length ? ` (${meta.join(', ')})` : '';
     lines.push(`• Diese call: €${fmt4(delta_eur)} ($${fmt4(delta_usd)})${metaStr}`);
-    if (typeof prepaid_remaining_eur === 'number' && typeof prepaid_balance_eur === 'number') {
+    if (
+      typeof prepaid_remaining === 'number' &&
+      typeof prepaid_balance === 'number' &&
+      typeof prepaid_currency === 'string'
+    ) {
       lines.push(
-        `• OpenAI Restguthaben: ${fmt(prepaid_remaining_eur)} EUR von ${fmt(prepaid_balance_eur)} EUR (Topup: ${topup_at_iso?.slice(0, 10) ?? '?'})`,
+        `• OpenAI Restguthaben: ${fmt(prepaid_remaining)} ${prepaid_currency} von ${fmt(prepaid_balance)} ${prepaid_currency} (Topup: ${topup_at_iso?.slice(0, 10) ?? '?'})`,
       );
-    } else if (typeof prepaid_balance_eur === 'undefined') {
+    } else if (typeof prepaid_balance === 'undefined') {
       lines.push(
         `• OpenAI Restguthaben: nicht trackbar — sag mir wann du das nächste Mal aufgeladen hast`,
       );
