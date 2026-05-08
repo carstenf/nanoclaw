@@ -37,6 +37,8 @@ import { makeVoiceSearchCompetitors } from '../mcp-tools/voice-search-competitor
 import { makeVoiceSetLanguage, TOOL_NAME as VOICE_SET_LANGUAGE_TOOL_NAME } from '../mcp-tools/voice-set-language.js';
 import { makeVoiceGetBudgetStatus, TOOL_NAME as VOICE_GET_BUDGET_STATUS_TOOL_NAME } from '../mcp-tools/voice-get-budget-status.js';
 import { makeVoiceSetPrepaidBalance, TOOL_NAME as VOICE_SET_PREPAID_BALANCE_TOOL_NAME } from '../mcp-tools/voice-set-prepaid-balance.js';
+import { makeVoiceCallCostSnapshot, TOOL_NAME as VOICE_CALL_COST_SNAPSHOT_TOOL_NAME } from '../mcp-tools/voice-call-cost-snapshot.js';
+import { makeVoiceCallCostFinalize, TOOL_NAME as VOICE_CALL_COST_FINALIZE_TOOL_NAME } from '../mcp-tools/voice-call-cost-finalize.js';
 import { makeVoiceWakeUp } from '../mcp-tools/voice-wake-up.js';
 import {
   makeVoiceTriggersInit,
@@ -339,6 +341,50 @@ export function registerVoiceTools(
     VOICE_SET_PREPAID_BALANCE_TOOL_NAME,
     makeVoiceSetPrepaidBalance(),
     { mutating: true },
+  );
+
+  // 2026-05-08 Phase 2: per-call delta-cost path.
+  //
+  // Bridge calls voice_call_cost_snapshot at /accept (records baseline
+  // OpenAI mtd cost), then voice_call_cost_finalize ~8s after teardown
+  // (subtracts to get the actual billed call cost; posts full summary
+  // to the standard voice-channel — first VOICE_DISCORD_ALLOWED_CHANNELS
+  // entry, NOT the transcript channel).
+  //
+  // Standard channel resolution: explicit env override
+  // VOICE_STANDARD_DISCORD_CHANNEL > first allowlist entry. The transcript
+  // channel (VOICE_TRANSCRIPT_DISCORD_CHANNEL) is intentionally NOT used
+  // here — operator wants summaries in the main voice channel, not the
+  // transcript log channel.
+  const standardVoiceChannel: string =
+    process.env.VOICE_STANDARD_DISCORD_CHANNEL ||
+    (VOICE_DISCORD_ALLOWED_CHANNELS_RAW.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)[0] ??
+      '');
+
+  registry.register(
+    VOICE_CALL_COST_SNAPSHOT_TOOL_NAME,
+    makeVoiceCallCostSnapshot(),
+    { mutating: false },
+  );
+
+  registry.register(
+    VOICE_CALL_COST_FINALIZE_TOOL_NAME,
+    makeVoiceCallCostFinalize({
+      sendDiscordMessage: deps.sendDiscordMessage,
+      discordChannelId: standardVoiceChannel || undefined,
+    }),
+    { mutating: false },
+  );
+  log.info(
+    {
+      event: 'mcp_tool_registering',
+      tool: 'voice_call_cost_finalize',
+      standard_channel: standardVoiceChannel || '(unset)',
+      summary_wired: !!(deps.sendDiscordMessage && standardVoiceChannel),
+    },
+    'registered tool voice_call_cost_finalize',
   );
 
   // voice_wake_up — pre-warm the main container at /accept time. Only
