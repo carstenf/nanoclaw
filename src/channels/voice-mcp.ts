@@ -218,16 +218,23 @@ export class VoiceMcpClient {
 
   private async dispatchTrigger(tool: string, args: unknown): Promise<unknown> {
     try {
-      switch (tool) {
-        case 'voice_triggers_init':
-        case 'voice_triggers_transcript':
-        case 'voice_send_discord_message':
-          return await this.opts.registry.invoke(tool, args);
-        case 'voice_ask_core':
-          return await this.handleAskCore(args as AskCoreArgs);
-        default:
-          return { ok: false, error: 'unknown_tool', tool };
+      // voice_ask_core is special — it dispatches into the per-call respond
+      // manager rather than the MCP registry (Andy → Voice delivery channel
+      // bridges to the agent reply, not a tool result).
+      if (tool === 'voice_ask_core') {
+        return await this.handleAskCore(args as AskCoreArgs);
       }
+      // All other voice-mcp triggers route to the in-process registry. The
+      // pre-2026-05-08 hardcoded allowlist (init/transcript/send_discord)
+      // silently rejected every newer tool with `unknown_tool` — set_language,
+      // record_turn_cost, finalize_call_cost, schedule_retry, get_contract,
+      // search_competitors etc. all fell through and the bridge interpreted
+      // the dispatch as success (latency_ms only). Bridge-side bot allowlist
+      // + per-call gateway gate which tools the bot may actually invoke.
+      if (this.opts.registry.has(tool)) {
+        return await this.opts.registry.invoke(tool, args);
+      }
+      return { ok: false, error: 'unknown_tool', tool };
     } catch (err) {
       logger.warn({
         event: 'voice_mcp_client_dispatch_failed',
