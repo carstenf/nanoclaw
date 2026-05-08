@@ -47,13 +47,47 @@ cd ~/nanoclaw-hindsight
 cp .env.example .env
 ```
 
-Ask the user for the LLM API key Hindsight will use for embeddings:
+### 2a. Pick the model profile
 
-> **AskUserQuestion**: Which LLM API key should Hindsight use for memory
-> embeddings? (OpenAI sk-... is the typical choice — paste it. The key
-> stays in `~/nanoclaw-hindsight/.env`.)
+Hindsight uses one LLM (consolidation during retain) and one embedding
+provider. Per retained memory unit: ~1.5k input + ~200 output LLM tokens
++ a small embedding call. Recall is vector-search-only (no LLM cost).
 
-Write the answer into `~/nanoclaw-hindsight/.env`:
+Ask the user:
+
+> **AskUserQuestion**: Which model profile should Hindsight use?
+>
+> - **OpenAI default (recommended)** — `gpt-4o-mini` consolidation +
+>   `text-embedding-3-small` embeddings. ~$0.0004 per retain. Needs an
+>   OpenAI API key.
+> - **OpenAI high-quality** — `gpt-4o` consolidation +
+>   `text-embedding-3-large` embeddings. ~10× the cost. Needs an OpenAI
+>   API key.
+> - **Local-only (no API traffic)** — `BAAI/bge-small-en-v1.5` embeddings
+>   running in-container. Hindsight still needs an LLM for consolidation;
+>   point it at a local Ollama or compatible endpoint via
+>   `HINDSIGHT_API_LLM_MODEL` + `HINDSIGHT_API_LLM_BASE_URL`. Free, slower,
+>   quality model-dependent.
+> - **Custom** — pick provider (Anthropic via litellm / Gemini / Cohere /
+>   OpenRouter / self-hosted) and model identifier yourself.
+
+Map the choice into env vars (write into `~/nanoclaw-hindsight/.env`):
+
+| Choice | Vars to set |
+|---|---|
+| OpenAI default | `HINDSIGHT_LLM_API_KEY=sk-...` (only) |
+| OpenAI high-quality | `HINDSIGHT_LLM_API_KEY=sk-...`, `HINDSIGHT_API_LLM_MODEL=gpt-4o`, `HINDSIGHT_API_EMBEDDINGS_OPENAI_MODEL=text-embedding-3-large` |
+| Local-only | `HINDSIGHT_API_EMBEDDINGS_PROVIDER=local`, plus user-provided LLM endpoint vars |
+| Custom | Whatever the user specifies — see `.env.example` for the full list |
+
+### 2b. Capture the API key (if applicable)
+
+For any non-local choice, ask the user:
+
+> **AskUserQuestion**: Paste the API key Hindsight should use. The key
+> stays in `~/nanoclaw-hindsight/.env`, never leaves this host.
+
+Write the answer:
 
 ```
 HINDSIGHT_LLM_API_KEY=<the key>
