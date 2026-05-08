@@ -76,7 +76,7 @@ import pathNode from 'node:path';
 import osNode from 'node:os';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
-import { recallMemory, retainMemory } from './hindsight.js';
+import { recallMemory, retainMemory } from './memory.js';
 import { startMcpServer } from './mcp-server.js';
 import { buildDefaultRegistry } from './mcp-tools/index.js';
 // Voice-channel orchestrator (host-side wiring). Single import: the
@@ -287,7 +287,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   const rawPrompt = formatMessages(missedMessages, TIMEZONE);
 
-  // Inject recalled memories from Hindsight (if configured)
+  // Inject recalled memories (if a memory provider is configured via
+  // MEMORY_MCP_URL — see src/memory.ts).
   const memories = await recallMemory(group.folder, rawPrompt);
   const prompt = memories
     ? `<memory>\n${memories}\n</memory>\n\n${rawPrompt}`
@@ -405,7 +406,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     return false;
   }
 
-  // Store the conversation in Hindsight for future recall
+  // Store the conversation in memory (if a memory provider is configured)
   if (output === 'success') {
     void retainMemory(group.folder, rawPrompt);
   }
