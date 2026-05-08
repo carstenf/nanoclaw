@@ -131,8 +131,15 @@ export function registerVoiceTools(
   // Resolve Andy's Discord channel here (was inline below before 2026-05-07)
   // because voice_finalize_call_cost needs it for the post-call summary.
   // Used by voice_respond as well — same value, single resolve.
+  // 2026-05-08: Falls back to VOICE_TRANSCRIPT_DISCORD_CHANNEL when
+  // ANDY_VOICE_DISCORD_CHANNEL is unset, so the post-call cost summary
+  // lands in the same channel as the transcript by default. Without this,
+  // andyDiscordChannel resolved to the first allowlist entry (often a
+  // different channel), and the summary went to a channel the user wasn't
+  // watching.
   const andyDiscordChannel: string =
     ANDY_VOICE_DISCORD_CHANNEL ||
+    process.env.VOICE_TRANSCRIPT_DISCORD_CHANNEL ||
     (VOICE_DISCORD_ALLOWED_CHANNELS_RAW.split(',')
       .map((s) => s.trim())
       .filter(Boolean)[0] ??
