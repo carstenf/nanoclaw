@@ -36,6 +36,7 @@ import { makeVoiceScheduleRetry } from '../mcp-tools/voice-schedule-retry.js';
 import { makeVoiceSearchCompetitors } from '../mcp-tools/voice-search-competitors.js';
 import { makeVoiceSetLanguage, TOOL_NAME as VOICE_SET_LANGUAGE_TOOL_NAME } from '../mcp-tools/voice-set-language.js';
 import { makeVoiceGetBudgetStatus, TOOL_NAME as VOICE_GET_BUDGET_STATUS_TOOL_NAME } from '../mcp-tools/voice-get-budget-status.js';
+import { makeVoiceSetPrepaidBalance, TOOL_NAME as VOICE_SET_PREPAID_BALANCE_TOOL_NAME } from '../mcp-tools/voice-set-prepaid-balance.js';
 import { makeVoiceWakeUp } from '../mcp-tools/voice-wake-up.js';
 import {
   makeVoiceTriggersInit,
@@ -327,6 +328,17 @@ export function registerVoiceTools(
     VOICE_GET_BUDGET_STATUS_TOOL_NAME,
     makeVoiceGetBudgetStatus(),
     { mutating: false },
+  );
+
+  // 2026-05-08: voice_set_prepaid_balance — Andy-facing chat tool. Operator
+  // declares the OpenAI prepaid topup amount ("ich hab gerade 100 EUR
+  // aufgeladen"). Writes voice-balance.json; voice_get_budget_status reads
+  // it to compute the actual remaining balance via the cost-API delta from
+  // the topup timestamp. mutating=true because it persists state.
+  registry.register(
+    VOICE_SET_PREPAID_BALANCE_TOOL_NAME,
+    makeVoiceSetPrepaidBalance(),
+    { mutating: true },
   );
 
   // voice_wake_up — pre-warm the main container at /accept time. Only

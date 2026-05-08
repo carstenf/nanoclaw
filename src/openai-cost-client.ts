@@ -178,3 +178,115 @@ export async function getMonthToDateUsd(
 
   return cost;
 }
+
+// 2026-05-08: variant of getMonthToDateUsd that takes a custom window start
+// (e.g. user's prepaid topup timestamp). Same fetch shape, separate cache
+// map keyed by startUnix so multiple windows can coexist (month-start +
+// topup-start, etc.). Lives in this file because it shares the auth +
+// pagination loop; promote to a helper if a third caller appears.
+
+const sinceCache = new Map<number, CacheEntry>();
+
+export interface CostsSinceUnix {
+  usd: number;
+  cache_age_s: number;
+  window_start_unix: number;
+  window_start_iso: string;
+  fetched_at: string;
+}
+
+export async function getCostsSinceUnix(
+  startUnix: number,
+  deps: FetchDeps = {},
+): Promise<CostsSinceUnix> {
+  if (!Number.isFinite(startUnix) || startUnix <= 0) {
+    throw new Error(`getCostsSinceUnix: invalid startUnix=${startUnix}`);
+  }
+  const fetchFn = deps.fetchFn ?? fetch;
+  const nowFn = deps.now ?? (() => new Date());
+  const now = nowFn();
+
+  if (!deps.noCache) {
+    const cached = sinceCache.get(startUnix);
+    if (cached) {
+      const age_ms = now.getTime() - cached.cached_at_ms;
+      if (age_ms < CACHE_TTL_MS) {
+        return {
+          usd: cached.cost.usd,
+          cache_age_s: Math.floor(age_ms / 1000),
+          window_start_unix: startUnix,
+          window_start_iso: cached.cost.window_start,
+          fetched_at: cached.cost.fetched_at,
+        };
+      }
+    }
+  }
+
+  const adminKey = deps.adminKey ?? getAdminKey();
+  if (!adminKey) {
+    throw new Error('OPENAI_ADMIN_KEY not set');
+  }
+  const windowStartIso = new Date(startUnix * 1000).toISOString();
+
+  let usd = 0;
+  let nextPage: string | undefined;
+  let pages = 0;
+  do {
+    const url = new URL('https://api.openai.com/v1/organization/costs');
+    url.searchParams.set('start_time', String(startUnix));
+    url.searchParams.set('limit', '31');
+    if (nextPage) url.searchParams.set('page', nextPage);
+
+    const res = await fetchFn(url.toString(), {
+      headers: { Authorization: `Bearer ${adminKey}` },
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(
+        `openai admin costs ${res.status}: ${body.slice(0, 200)}`,
+      );
+    }
+    const json = (await res.json()) as OrgCostsResponse;
+    for (const bucket of json.data) {
+      for (const r of bucket.results) {
+        const v = Number(r.amount.value);
+        if (Number.isFinite(v)) usd += v;
+      }
+    }
+    nextPage = json.has_more ? json.next_page : undefined;
+    pages++;
+    // Sanity: at 31 days/page, even a year-long window is <12 pages. 30
+    // pages = something pathological (cycle, API bug) — abort.
+    if (pages > 30) {
+      throw new Error('openai admin costs: pagination runaway (>30 pages)');
+    }
+  } while (nextPage);
+
+  const cost: MonthToDateCost = {
+    usd,
+    cache_age_s: 0,
+    window_start: windowStartIso,
+    fetched_at: now.toISOString(),
+  };
+  sinceCache.set(startUnix, { cost, cached_at_ms: now.getTime() });
+
+  logger.info({
+    event: 'openai_costs_since_fetched',
+    usd,
+    pages,
+    window_start_unix: startUnix,
+    window_start_iso: windowStartIso,
+  });
+
+  return {
+    usd,
+    cache_age_s: 0,
+    window_start_unix: startUnix,
+    window_start_iso: windowStartIso,
+    fetched_at: now.toISOString(),
+  };
+}
+
+export function _resetSinceCache(): void {
+  sinceCache.clear();
+}
