@@ -62,12 +62,11 @@ import {
   shouldDropMessage,
 } from './sender-allowlist.js';
 import { startPhase4CronLoop, startSchedulerLoop } from './task-scheduler.js';
-import { runDriftMonitor } from './drift-monitor.js';
-import { runRecon3Way } from './recon-3way.js';
-// runReconInvoice import retained for type-safety + easy re-enable.
-// The cron registration below was disabled 2026-05-07 (see comment there).
-import { runReconInvoice as _runReconInvoiceDisabled } from './recon-invoice.js';
-void _runReconInvoiceDisabled;
+// 2026-05-08 voice optimization: drift-monitor (voice-bridge turn-latency
+// scan) + recon-3way (cost-ledger reconciliation) + recon-invoice (monthly
+// invoice CSV check) all moved out — voice cost tracking lives entirely
+// at voice-mcp side now. Drift-monitor was already inactive on this host
+// (no BRIDGE_LOG_DIR mounted).
 import { runHealthCheck } from './health-check.js';
 import { readEnvFile } from './env.js';
 import { getDatabase } from './db.js';
@@ -858,79 +857,12 @@ async function main(): Promise<void> {
       // of last resort (same contract as voice-bridge/src/alerts.ts).
     }
   };
-  // 2026-05-07: dedup via heading-line lookup. Pre-fix this was a naive
-  // appendFileSync, so any cron-job that re-fired (e.g. the recon-invoice
-  // restart-loop) accumulated identical "## Foo: bar" entries — the file
-  // grew to 401 lines with 7 copies of the same recon-invoice notice.
-  // Now: skip the write when the first markdown heading line of `content`
-  // is already present in open_points.md. Keeps the file small without
-  // changing call sites.
-  const writeStateRepoOpenPoint = (content: string): void => {
-    try {
-      const openPointsPath = pathNode.join(
-        osNode.homedir(),
-        'nanoclaw-state',
-        'open_points.md',
-      );
-      fsNode.mkdirSync(pathNode.dirname(openPointsPath), { recursive: true });
-      const headingMatch = content.match(/^#{1,6}\s+.+/m);
-      if (headingMatch && fsNode.existsSync(openPointsPath)) {
-        const existing = fsNode.readFileSync(openPointsPath, 'utf8');
-        if (existing.includes(headingMatch[0].trim())) {
-          logger.debug({
-            event: 'open_point_skipped_duplicate',
-            heading: headingMatch[0].trim().slice(0, 100),
-          });
-          return;
-        }
-      }
-      fsNode.appendFileSync(openPointsPath, '\n' + content + '\n');
-    } catch (err: unknown) {
-      logger.warn({
-        event: 'open_point_write_failed',
-        err: (err as Error).message,
-      });
-    }
-  };
+  // 2026-05-08: writeStateRepoOpenPoint helper removed — only caller was
+  // the recon-3way cron, which moved to voice-mcp side.
   startPhase4CronLoop([
-    {
-      name: 'drift-monitor',
-      dailyAt: '03:00',
-      run: () => runDriftMonitor({ sendDiscordAlert }),
-    },
-    {
-      name: 'recon-3way',
-      dailyAt: '03:15',
-      run: () =>
-        runRecon3Way({
-          db: getDatabase(),
-          // Phase-4 MVP: Discord summary fetch not yet wired — Phase 3
-          // did not ship a summary-channel read API. Return [] means
-          // every call is tagged as missing-discord (single-source
-          // drift), which is overfit to noise. We explicitly return []
-          // AND disable alerts on this code path by short-circuiting
-          // when no Discord summary listing backend is configured.
-          listDiscordSummaryMessages: async () => [],
-          sendDiscordAlert,
-          writeStateRepoOpenPoint,
-        }),
-    },
-    // 2026-05-07: recon-invoice cron disabled.
-    //
-    // (a) The post-call summary now reads the OpenAI org month-to-date cost
-    //     directly from /v1/organization/costs (admin API) — no need to
-    //     reconcile against a hand-exported CSV.
-    // (b) The cron-state was in-memory only (task-scheduler.ts), so every
-    //     NanoClaw restart after the monthly anchor (day-2 04:00) re-fired
-    //     the alert. Combined with the no-dedup writeStateRepoOpenPoint
-    //     below, this spammed open_points.md with N copies of "missing CSV
-    //     for 2026-04". See git log around this commit for the full story.
-    // (c) cost-tracking deprecation 2026-05-05 made the recon job moot; the
-    //     deprecation has now been partially reversed (voice_record_turn_cost
-    //     un-stubbed for per-call summaries) but the monthly recon vs. CSV
-    //     export workflow remains retired.
-    //
-    // To re-enable: uncomment + ensure runReconInvoice still imported below.
+    // 2026-05-08 voice optimization: drift-monitor (voice-bridge turn-latency)
+    // + recon-3way (cost-ledger 3-way) + recon-invoice (monthly OpenAI CSV)
+    // crons removed — voice cost tracking is fully voice-mcp's concern now.
     {
       // Periodic system health check — channels connected, OAuth token
       // expiry (Google Testing-mode 7-day TTL warning), voice-bridge alive,
