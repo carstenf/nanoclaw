@@ -42,9 +42,30 @@ Four types of skills exist in NanoClaw. See [CONTRIBUTING.md](CONTRIBUTING.md) f
 | `/customize` | Adding channels, integrations, changing behavior |
 | `/debug` | Container issues, logs, troubleshooting |
 | `/update-nanoclaw` | Bring upstream NanoClaw updates into a customized install |
+| `/add-voice-channel` | Install voice-channel client (PSTN ↔ OpenAI Realtime via mcp-voice-channel) |
 | `/init-onecli` | Install OneCLI Agent Vault and migrate `.env` credentials to it |
 | `/qodo-pr-resolver` | Fetch and fix Qodo PR review issues interactively or in batch |
 | `/get-qodo-rules` | Load org- and repo-level coding rules from Qodo before code tasks |
+
+### Voice-channel architecture (extracted 2026-05-08)
+
+The voice-channel client files (~64 source files: `src/voice-*.ts`,
+`src/voice-channel/`, `src/mcp-tools/voice-*.ts`, etc.) are NOT tracked
+in this repo. Source-of-truth lives at
+`https://github.com/carstenf/nanoclaw-voice-channel`. They appear in
+the working tree only after `/add-voice-channel` has been applied.
+
+A `.gitignore` block prevents accidental re-tracking. Any future voice-
+channel code change should be made in `nanoclaw-voice-channel`, then
+brought into this fork via `git fetch voice && git merge voice/main
+--allow-unrelated-histories` (or by re-running `/add-voice-channel`).
+
+This split exists so trunk stays close to upstream NanoClaw and
+`/update-nanoclaw` can run without conflicts on voice-only files.
+Integration patches in shared files (`src/index.ts`, `src/db.ts`,
+`src/group-queue.ts`, `src/config.ts`, `src/mcp-tools/index.ts`,
+`container/agent-runner/src/index.ts`) remain tracked here — see
+`INTEGRATION.md` in `nanoclaw-voice-channel`.
 
 ## Contributing
 

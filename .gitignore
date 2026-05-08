@@ -61,3 +61,38 @@ agents-sdk-docs
 # Local-only; not committed. The /home/carsten_bot/nanoclaw/voice-stack/runs
 # path is separately managed (older Hetzner stack).
 /voice-container/
+
+# 2026-05-08 architecture-B: voice-channel client extracted into the
+# /add-voice-channel skill (source-of-truth at carstenf/nanoclaw-voice-channel).
+# The actual files live on disk in this working tree (so the running service
+# keeps working), but they're tracked in the voice-channel repo, not here.
+# To re-install voice on a fresh fork: run /add-voice-channel skill.
+container/agent-runner/src/voice-request.ts
+src/channels/active-session-tracker.ts
+src/channels/active-session-tracker.test.ts
+src/channels/voice-mcp.ts
+src/cost-ledger.ts
+src/cost-ledger.test.ts
+src/cost-providers.ts
+src/openai-cost-client.ts
+src/voice-balance.ts
+src/voice-call-cost-snapshots.ts
+src/voice-agent-invoker.ts
+src/voice-agent-invoker.test.ts
+src/voice-config.ts
+src/voice-config.test.ts
+src/voice-instructions.ts
+src/voice-mid-call-gateway.ts
+src/voice-mid-call-gateway.test.ts
+src/voice-trigger-queue.ts
+src/voice-trigger-queue.test.ts
+src/voice-channel/
+src/mcp-tools/voice-*.ts
+src/mcp-tools/claude-client.ts
+src/mcp-tools/claude-client.test.ts
+src/mcp-tools/skill-loader.ts
+src/mcp-tools/skill-loader.test.ts
+src/mcp-tools/slow-brain-session.ts
+src/mcp-tools/slow-brain-session.test.ts
+systemd/voice-trace-sweep.service
+systemd/voice-trace-sweep.timer
