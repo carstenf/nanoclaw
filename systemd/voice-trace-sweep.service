@@ -1,0 +1,13 @@
+[Unit]
+Description=NanoClaw voice-trace retention sweeper (Phase 05.4 Block-5)
+Documentation=file:///home/carsten_bot/nanoclaw-state/voice-channel-spec/tracing-contract.md
+
+[Service]
+Type=oneshot
+ExecStart=/home/carsten_bot/nanoclaw/scripts/trace-sweep.sh
+Environment=VOICE_TRACE_DIR=%h/nanoclaw/voice-container/runs
+Environment=TRACE_GZIP_AFTER_DAYS=7
+Environment=TRACE_DELETE_AFTER_DAYS=90
+# Let systemd capture the JSON-line stdout into the journal for audit trail.
+StandardOutput=journal
+StandardError=journal
