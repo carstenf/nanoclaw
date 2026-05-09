@@ -101,11 +101,6 @@ export const SLOW_BRAIN_SESSION_IDLE_MS = parseInt(
   10,
 );
 
-// Voice-channel configs are now defined in src/voice-channel/config.ts and
-// re-exported here for backwards compatibility. /add-voice-channel skill
-// uninstall: drop the voice-channel re-export block at the end of this
-// file + delete src/voice-channel/config.ts.
-
 // Google Maps MCP tool settings
 const envMaps = readEnvFile(['GOOGLE_MAPS_API_KEY', 'GOOGLE_MAPS_TIMEOUT_MS']);
 export const GOOGLE_MAPS_API_KEY =
@@ -116,9 +111,6 @@ export const GOOGLE_MAPS_TIMEOUT_MS = parseInt(
     '6000',
   10,
 );
-
-// (Voice-channel paths/timeouts moved to src/voice-channel/config.ts; see
-// re-export block at end of file.)
 
 // Google Calendar MCP tool settings
 export const GCALENDAR_CREDS_PATH =
@@ -136,14 +128,6 @@ export const GCALENDAR_TIMEOUT_MS = parseInt(
   10,
 );
 
-// V2.3: legacy port 3201 (StreamableHTTP MCP + /voice/* HTTP-channel) was
-// retired. Bridge talks to voice-mcp on Hetzner :3150 only; voice-mcp pushes
-// triggers to NanoClaw via WebSocket. NanoClaw binds no inbound voice port.
-
-// (Voice-channel BRIDGE_OUTBOUND_*, VOICE_ACTIVE_SESSION_WINDOW_MS,
-// VOICE_NOTIFY_LONG_TEXT_WORD_THRESHOLD, and CASE_2_* moved to
-// src/voice-channel/config.ts; see re-export block at end of file.)
-
 // Timezone for scheduled tasks, message formatting, etc.
 // Validates each candidate is a real IANA identifier before accepting.
 function resolveConfigTimezone(): string {
@@ -159,30 +143,3 @@ function resolveConfigTimezone(): string {
 }
 export const TIMEZONE = resolveConfigTimezone();
 
-// ============================================================================
-// Voice-channel re-exports
-// ============================================================================
-// All voice-only config lives in src/voice-channel/config.ts and is
-// re-exported here for backwards compatibility with non-voice consumers
-// (skill-loader, active-session-tracker, tests). Skill uninstall path:
-// delete the entire block below + delete src/voice-channel/config.ts.
-export {
-  VOICE_DISCORD_ALLOWED_CHANNELS_RAW,
-  VOICE_DISCORD_ALLOWED_CHANNELS,
-  VOICE_DISCORD_TIMEOUT_MS,
-  CONTRACTS_PATH,
-  PRACTICE_PROFILE_PATH,
-  SKILLS_DIR,
-  ASK_CORE_CLAUDE_TIMEOUT_MS,
-  ASK_CORE_MAX_TOKENS_PER_CALL,
-  ASK_CORE_ANDY_TIMEOUT_MS,
-  ANDY_VOICE_DISCORD_CHANNEL,
-  BRIDGE_OUTBOUND_URL,
-  BRIDGE_OUTBOUND_AUTH_TOKEN,
-  VOICE_ACTIVE_SESSION_WINDOW_MS,
-  VOICE_NOTIFY_LONG_TEXT_WORD_THRESHOLD,
-  CASE_2_RETRY_LADDER_MIN,
-  CASE_2_DAILY_CAP,
-  CASE_2_TIME_TOLERANCE_MIN_DEFAULT,
-  CASE_2_PARTY_SIZE_TOLERANCE_DEFAULT,
-} from './voice-channel/config.js';

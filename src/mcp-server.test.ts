@@ -8,7 +8,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { buildMcpApp } from './mcp-server.js';
 import { buildDefaultRegistry } from './mcp-tools/index.js';
-import { SlowBrainSessionManager } from './mcp-tools/slow-brain-session.js';
 
 let tmpDir: string;
 let server: http.Server;
@@ -21,15 +20,9 @@ async function startApp(allowlist: string[]): Promise<void> {
     error: vi.fn(),
     fatal: vi.fn(),
   };
-  // Use a no-op session manager to avoid real OneCLI calls in tests
-  const mockSessionManager = new SlowBrainSessionManager({
-    claudeClient: async () => 'null',
-  });
   const registry = buildDefaultRegistry({
     dataDir: tmpDir,
     log,
-    sessionManager: mockSessionManager,
-    sweepIntervalMs: 0,
   });
   const app = buildMcpApp({
     registry,
@@ -74,7 +67,7 @@ describe('GET /health', () => {
     expect(body.ok).toBe(true);
     expect(body.bound_to).toBe('127.0.0.1:test');
     expect(body.peers).toEqual(['127.0.0.1']);
-    expect(body.tools).toContain('voice_on_transcript_turn');
+    expect(Array.isArray(body.tools)).toBe(true);
   });
 
   it('returns 403 peer_not_allowed for unlisted peer', async () => {
@@ -88,28 +81,6 @@ describe('GET /health', () => {
 });
 
 describe('POST /mcp/:tool_name', () => {
-  it('voice_on_transcript_turn with valid body -> 200 {ok, result}', async () => {
-    await startApp(['127.0.0.1']);
-    const r = await fetch(`${baseUrl}/mcp/voice_on_transcript_turn`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        arguments: {
-          call_id: 'rtc-x',
-          turn_id: 't-0',
-          transcript: 'hallo claude',
-        },
-      }),
-    });
-    expect(r.status).toBe(200);
-    const body = (await r.json()) as {
-      ok: boolean;
-      result: { ok: boolean; instructions_update: string | null };
-    };
-    expect(body.ok).toBe(true);
-    expect(body.result).toEqual({ ok: true, instructions_update: null });
-  });
-
   it('unknown tool -> 404 unknown_tool', async () => {
     await startApp(['127.0.0.1']);
     const r = await fetch(`${baseUrl}/mcp/foo.bar_not_real`, {
@@ -135,21 +106,6 @@ describe('POST /mcp/:tool_name', () => {
     expect(body.error).toBe('bad_json');
   });
 
-  it('missing call_id -> 400 bad_request with field', async () => {
-    await startApp(['127.0.0.1']);
-    const r = await fetch(`${baseUrl}/mcp/voice_on_transcript_turn`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        arguments: { turn_id: 't', transcript: 'hi' },
-      }),
-    });
-    expect(r.status).toBe(400);
-    const body = (await r.json()) as { error: string; field: string };
-    expect(body.error).toBe('bad_request');
-    expect(body.field).toBe('call_id');
-  });
-
   it('blocked peer on POST -> 403 before tool dispatch', async () => {
     await startApp(['10.0.0.99']);
     const r = await fetch(`${baseUrl}/mcp/voice_on_transcript_turn`, {
@@ -169,14 +125,9 @@ describe('POST /mcp/:tool_name', () => {
       error: vi.fn(),
       fatal: vi.fn(),
     };
-    const mockSessionManager = new SlowBrainSessionManager({
-      claudeClient: async () => 'null',
-    });
     const registry = buildDefaultRegistry({
       dataDir: tmpDir,
       log,
-      sessionManager: mockSessionManager,
-      sweepIntervalMs: 0,
     });
     const app = buildMcpApp({
       registry,

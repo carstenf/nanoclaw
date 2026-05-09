@@ -211,8 +211,6 @@ export async function processTaskIpc(
     // For make_call
     to?: string;
     goal?: string;
-    voice_mode?: string;
-    voice?: string;
     context?: string;
   },
   sourceGroup: string, // Verified identity from IPC directory

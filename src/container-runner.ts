@@ -48,15 +48,10 @@ export interface ContainerInput {
 
 /**
  * Output emitted by the in-container agent-runner across the IPC boundary.
- * Discriminated on `status` so call_id/discord_long/error are only
- * accessible after the matching narrow — TypeScript catches stray field
- * access at compile time and forbids cross-variant field mixing at the
- * construction site.
+ * Discriminated on `status` so error is only accessible after the matching
+ * narrow.
  *
  * Container-side mirror lives in container/agent-runner/src/index.ts.
- * Voice-channel marker variant is also re-declared in
- * src/voice-channel/protocol.ts (VoiceResponseMarker) — keep all three in
- * sync.
  */
 interface ContainerOutputBase {
   newSessionId?: string;
@@ -73,19 +68,7 @@ export interface ContainerError extends ContainerOutputBase {
   error?: string;
 }
 
-export interface ContainerVoiceResponse extends ContainerOutputBase {
-  status: 'voice_response';
-  result: string | null;
-  /** call_id from the originating voice_request IPC. */
-  call_id: string;
-  /** Optional long-form for Discord (parallel to voice). */
-  discord_long?: string | null;
-}
-
-export type ContainerOutput =
-  | ContainerSuccess
-  | ContainerError
-  | ContainerVoiceResponse;
+export type ContainerOutput = ContainerSuccess | ContainerError;
 
 interface VolumeMount {
   hostPath: string;

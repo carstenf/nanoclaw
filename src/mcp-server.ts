@@ -11,7 +11,6 @@ import {
   UnknownToolError,
   buildDefaultRegistry,
 } from './mcp-tools/index.js';
-import { BadRequestError } from './mcp-tools/voice-on-transcript-turn.js';
 
 const DEFAULT_PORT = 3200;
 const DEFAULT_BIND = '10.0.0.2';
@@ -73,14 +72,6 @@ export function buildMcpApp(deps: McpDeps): express.Application {
     } catch (err) {
       if (err instanceof UnknownToolError) {
         res.status(404).json({ error: 'unknown_tool', tool_name: toolName });
-        return;
-      }
-      if (err instanceof BadRequestError) {
-        res.status(400).json({
-          error: 'bad_request',
-          field: err.field,
-          expected: err.expected,
-        });
         return;
       }
       const refId = `${started}-${Math.random().toString(36).slice(2, 8)}`;

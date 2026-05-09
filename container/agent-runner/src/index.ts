@@ -23,15 +23,6 @@ import {
   PreCompactHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
-// Voice-channel IPC envelope handling. /add-voice-channel skill removes
-// this import + every voice-request reference + the voice-channel guard
-// in drainIpcInput + the takePendingVoiceRequest call in the result-emit
-// path; deletes ./voice-request.js.
-import {
-  isVoiceRequestEnvelope,
-  consumeVoiceRequest,
-  takePendingVoiceRequest,
-} from './voice-request.js';
 
 interface ContainerInput {
   prompt: string;
@@ -45,9 +36,8 @@ interface ContainerInput {
 }
 
 // Mirror of src/container-runner.ts ContainerOutput discriminated union (host
-// side, separate TS project). Keep in sync — see voice-channel/protocol.ts
-// jsdoc for the full cross-ref. Discrimination on `status` catches stray
-// field mixing at every writeOutput() construction site below.
+// side, separate TS project). Discrimination on `status` catches stray field
+// mixing at every writeOutput() construction site below.
 interface ContainerOutputBase {
   newSessionId?: string;
 }
@@ -63,17 +53,7 @@ interface ContainerError extends ContainerOutputBase {
   error?: string;
 }
 
-interface ContainerVoiceResponse extends ContainerOutputBase {
-  status: 'voice_response';
-  result: string | null;
-  call_id: string;
-  discord_long?: string | null;
-}
-
-type ContainerOutput =
-  | ContainerSuccess
-  | ContainerError
-  | ContainerVoiceResponse;
+type ContainerOutput = ContainerSuccess | ContainerError;
 
 interface SessionEntry {
   sessionId: string;
@@ -341,14 +321,6 @@ function shouldClose(): boolean {
  * Drain all pending IPC input messages.
  * Returns messages found, or empty array.
  */
-// Phase 05.6-04 follow-up: voice_request IPC envelope handling lives in
-// ./voice-request.ts (refactor 2026-05-07). drainIpcInput delegates the
-// envelope path; the result-emit path calls takePendingVoiceRequest().
-// IPC contract: VoiceRequestEnvelope (input) and VoiceResponseMarker
-// (output) shapes are mirrored on the host side in
-// src/voice-channel/protocol.ts. When you change a field, update both
-// ends.
-
 function drainIpcInput(): string[] {
   try {
     fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
@@ -365,12 +337,6 @@ function drainIpcInput(): string[] {
         fs.unlinkSync(filePath);
         if (data.type === 'message' && data.text) {
           messages.push(data.text);
-        } else if (isVoiceRequestEnvelope(data)) {
-          // Voice channel request — voice-request.ts tracks call_id so
-          // the host routes the assistant's text response via
-          // voice_respond. Wrapper prompt steers Andy toward plain-text
-          // voice-friendly output.
-          messages.push(consumeVoiceRequest(data));
         }
       } catch (err) {
         log(
@@ -389,9 +355,6 @@ function drainIpcInput(): string[] {
     return [];
   }
 }
-
-// (buildVoiceRequestPrompt moved to ./voice-request.ts as part of the
-// /add-voice-channel skill extraction, 2026-05-07.)
 
 /**
  * Wait for a new IPC message or _close sentinel.
@@ -638,30 +601,11 @@ async function runQuery(
       log(
         `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`,
       );
-      // If this turn was driven by a voice_request, emit a voice_response
-      // marker so the host can route the answer to VoiceRespondManager
-      // (and skip Discord). Cleared after one emission so subsequent turns
-      // in the same query (e.g. follow-up Discord messages) revert to the
-      // normal success-marker channel routing.
-      const voiceCallId = takePendingVoiceRequest();
-      if (voiceCallId) {
-        log(
-          `Voice-channel response captured for call_id=${voiceCallId} (${(textResult || '').length} chars)`,
-        );
-        writeOutput({
-          status: 'voice_response',
-          result: textResult || null,
-          call_id: voiceCallId,
-          discord_long: null,
-          newSessionId,
-        });
-      } else {
-        writeOutput({
-          status: 'success',
-          result: textResult || null,
-          newSessionId,
-        });
-      }
+      writeOutput({
+        status: 'success',
+        result: textResult || null,
+        newSessionId,
+      });
     }
   }
 

@@ -95,47 +95,6 @@ function createSchema(database: Database.Database): void {
       requires_trigger INTEGER DEFAULT 1
     );
 
-    -- Phase 4 (INFRA-06, COST-01..05): voice cost ledger.
-    -- Schema mirror lives in src/cost-ledger.ts createSchema() for in-memory testing.
-    CREATE TABLE IF NOT EXISTS voice_call_costs (
-      call_id          TEXT PRIMARY KEY,
-      case_type        TEXT NOT NULL,
-      started_at       TEXT NOT NULL,
-      ended_at         TEXT,
-      cost_eur         REAL NOT NULL DEFAULT 0,
-      turn_count       INTEGER NOT NULL DEFAULT 0,
-      terminated_by    TEXT,
-      soft_warn_fired  INTEGER NOT NULL DEFAULT 0,
-      model            TEXT NOT NULL DEFAULT 'gpt-realtime-mini'
-    );
-    CREATE INDEX IF NOT EXISTS idx_voice_call_costs_started ON voice_call_costs(started_at);
-
-    CREATE TABLE IF NOT EXISTS voice_turn_costs (
-      call_id          TEXT NOT NULL,
-      turn_id          TEXT NOT NULL,
-      ts               TEXT NOT NULL,
-      audio_in_tokens  INTEGER NOT NULL DEFAULT 0,
-      audio_out_tokens INTEGER NOT NULL DEFAULT 0,
-      cached_in_tokens INTEGER NOT NULL DEFAULT 0,
-      text_in_tokens   INTEGER NOT NULL DEFAULT 0,
-      text_out_tokens  INTEGER NOT NULL DEFAULT 0,
-      cost_eur         REAL NOT NULL,
-      PRIMARY KEY (call_id, turn_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_voice_turn_costs_call ON voice_turn_costs(call_id);
-
-    CREATE TABLE IF NOT EXISTS voice_price_snapshots (
-      ts               TEXT PRIMARY KEY,
-      model            TEXT NOT NULL,
-      audio_in_usd     REAL NOT NULL,
-      audio_out_usd    REAL NOT NULL,
-      audio_cached_usd REAL NOT NULL,
-      text_in_usd      REAL NOT NULL,
-      text_out_usd     REAL NOT NULL,
-      usd_to_eur       REAL NOT NULL,
-      source           TEXT NOT NULL
-    );
-
     -- voice_outbound_attempts — retry orchestration table for any outbound
     -- voicemail/no-answer (renamed from voice_case_2_attempts in Step 3
     -- Phase C, open_points 2026-04-30, after the case_2/generic merge).
@@ -269,23 +228,6 @@ function createSchema(database: Database.Database): void {
     /* columns already exist */
   }
 
-  // Phase 05.5 / REQ-COST-06: trigger_type column on voice_turn_costs.
-  // Distinguishes 'turn' (existing Realtime turns) from 'init_trigger' /
-  // 'transcript_trigger' (new container-agent invocations). Backfilled
-  // 'turn' for any pre-Phase-05.5 rows. Idempotent — guarded by PRAGMA
-  // table_info() so re-running createSchema() is safe.
-  try {
-    const cols = database
-      .prepare(`PRAGMA table_info(voice_turn_costs)`)
-      .all() as Array<{ name: string }>;
-    if (!cols.some((c) => c.name === 'trigger_type')) {
-      database.exec(
-        `ALTER TABLE voice_turn_costs ADD COLUMN trigger_type TEXT NOT NULL DEFAULT 'turn'`,
-      );
-    }
-  } catch {
-    /* table missing in unexpected DB layout — non-fatal */
-  }
 }
 
 export function initDatabase(): void {

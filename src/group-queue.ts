@@ -4,7 +4,6 @@ import path from 'path';
 
 import { DATA_DIR, MAX_CONCURRENT_CONTAINERS } from './config.js';
 import { logger } from './logger.js';
-import { buildVoiceRequestEnvelope } from './voice-channel/index.js';
 
 interface QueuedTask {
   id: string;
@@ -196,27 +195,6 @@ export class GroupQueue {
    */
   sendMessage(groupJid: string, text: string): boolean {
     return this.sendIpcEnvelope(groupJid, { type: 'message', text });
-  }
-
-  /**
-   * Voice-channel injection (Phase 05.6-04 follow-up). Drop a voice_request
-   * IPC envelope into the active container's input/. The container's
-   * agent-runner recognises type='voice_request' and routes Andy's response
-   * via the voice_respond MCP-Tool (resolved by VoiceRespondManager). Returns
-   * true if the file was written, false if no active container — in which
-   * case the caller (voice-ask-core) falls back to the legacy --rm Andy path.
-   */
-  sendVoiceRequest(
-    groupJid: string,
-    callId: string,
-    prompt: string,
-  ): boolean {
-    const safeId = callId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 24);
-    return this.sendIpcEnvelope(
-      groupJid,
-      buildVoiceRequestEnvelope(callId, prompt),
-      `voice-${safeId}`,
-    );
   }
 
   /**

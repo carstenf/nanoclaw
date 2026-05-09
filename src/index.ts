@@ -78,14 +78,6 @@ import { logger } from './logger.js';
 import { recallMemory } from './memory.js';
 import { startMcpServer } from './mcp-server.js';
 import { buildDefaultRegistry } from './mcp-tools/index.js';
-// Voice-channel orchestrator (host-side wiring). Single import: the
-// /add-voice-channel skill removes this line + the setupVoiceOrchestrator
-// call below + every `voice.*` reference. The orchestrator encapsulates
-// VoiceRespondManager, tryInjectVoiceRequest, triggerWakeUp,
-// handleResponseMarker, isWakeUpTurn, and the VoiceMcpClient WS lifecycle.
-import { setupVoiceOrchestrator } from './voice-channel/index.js';
-import { createActiveSessionTracker } from './channels/active-session-tracker.js';
-
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
 
@@ -97,19 +89,6 @@ let messageLoopRunning = false;
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
-
-// Voice-channel orchestrator. Host-side wiring (VoiceRespondManager,
-// tryInjectVoiceRequest, triggerWakeUp, handleResponseMarker, WS client
-// lifecycle) all live behind this single setup call. /add-voice-channel
-// skill removes the import above + this assignment + every `voice.*`
-// reference downstream. Side-effect-free at construction; startWsClient()
-// is invoked separately after the registry is built.
-const voice = setupVoiceOrchestrator({
-  getRegisteredGroups: () => registeredGroups,
-  sendVoiceRequest: (jid, callId, prompt) =>
-    queue.sendVoiceRequest(jid, callId, prompt),
-  enqueueMessageCheck: (jid) => queue.enqueueMessageCheck(jid),
-});
 
 const onecli = new OneCLI({ url: ONECLI_URL });
 
@@ -322,14 +301,6 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     }, IDLE_TIMEOUT);
   };
 
-  // open_points 2026-04-27 #1: detect a voice wake-up turn so we can
-  // suppress channel.sendMessage even if Andy ignores the persona instruction
-  // and emits something like "ok". The sentinel is inserted into the DB by
-  // voice.triggerWakeUp(); processGroupMessages reads it via getMessagesSince
-  // and includes it in the formatted prompt. Belt-and-suspenders: persona
-  // says "stay silent", this guard ensures it.
-  const isWakeUpTurn = voice.isWakeUpTurn(prompt);
-
   // setTyping can hang indefinitely if Discord's WS goes stale (observed
   // 2026-05-08). Cap it so the agent run is not blocked on cosmetics.
   await Promise.race([
@@ -342,18 +313,6 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let outputSentToUser = false;
 
   const output = await runAgent(group, prompt, chatJid, async (result) => {
-    // Phase 05.6-04 follow-up: voice_response marker — when the container
-    // tagged this turn as the answer to a voice_request IPC, route via the
-    // VoiceRespondManager and skip the normal channel.sendMessage path.
-    // (voice_respond MCP tool also has a Discord fallback for after-90s
-    // arrivals; here the answer is in time and the voice-bot still on the
-    // line.)
-    if (voice.handleResponseMarker(result, voice.manager)) {
-      resetIdleTimer();
-      queue.notifyIdle(chatJid);
-      return;
-    }
-
     // Streaming output callback — called for each agent result
     if (result.result) {
       const raw =
@@ -363,18 +322,6 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
       const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
       logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
-      // Wake-up turn: persona was instructed to stay silent. If something
-      // leaked through anyway, drop it here (open_points 2026-04-27 #1).
-      if (isWakeUpTurn) {
-        if (text) {
-          logger.info(
-            { group: group.name, leaked_chars: text.length },
-            'Suppressing wake-up turn output (persona leak)',
-          );
-        }
-        outputSentToUser = true;
-        return;
-      }
       if (text) {
         await channel.sendMessage(chatJid, text);
         outputSentToUser = true;
@@ -668,10 +615,6 @@ async function main(): Promise<void> {
   ensureContainerSystemRunning();
   initDatabase();
 
-  // Plan 05-02 Task 5: active-session-tracker — tracks which channel (whatsapp/discord)
-  // Operator most recently sent a message on. recordActivity() is called in onMessage
-  // below; voice_notify_user routing reads it via buildDefaultRegistry DI.
-  const activeSessionTracker = createActiveSessionTracker();
   logger.info('Database initialized');
   loadState();
 
@@ -738,15 +681,6 @@ async function main(): Promise<void> {
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
-      // Plan 05-02 Task 5: record inbound activity for voice_notify_user routing.
-      // Channel name is derived from the message JID prefix pattern.
-      // This is a one-line integration — no other changes to this handler.
-      if (!msg.is_from_me && !msg.is_bot_message) {
-        const channelName: 'whatsapp' | 'discord' =
-          chatJid.startsWith('dc:') ? 'discord' : 'whatsapp';
-        activeSessionTracker.recordActivity(channelName, chatJid, Date.now());
-      }
-
       // Remote control commands — intercept before storage
       const trimmed = msg.content.trim();
       if (trimmed === '/remote-control' || trimmed === '/remote-control-end') {
@@ -975,22 +909,14 @@ async function main(): Promise<void> {
   // Single-source ToolRegistry shared between the legacy REST fassade
   // (port 3200, Bridge consumer) and the Phase-4 Plan-04-03 StreamableHTTP
   // transport (port 3201, Chat-Claude consumer). AC-07 invariant.
-  // Voice-channel deps come from the top-level setupVoiceOrchestrator call.
   const sharedRegistry = buildDefaultRegistry({
     sendDiscordMessage,
     getMainGroupAndJid,
-    activeSessionTracker,
-    tryInjectVoiceRequest: voice.tryInjectVoiceRequest,
-    voiceRespondManager: voice.manager,
-    triggerWakeUp: voice.triggerWakeUp,
   });
   startMcpServer({
     registry: sharedRegistry,
     deps: { sendDiscordMessage, getMainGroupAndJid },
   });
-  // Voice-channel WS client (NanoClaw → voice-mcp:3150 on Hetzner). No-op
-  // when VOICE_MCP_TRIGGERS_URL / VOICE_MCP_BEARER are unset.
-  voice.startWsClient(sharedRegistry);
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {
