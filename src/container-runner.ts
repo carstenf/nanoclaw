@@ -68,7 +68,17 @@ export interface ContainerError extends ContainerOutputBase {
   error?: string;
 }
 
-export type ContainerOutput = ContainerSuccess | ContainerError;
+export interface ContainerVoiceResponse extends ContainerOutputBase {
+  status: 'voice_response';
+  result: string | null;
+  call_id: string;
+  discord_long?: string | null;
+}
+
+export type ContainerOutput =
+  | ContainerSuccess
+  | ContainerError
+  | ContainerVoiceResponse;
 
 interface VolumeMount {
   hostPath: string;

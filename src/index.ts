@@ -45,7 +45,6 @@ import {
   setSession,
   storeChatMetadata,
   storeMessage,
-  createTask,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -79,9 +78,8 @@ import { logger } from './logger.js';
 import { recallMemory } from './memory.js';
 import { startMcpServer } from './mcp-server.js';
 import { buildDefaultRegistry } from './mcp-tools/index.js';
-import { setupVoiceHandlers } from './voice-channel-handlers.js';
-import { getVoiceChannel } from './channels/voice.js';
-import crypto from 'crypto';
+import { startVoiceMcpClient } from './voice-mcp-client.js';
+import { getVoiceRespondManager } from './voice-respond-manager.js';
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
 
@@ -317,6 +315,23 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let outputSentToUser = false;
 
   const output = await runAgent(group, prompt, chatJid, async (result) => {
+    // Pattern-B: voice_response marker — Andy answered an ask_core question
+    // injected via voice_request IPC. Route to VoiceRespondManager so the
+    // long-poll voice-mcp-client gets the answer; suppress channel send.
+    if (result.status === 'voice_response') {
+      const raw =
+        typeof result.result === 'string' ? result.result : '';
+      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+      getVoiceRespondManager().resolve(result.call_id, {
+        voice_short: text,
+        discord_long: result.discord_long ?? null,
+      });
+      outputSentToUser = true;
+      resetIdleTimer();
+      queue.notifyIdle(chatJid);
+      return;
+    }
+
     // Streaming output callback — called for each agent result
     if (result.result) {
       const raw =
@@ -922,112 +937,17 @@ async function main(): Promise<void> {
     deps: { sendDiscordMessage, getMainGroupAndJid },
   });
 
-  // v2-friendly voice integration: single setupVoiceHandlers call replacing
-  // the v1 INTEGRATION patches. Voice channel only registered if .env has
-  // VOICE_MCP_URL + VOICE_MCP_BEARER + VOICE_DISPATCH_BEARER.
-  const vc = getVoiceChannel();
-  if (vc) {
-    setupVoiceHandlers(vc, {
-      sendDiscordMessage: async ({ channel, content }) => {
-        return sendDiscordMessage(channel, content);
-      },
-      spawnVoiceAgent: async ({ callId, prompt, timeoutMs }) => {
-        const main = getMainGroupAndJid();
-        if (!main) return { ok: false, error: 'no_main_group' };
-        const group = registeredGroups[main.jid];
-        if (!group) return { ok: false, error: 'no_main_group' };
-        let voiceShort = '';
-        const wrapped = `<voice_request call_id="${callId}">\n${prompt}\n</voice_request>`;
-        try {
-          const output = await Promise.race([
-            runContainerAgent(
-              group,
-              {
-                prompt: wrapped,
-                groupFolder: group.folder,
-                chatJid: main.jid,
-                isMain: true,
-                assistantName: ASSISTANT_NAME,
-              },
-              () => {},
-              async (out) => {
-                if (out.status === 'success' && typeof out.result === 'string') {
-                  voiceShort = out.result
-                    .replace(/<internal>[\s\S]*?<\/internal>/g, '')
-                    .trim();
-                }
-              },
-            ),
-            new Promise<{ status: 'error'; error: string; result: null }>(
-              (_, reject) =>
-                setTimeout(
-                  () => reject(new Error('voice_ask_core_timeout')),
-                  timeoutMs,
-                ),
-            ),
-          ]);
-          if (output.status === 'error') {
-            return { ok: false, error: output.error || 'agent_error' };
-          }
-          return {
-            ok: true,
-            result: { voice_short: voiceShort, discord_long: null },
-          };
-        } catch (err) {
-          return {
-            ok: false,
-            error: err instanceof Error ? err.message : 'spawn_failed',
-          };
-        }
-      },
-      scheduleRetry: async (args) => {
-        const main = getMainGroupAndJid();
-        if (!main) return { ok: false, error: 'no_main_group' };
-        const taskId = `voice-retry-${crypto.randomUUID()}`;
-        const prompt = `Voice retry: ${args.case_type} → ${args.target_phone}${
-          args.call_id ? ` (originating call: ${args.call_id})` : ''
-        }`;
-        try {
-          createTask({
-            id: taskId,
-            group_folder: main.folder,
-            chat_jid: main.jid,
-            prompt,
-            schedule_type: 'once',
-            schedule_value: args.not_before_ts,
-            context_mode: 'isolated',
-            next_run: args.not_before_ts,
-            status: 'active',
-            created_at: new Date().toISOString(),
-          });
-          return { ok: true, task_id: taskId };
-        } catch (err) {
-          return {
-            ok: false,
-            error: err instanceof Error ? err.message : 'schedule_failed',
-          };
-        }
-      },
-      triggerWakeUp: async ({ call_id, reason }) => {
-        const main = getMainGroupAndJid();
-        if (!main) return { ok: true, status: 'no_main_group' };
-        const sentinel = `<voice_wake_up call_id="${call_id}" reason="${reason}" />`;
-        storeMessage({
-          id: `wakeup-${call_id}-${Date.now()}`,
-          chat_jid: main.jid,
-          sender: 'voice-bridge',
-          sender_name: 'voice-bridge',
-          content: sentinel,
-          timestamp: new Date().toISOString(),
-          is_from_me: false,
-          is_bot_message: false,
-        });
-        queue.enqueueMessageCheck(main.jid);
-        return { ok: true, status: 'scheduled' };
-      },
-    });
-    logger.info({ event: 'voice_handlers_wired' });
-  }
+  // Pattern-B: NanoClaw connects to voice-mcp as MCP CLIENT and long-polls
+  // for ask_core questions (analog to how Andy is MCP client to hindsight).
+  // No-op when VOICE_MCP_URL / VOICE_MCP_BEARER are unset. Persona render,
+  // Discord posting, retry scheduling, and wake-up all live in voice-mcp now;
+  // trunk only handles the voice → Andy inversion path here.
+  startVoiceMcpClient({
+    queue,
+    getMainGroupAndJid,
+    getRegisteredGroups: () => registeredGroups,
+    assistantName: ASSISTANT_NAME,
+  });
 
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();

@@ -7,9 +7,6 @@ import './discord.js';
 // gmail
 import './gmail.js';
 
-// voice
-import './voice.js';
-
 // slack
 
 // telegram

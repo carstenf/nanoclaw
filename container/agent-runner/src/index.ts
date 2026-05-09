@@ -23,6 +23,11 @@ import {
   PreCompactHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
+import {
+  isVoiceRequestEnvelope,
+  consumeVoiceRequest,
+  takePendingVoiceRequest,
+} from './voice-request.js';
 
 interface ContainerInput {
   prompt: string;
@@ -53,7 +58,17 @@ interface ContainerError extends ContainerOutputBase {
   error?: string;
 }
 
-type ContainerOutput = ContainerSuccess | ContainerError;
+interface ContainerVoiceResponse extends ContainerOutputBase {
+  status: 'voice_response';
+  result: string | null;
+  call_id: string;
+  discord_long?: string | null;
+}
+
+type ContainerOutput =
+  | ContainerSuccess
+  | ContainerError
+  | ContainerVoiceResponse;
 
 interface SessionEntry {
   sessionId: string;
@@ -337,6 +352,8 @@ function drainIpcInput(): string[] {
         fs.unlinkSync(filePath);
         if (data.type === 'message' && data.text) {
           messages.push(data.text);
+        } else if (isVoiceRequestEnvelope(data)) {
+          messages.push(consumeVoiceRequest(data));
         }
       } catch (err) {
         log(
@@ -601,11 +618,25 @@ async function runQuery(
       log(
         `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`,
       );
-      writeOutput({
-        status: 'success',
-        result: textResult || null,
-        newSessionId,
-      });
+      const voiceCallId = takePendingVoiceRequest();
+      if (voiceCallId) {
+        log(
+          `Voice-channel response captured for call_id=${voiceCallId} (${(textResult || '').length} chars)`,
+        );
+        writeOutput({
+          status: 'voice_response',
+          result: textResult || null,
+          call_id: voiceCallId,
+          discord_long: null,
+          newSessionId,
+        });
+      } else {
+        writeOutput({
+          status: 'success',
+          result: textResult || null,
+          newSessionId,
+        });
+      }
     }
   }
 

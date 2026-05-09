@@ -198,6 +198,26 @@ export class GroupQueue {
   }
 
   /**
+   * Pattern-B voice IPC inject. Drops a voice_request envelope into the
+   * active container's input/. The agent-runner recognises type='voice_request'
+   * and routes Andy's response via a voice_response output marker. Returns
+   * true if the file was written, false if no active container — caller
+   * (voice-mcp-client) falls back to spawnVoiceAgent cold-spawn.
+   */
+  sendVoiceRequest(
+    groupJid: string,
+    callId: string,
+    prompt: string,
+  ): boolean {
+    const safeId = callId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 24);
+    return this.sendIpcEnvelope(
+      groupJid,
+      { type: 'voice_request', call_id: callId, prompt },
+      `voice-${safeId}`,
+    );
+  }
+
+  /**
    * Signal the active container to wind down by writing a close sentinel.
    */
   closeStdin(groupJid: string): void {
