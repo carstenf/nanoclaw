@@ -87,6 +87,11 @@ src/voice-mid-call-gateway.test.ts
 src/voice-trigger-queue.ts
 src/voice-trigger-queue.test.ts
 src/voice-channel/
+# Pattern-B: voice-mcp-client + voice-respond-manager. Source-of-truth at
+# carstenf/nanoclaw-voice-channel pattern-b. Live on disk after
+# /add-voice-channel skill applied; not tracked here.
+src/voice-mcp-client.ts
+src/voice-respond-manager.ts
 src/mcp-tools/voice-*.ts
 src/mcp-tools/claude-client.ts
 src/mcp-tools/claude-client.test.ts
