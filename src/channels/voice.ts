@@ -26,12 +26,7 @@ import { getDb } from '../db/connection.js';
 import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
 import { registerChannelAdapter } from './channel-registry.js';
-import type {
-  ChannelAdapter,
-  ChannelSetup,
-  InboundMessage,
-  OutboundMessage,
-} from './adapter.js';
+import type { ChannelAdapter, ChannelSetup, InboundMessage, OutboundMessage } from './adapter.js';
 
 export const VOICE_CHANNEL_TYPE = 'voice';
 export const VOICE_PLATFORM_ID = 'default';
@@ -117,9 +112,7 @@ async function callMcpTool(
     }
   }
   // payload is the JSON-RPC envelope; extract the tool's text content.
-  const inner = (payload as Record<string, unknown> | undefined)?.result as
-    | Record<string, unknown>
-    | undefined;
+  const inner = (payload as Record<string, unknown> | undefined)?.result as Record<string, unknown> | undefined;
   const content = inner?.content as Array<Record<string, unknown>> | undefined;
   const firstText = content?.[0]?.text;
   if (typeof firstText !== 'string') return null;
@@ -173,9 +166,7 @@ function pickDiscordFanoutTarget(): { channelType: string; platformId: string } 
         ORDER BY dmga.priority DESC
         LIMIT 1`,
     )
-    .get(VOICE_CHANNEL_TYPE, VOICE_PLATFORM_ID) as
-    | { channel_type: string; platform_id: string }
-    | undefined;
+    .get(VOICE_CHANNEL_TYPE, VOICE_PLATFORM_ID) as { channel_type: string; platform_id: string } | undefined;
   if (!row) return null;
   return { channelType: row.channel_type, platformId: row.platform_id };
 }
@@ -214,11 +205,7 @@ class VoiceAdapter implements ChannelAdapter {
     return this.connected;
   }
 
-  async deliver(
-    platformId: string,
-    threadId: string | null,
-    message: OutboundMessage,
-  ): Promise<string | undefined> {
+  async deliver(platformId: string, threadId: string | null, message: OutboundMessage): Promise<string | undefined> {
     if (!threadId) {
       log.warn('voice_deliver_missing_call_id', { platformId, kind: message.kind });
       return undefined;
@@ -275,10 +262,7 @@ class VoiceAdapter implements ChannelAdapter {
     while (this.running) {
       try {
         this.abortController = new AbortController();
-        const fetchTimeout = setTimeout(
-          () => this.abortController?.abort(),
-          FETCH_TIMEOUT_MS,
-        );
+        const fetchTimeout = setTimeout(() => this.abortController?.abort(), FETCH_TIMEOUT_MS);
         let res: ToolResult | null;
         try {
           res = await callMcpTool(
@@ -327,11 +311,7 @@ class VoiceAdapter implements ChannelAdapter {
     }
   }
 
-  private async emitInbound(
-    callId: string,
-    request: string,
-    topic: string | null,
-  ): Promise<void> {
+  private async emitInbound(callId: string, request: string, topic: string | null): Promise<void> {
     if (!this.hostConfig) return;
     log.info('voice_request_received', { callId, topic, length: request.length });
     const message: InboundMessage = {
@@ -358,10 +338,7 @@ class VoiceAdapter implements ChannelAdapter {
 
   private async backoff(): Promise<void> {
     this.reconnectAttempts += 1;
-    const delay = Math.min(
-      RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempts - 1),
-      RECONNECT_MAX_MS,
-    );
+    const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempts - 1), RECONNECT_MAX_MS);
     await new Promise((r) => setTimeout(r, delay));
   }
 }

@@ -20,15 +20,10 @@ vi.mock('../config.js', async () => {
 import fs from 'fs';
 
 import { initTestDb, closeDb, runMigrations } from '../db/index.js';
-import {
-  createAgentGroup,
-  createMessagingGroup,
-  createMessagingGroupAgent,
-} from '../db/index.js';
+import { createAgentGroup, createMessagingGroup, createMessagingGroupAgent } from '../db/index.js';
 import { __voiceTestables, VOICE_CHANNEL_TYPE, VOICE_PLATFORM_ID } from './voice.js';
 
-const { callMcpTool, extractTextFromOutbound, pickDiscordFanoutTarget, VoiceAdapter } =
-  __voiceTestables;
+const { callMcpTool, extractTextFromOutbound, pickDiscordFanoutTarget, VoiceAdapter } = __voiceTestables;
 
 const TEST_DIR = '/tmp/nanoclaw-test-voice';
 
@@ -92,14 +87,10 @@ function seedAgentAndVoiceMg(opts: { withDiscord: boolean }): void {
 
 describe('extractTextFromOutbound', () => {
   it('reads markdown field', () => {
-    expect(
-      extractTextFromOutbound({ kind: 'message', content: { markdown: 'hi' } }),
-    ).toBe('hi');
+    expect(extractTextFromOutbound({ kind: 'message', content: { markdown: 'hi' } })).toBe('hi');
   });
   it('falls back to text field', () => {
-    expect(extractTextFromOutbound({ kind: 'message', content: { text: 'hi' } })).toBe(
-      'hi',
-    );
+    expect(extractTextFromOutbound({ kind: 'message', content: { text: 'hi' } })).toBe('hi');
   });
   it('prefers markdown over text', () => {
     expect(
@@ -138,31 +129,31 @@ describe('callMcpTool', () => {
   });
 
   it('parses SSE-shaped response', async () => {
-    globalThis.fetch = vi.fn(async () =>
-      new Response(
-        'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\\"ok\\":true,\\"result\\":{\\"empty\\":true}}"}]}}\n\n',
-        { status: 200 },
-      ),
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\\"ok\\":true,\\"result\\":{\\"empty\\":true}}"}]}}\n\n',
+          { status: 200 },
+        ),
     ) as unknown as typeof fetch;
     const r = await callMcpTool('http://x/', 'b', 'voice_wait_for_question', {});
     expect(r).toEqual({ ok: true, result: { empty: true } });
   });
 
   it('parses JSON-shaped response', async () => {
-    globalThis.fetch = vi.fn(async () =>
-      new Response(
-        '{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\\"ok\\":true,\\"result\\":{\\"delivered\\":true}}"}]}}',
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      ),
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          '{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\\"ok\\":true,\\"result\\":{\\"delivered\\":true}}"}]}}',
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
     ) as unknown as typeof fetch;
     const r = await callMcpTool('http://x/', 'b', 'voice_post_answer', {});
     expect(r).toEqual({ ok: true, result: { delivered: true } });
   });
 
   it('returns null on HTTP error', async () => {
-    globalThis.fetch = vi.fn(async () =>
-      new Response('forbidden', { status: 403 }),
-    ) as unknown as typeof fetch;
+    globalThis.fetch = vi.fn(async () => new Response('forbidden', { status: 403 })) as unknown as typeof fetch;
     expect(await callMcpTool('http://x/', 'b', 't', {})).toBeNull();
   });
 
@@ -174,8 +165,8 @@ describe('callMcpTool', () => {
   });
 
   it('returns null on bad payload shape', async () => {
-    globalThis.fetch = vi.fn(async () =>
-      new Response('event: message\ndata: {"result":{"content":[]}}\n\n', { status: 200 }),
+    globalThis.fetch = vi.fn(
+      async () => new Response('event: message\ndata: {"result":{"content":[]}}\n\n', { status: 200 }),
     ) as unknown as typeof fetch;
     expect(await callMcpTool('http://x/', 'b', 't', {})).toBeNull();
   });
