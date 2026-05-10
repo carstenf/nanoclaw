@@ -127,7 +127,15 @@ export function extractRouting(messages: MessageInRow[]): RoutingContext {
  * Strips routing fields — the agent never sees platform_id, channel_type, thread_id.
  */
 export function formatMessages(messages: MessageInRow[]): string {
-  const header = `<context timezone="${escapeXml(TIMEZONE)}" />\n`;
+  const headerParts = [`<context timezone="${escapeXml(TIMEZONE)}" />`];
+  // When any message in this batch came in over the voice channel, the agent's
+  // reply will be read aloud by the voice-stack TTS engine. Markdown, lists,
+  // emoji, and code fences read poorly; the format hint sits in the prompt
+  // header so the agent sees it before generating any of those.
+  if (messages.some((m) => m.channel_type === 'voice')) {
+    headerParts.push(VOICE_FORMAT_HINT);
+  }
+  const header = headerParts.join('\n') + '\n';
   if (messages.length === 0) return header;
 
   // Group by kind
@@ -153,6 +161,10 @@ export function formatMessages(messages: MessageInRow[]): string {
 
   return header + parts.join('\n\n');
 }
+
+const VOICE_FORMAT_HINT = `<voice-format>
+This message came in over the voice channel. Your reply will be spoken aloud by a TTS engine. Write the way you would speak: plain prose, no markdown, no bullet lists, no code fences, no emoji, no asterisks for emphasis. Keep it as short as the question allows but as long as the answer needs — a weather forecast or research summary may run a paragraph or two; an acknowledgement should be one sentence. Spell out abbreviations only when the spoken form would be unclear. The reply will be sent in parallel as a normal text message to your default Discord destination.
+</voice-format>`;
 
 function formatChatMessages(messages: MessageInRow[]): string {
   if (messages.length === 1) {
