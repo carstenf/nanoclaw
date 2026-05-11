@@ -104,10 +104,22 @@ export function getMessageIdBySeq(seq: number): string | null {
   }
 
   // Outbound messages: look up platform message ID from delivered table
-  const outRow = getOutboundDb().prepare('SELECT id FROM messages_out WHERE seq = ?').get(seq) as
-    | { id: string }
-    | undefined;
+  const outRow = getOutboundDb()
+    .prepare('SELECT id, content FROM messages_out WHERE seq = ?')
+    .get(seq) as { id: string; content: string } | undefined;
   if (!outRow) return null;
+
+  // Reject if this outbound row is itself an operation (edit / delete / reaction)
+  // — operations don't create new platform messages, so there's no platform id to
+  // target. Andy sometimes references operation seqs by mistake; failing fast here
+  // gives a clean "Message #X not found" instead of a misleading 400 from Discord
+  // about "msg-... is not a snowflake".
+  try {
+    const parsed = JSON.parse(outRow.content) as { operation?: string };
+    if (parsed && typeof parsed.operation === 'string') return null;
+  } catch {
+    // content isn't JSON — treat as regular message and continue.
+  }
 
   // Check if host has stored the platform message ID after delivery
   const deliveredRow = inbound
@@ -115,8 +127,12 @@ export function getMessageIdBySeq(seq: number): string | null {
     .get(outRow.id) as { platform_message_id: string | null } | undefined;
   if (deliveredRow?.platform_message_id) return deliveredRow.platform_message_id;
 
-  // Fallback to internal ID (edits/reactions on undelivered messages won't work)
-  return outRow.id;
+  // No platform id yet (message not delivered, or delivery didn't capture one).
+  // Returning null so callers fail fast with a usable error rather than a 400
+  // from the platform about a non-snowflake internal id. Edits/reactions on
+  // not-yet-delivered messages were already a known no-op; now they error
+  // cleanly instead of silently mis-targeting.
+  return null;
 }
 
 /**
