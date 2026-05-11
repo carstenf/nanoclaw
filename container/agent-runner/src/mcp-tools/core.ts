@@ -260,4 +260,48 @@ export const addReaction: McpToolDefinition = {
   },
 };
 
-registerTools([sendMessage, sendFile, editMessage, addReaction]);
+export const deleteMessage: McpToolDefinition = {
+  tool: {
+    name: 'delete_message',
+    description:
+      'Delete a message from the channel. Works for both your own previous replies AND messages from other users (incoming messages), as long as the bot has the platform-level permission (e.g. "Manage Messages" on Discord). DESTRUCTIVE — the message is removed for everyone, and there is no undo. For non-trivial deletions (anything other than your own immediate prior reply that you want to retract), confirm with the user first.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        messageId: {
+          type: 'integer',
+          description:
+            'The numeric id shown in <message id="..."> tags — works for both inbound (user/other-author messages, shown to you in the prompt) and outbound (your own previous replies).',
+        },
+      },
+      required: ['messageId'],
+    },
+  },
+  async handler(args) {
+    const seq = Number(args.messageId);
+    if (!seq) return err('messageId is required');
+
+    const platformId = getMessageIdBySeq(seq);
+    if (!platformId) return err(`Message #${seq} not found`);
+
+    const routing = getRoutingBySeq(seq);
+    if (!routing || !routing.channel_type || !routing.platform_id) {
+      return err(`Cannot determine destination for message #${seq}`);
+    }
+
+    const id = generateId();
+    writeMessageOut({
+      id,
+      kind: 'chat',
+      platform_id: routing.platform_id,
+      channel_type: routing.channel_type,
+      thread_id: routing.thread_id,
+      content: JSON.stringify({ operation: 'delete', messageId: platformId }),
+    });
+
+    log(`delete_message: #${seq} → ${platformId}`);
+    return ok(`Message delete queued for #${seq}`);
+  },
+};
+
+registerTools([sendMessage, sendFile, editMessage, addReaction, deleteMessage]);

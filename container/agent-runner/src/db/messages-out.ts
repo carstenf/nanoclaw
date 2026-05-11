@@ -90,11 +90,18 @@ export function writeMessageOut(msg: WriteMessageOut): number {
 export function getMessageIdBySeq(seq: number): string | null {
   const inbound = getInboundDb();
 
-  // Inbound messages: ID is already the platform message ID
+  // Inbound messages: messages_in.id is namespaced as `<platform-message-id>:<agent-group-id>`
+  // (see src/router.ts messageIdForAgent — prevents PK collisions when one inbound
+  // message fans out to multiple per-agent session DBs). Platform-level operations
+  // (delete, react, edit) need the raw platform message id, so strip the trailing
+  // `:<agent-group-id>` segment. agent_group_id never contains `:`.
   const inRow = inbound.prepare('SELECT id FROM messages_in WHERE seq = ?').get(seq) as
     | { id: string }
     | undefined;
-  if (inRow) return inRow.id;
+  if (inRow) {
+    const idx = inRow.id.lastIndexOf(':');
+    return idx > 0 ? inRow.id.slice(0, idx) : inRow.id;
+  }
 
   // Outbound messages: look up platform message ID from delivered table
   const outRow = getOutboundDb().prepare('SELECT id FROM messages_out WHERE seq = ?').get(seq) as
