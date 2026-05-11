@@ -67,9 +67,11 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
   clearStaleProcessingAcks();
 
   let pollCount = 0;
+  let isFirstPoll = true;
   while (true) {
     // Skip system messages — they're responses for MCP tools (e.g., ask_user_question)
-    const messages = getPendingMessages().filter((m) => m.kind !== 'system');
+    const messages = getPendingMessages(isFirstPoll).filter((m) => m.kind !== 'system');
+    isFirstPoll = false;
     pollCount++;
 
     // Periodic heartbeat so we know the loop is alive
@@ -384,7 +386,7 @@ async function processQuery(
         // reminder back into the live query so the next turn re-anchors
         // on the destination model. Only do this when there's >1
         // destination — single-destination groups have a fallback that
-        // works without wrapping. See qwibitai/nanoclaw#2325.
+        // works without wrapping. See nanocoai/nanoclaw#2325.
         const destinations = getAllDestinations();
         if (destinations.length > 1) {
           const names = destinations.map((d) => d.name).join(', ');
