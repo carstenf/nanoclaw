@@ -3,7 +3,6 @@ import path from 'path';
 
 import { DATA_DIR, GROUPS_DIR } from './config.js';
 import { ensureContainerConfig } from './db/container-configs.js';
-import { ensureHindsightWired } from './group-init-hindsight.js';
 import { log } from './log.js';
 import type { AgentGroup } from './types.js';
 
@@ -70,13 +69,6 @@ export function initGroupFilesystem(group: AgentGroup, opts?: { instructions?: s
   // the row already exists (e.g. created by backfill or group creation).
   ensureContainerConfig(group.id);
   initialized.push('container_configs');
-
-  // Auto-wire the universal hindsight-mcp into the new group's container
-  // config (mutates mcp_servers + additional_mounts JSON columns in the DB).
-  // Local customization on top of upstream — see /add-hindsight skill.
-  if (ensureHindsightWired(group.id, group.folder)) {
-    initialized.push('container_configs [+hindsight]');
-  }
 
   // 2. data/v2-sessions/<id>/.claude-shared/ — Claude state + per-group skills
   const claudeDir = path.join(DATA_DIR, 'v2-sessions', group.id, '.claude-shared');

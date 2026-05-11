@@ -11,7 +11,7 @@ You have a per-group long-term memory bank addressed by `group=<this group's fol
 - `mcp__hindsight__memory_retain(group, content, context?)` — persist a one- or two-sentence durable fact. The bank LLM extracts entities and links to the knowledge graph. Costs tokens server-side; pollution is permanent.
 - `mcp__hindsight__memory_reflect(group, query, budget)` — synthesise an answer from memories with evidence. Heavier than recall.
 
-**`group`** is always your agent group's folder name. Don't switch groups; you can only read your own bank. The server-side bank prefix is `nanoclaw:` so the full bank id is `nanoclaw:<folder>`.
+**`group`** is always your agent group's folder name. Don't switch groups; you can only read your own bank. The server-side bank prefix is configured by the operator (default `nanoclaw:`) so the full bank id is `<prefix>:<folder>`.
 
 ## When to recall
 
@@ -36,7 +36,7 @@ Selectively, after a turn produces something durable. Save:
 - **Facts about projects** — repos they own, stacks they use, deployment targets, ports, conventions.
 - **Decisions** — both what and why ("we picked Postgres over MySQL because of jsonb").
 - **Lessons / pitfalls** — recurring failure modes, "this dependency breaks if you bump past X".
-- **Pointers** — paths, URLs, channel ids, where things live ("voice-stack lives at voice_bot@10.0.0.1:~/voice-stack").
+- **Pointers** — paths, URLs, channel ids, where things live ("staging API gateway lives at `api.staging.example.com`").
 
 Do NOT save:
 
@@ -53,11 +53,11 @@ Do NOT save:
 A retained memory should be:
 
 - **One or two sentences max.** Long blobs hurt search relevance.
-- **Self-contained.** A future turn must understand it without reading the surrounding conversation. Bad: "He said yes." Good: "Carsten approved the v2-friendly voice cutover on 2026-05-09."
+- **Self-contained.** A future turn must understand it without reading the surrounding conversation. Bad: "He said yes." Good: "Operator approved the database cutover on 2026-03-14."
 - **Specific.** Include names, dates, numbers, paths. Avoid pronouns and vague time references ("recently" → use a date).
 - **Factual, not interpretive.** "User prefers terse replies" beats "User seems to prefer terse replies".
 
-The optional `context` argument is a short hint (e.g. `"voice cutover"`, `"infra config"`) — useful for grouping in the bank, not user-facing.
+The optional `context` argument is a short hint (e.g. `"infra-cutover"`, `"deploy-config"`) — useful for grouping in the bank, not user-facing.
 
 ## Anti-patterns
 
