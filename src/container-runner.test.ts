@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CONTAINER_CPU_LIMIT, CONTAINER_MEMORY_LIMIT } from './config.js';
 import type { ContainerConfig } from './container-config.js';
+import { isRootlessDocker } from './container-runtime.js';
 import {
   armSessionLifecycle,
   composeSessionSpec,
@@ -32,6 +33,13 @@ import type { AgentGroup, Session } from './types.js';
 
 vi.mock('./log.js', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), fatal: vi.fn() },
+}));
+
+// The real probe shells `docker info`; composition tests must not depend on
+// the daemon of whatever machine runs them.
+vi.mock('./container-runtime.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./container-runtime.js')>()),
+  isRootlessDocker: vi.fn(() => false),
 }));
 
 afterEach(() => resetGatewayProvider());
@@ -322,6 +330,25 @@ describe('composeSessionSpec', () => {
       const spec = compose();
       expect(spec.runAs).toEqual({ uid: 501, gid: 20 });
       expect(spec.containers[0].env.HOME).toBe('/home/node');
+    } finally {
+      getuid.mockRestore();
+      getgid.mockRestore();
+    }
+  });
+
+  it('runs as container root under rootless Docker, where uid 0 is the host user', () => {
+    // Rootless Docker maps container uid 0 onto the host user and every other
+    // uid into the subordinate range, so the host-uid mapping would leave the
+    // host-owned mounts unwritable. IS_SANDBOX lets Claude Code accept
+    // bypassPermissions as that unprivileged in-container root.
+    vi.mocked(isRootlessDocker).mockReturnValueOnce(true);
+    const getuid = vi.spyOn(process, 'getuid').mockReturnValue(1008);
+    const getgid = vi.spyOn(process, 'getgid').mockReturnValue(1012);
+    try {
+      const spec = compose();
+      expect(spec.runAs).toEqual({ uid: 0, gid: 0 });
+      expect(spec.containers[0].env.HOME).toBe('/home/node');
+      expect(spec.containers[0].env.IS_SANDBOX).toBe('1');
     } finally {
       getuid.mockRestore();
       getgid.mockRestore();

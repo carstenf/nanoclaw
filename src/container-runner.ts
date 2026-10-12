@@ -27,7 +27,7 @@ import {
 import { CONTAINER_PLUGINS_DIR, materializeContainerJson } from './container-config.js';
 import { getContainerConfig } from './db/container-configs.js';
 import { updateContainerConfigScalars } from './db/container-configs.js';
-import { CONTAINER_RUNTIME_BIN } from './container-runtime.js';
+import { CONTAINER_RUNTIME_BIN, isRootlessDocker } from './container-runtime.js';
 import { composeGroupProjectDoc, DEFAULT_PROJECT_DOC } from './project-doc-compose.js';
 import { getAgentGroup } from './db/agent-groups.js';
 import {
@@ -1310,8 +1310,18 @@ export function composeSessionSpec(input: ComposeSessionSpecInput): SessionSpec 
   // the image has no passwd entry for resolves HOME to '/', and the provider
   // SDK's `mkdir ~/.claude` dies EACCES; /home/node is chmod 777 in the agent
   // image, so it is writable by any uid under both drivers.
-  const runAs = hostUid != null && hostUid !== 0 ? { uid: hostUid, gid: hostGid ?? hostUid } : undefined;
+  // Rootless Docker inverts the mapping: container uid 0 IS the host user
+  // (no host privilege), while container uid == host uid lands in the
+  // subordinate range and cannot write the host-owned mounts. IS_SANDBOX
+  // lets Claude Code accept bypassPermissions as that in-container root.
+  const rootless = hostUid != null && hostUid !== 0 && isRootlessDocker();
+  const runAs = rootless
+    ? { uid: 0, gid: 0 }
+    : hostUid != null && hostUid !== 0
+      ? { uid: hostUid, gid: hostGid ?? hostUid }
+      : undefined;
   if (runAs) env.HOME = '/home/node';
+  if (rootless) env.IS_SANDBOX = '1';
 
   const agent: ContainerSpec = {
     role: 'agent',
