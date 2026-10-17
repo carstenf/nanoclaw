@@ -1126,7 +1126,7 @@ async function handleForwardedEvent(
         const colonIdx = customId.indexOf(':', 4); // after "ncq:"
         if (colonIdx !== -1) {
           questionId = customId.slice(4, colonIdx);
-          tail = customId.slice(colonIdx + 1);
+          tail = customId.slice(colonIdx + 1).split('\n')[0]; // chat-adapter appends '\n<value>'
         }
       }
 
