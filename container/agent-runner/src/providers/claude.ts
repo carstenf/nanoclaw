@@ -17,7 +17,7 @@ import {
 } from './claude-config.js';
 // Transcript archiving and rotation are this provider's own concern: both
 // read the SDK's on-disk .jsonl, which no other provider has.
-import { archiveClaudeTranscript, rotateClaudeContinuation } from './claude-history.js';
+import { archiveClaudeContinuation, archiveClaudeTranscript, rotateClaudeContinuation } from './claude-history.js';
 import { registerProvider } from './provider-registry.js';
 import type { AgentProvider, AgentQuery, ProviderEvent, ProviderOptions, QueryInput } from './types.js';
 
@@ -258,6 +258,11 @@ export class ClaudeProvider implements AgentProvider {
    */
   maybeRotateContinuation(continuation: string, _cwd: string): string | null {
     return rotateClaudeContinuation({ continuation, assistantName: this.assistantName, log }, REAL_CLOCK);
+  }
+
+  /** Agent-requested reset (reset_session): archive the old transcript into conversations/. */
+  archiveContinuation(continuation: string): void {
+    archiveClaudeContinuation({ continuation, assistantName: this.assistantName, log }, REAL_CLOCK);
   }
 
   query(input: QueryInput): AgentQuery {

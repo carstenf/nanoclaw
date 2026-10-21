@@ -31,12 +31,25 @@ import {
   type RoutingContext,
 } from './formatter.js';
 import { stripHarnessTagArtifacts } from './harness-tag-strip.js';
+import {
+  checkRateLimits,
+  formatResumePrompt,
+  hasPendingReset,
+  recordReset,
+  takePendingReset,
+} from './session-reset.js';
 import { isUploadTraceCommand, uploadTrace } from './upload-trace.js';
 import type { AgentProvider, AgentQuery, ProviderEvent, ProviderExchange } from './providers/types.js';
 import type { ProviderRuntimeContract } from './provider-contracts/registry.js';
 
 const POLL_INTERVAL_MS = 1000;
 const ACTIVE_POLL_INTERVAL_MS = 500;
+
+/** Quiet time after a result before a pending session reset ends the query despite queued turns. */
+function resetIdleMs(): number {
+  const value = Number(process.env.NANOCLAW_RESET_IDLE_MS);
+  return Number.isFinite(value) && value > 0 ? value : 10_000;
+}
 
 /** Consecutive driver-classified failures before a fresh runner is required. */
 const MAILBOX_FAILURE_STREAK_EXIT = 10;
@@ -122,10 +135,166 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
   // Same for the reply stamp a killed container left behind (see session-state.ts).
   clearCurrentReplyRoute();
 
+  /**
+   * Run one provider query (opening batch + any follow-ups pushed while it
+   * stays open). Returns true when it ended because the agent requested a
+   * session reset (reset_session) after its last queued turn.
+   */
+  const runQuery = async (prompt: string, routing: RoutingContext, processingIds: string[]): Promise<boolean> => {
+    const query = config.provider.query({
+      prompt,
+      continuation,
+      cwd: config.cwd,
+      systemContext: config.systemContext,
+    });
+    // Publish the batch's route so MCP tools (send_message, send_file) thread
+    // replies into the conversation being answered and stamp in_reply_to for
+    // a2a return-path routing. Re-published at every turn boundary inside
+    // processQuery as later messages are answered.
+    publishReplyRoute(routing);
+    // Forward a loop stop to the ACTIVE query. The stream deliberately stays
+    // open between turns, so the loop can be parked inside processQuery when
+    // config.signal fires; without this, the "stopped" loop's query — and its
+    // 500ms follow-up poller — outlives the stop and keeps polling (and
+    // claiming) messages from whatever inbound DB the process points at. In
+    // tests that leaked one immortal poller per loop-driven test, which could
+    // steal a later test's follow-up message into a dead query.
+    const abortActiveQuery = () => query.abort();
+    if (config.signal?.aborted) abortActiveQuery();
+    else config.signal?.addEventListener('abort', abortActiveQuery, { once: true });
+    let resetRequested = false;
+    try {
+      const result = await processQuery(
+        query,
+        routing,
+        processingIds,
+        config.providerName,
+        config.provider.onExchangeComplete?.bind(config.provider),
+        prompt,
+        continuation,
+        midTurnCompleteDelivery,
+        config.signal,
+      );
+      if (result.continuation && result.continuation !== continuation) {
+        continuation = result.continuation;
+        setContinuation(config.providerName, continuation);
+      }
+      resetRequested = result.resetRequested === true;
+    } catch (err) {
+      log(`Query error: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+
+      // Stale/corrupt continuation recovery: ask the provider whether
+      // this error means the stored continuation is unusable, and clear
+      // it so the next attempt starts fresh.
+      if (continuation && config.provider.isSessionInvalid(err)) {
+        log(`Stale session detected (${continuation}) — clearing for next retry`);
+        continuation = undefined;
+        clearContinuation(config.providerName);
+      }
+
+      // processQuery owns failure notices: it knows which active and queued
+      // turns the failure abandoned. The opening batch may already be done.
+
+      // The batch is still acked completed below (no redelivery). Without
+      // this line the only log trace of the errored turn is "Query error"
+      // followed by a "Completed" line that reads like success.
+      log(`Errored batch will be acked completed — ${processingIds.length} message(s), no redelivery`);
+    } finally {
+      clearCurrentReplyRoute();
+      config.signal?.removeEventListener('abort', abortActiveQuery);
+    }
+
+    // Ensure completed even if processQuery ended without a result event
+    // (e.g. stream closed unexpectedly).
+    if (processingIds.length > 0) markCompleted(processingIds);
+    log(`Completed ${processingIds.length} message(s)`);
+    return resetRequested;
+  };
+
+  // Agent-requested session reset: clear the continuation (same as /clear),
+  // archive the old transcript, notify the origin channel, and hand back the
+  // resume turn the loop must run next. Null when nothing (valid) is pending.
+  let pendingResume: { prompt: string; routing: RoutingContext } | null = null;
+  const performSessionReset = async (): Promise<{ prompt: string; routing: RoutingContext } | null> => {
+    const pending = takePendingReset();
+    if (!pending) return null;
+    const route = pending.route;
+    if (!route || route.channelType === null) {
+      log('Session reset dropped — request has no reply channel (task run)');
+      return null;
+    }
+    const routing: RoutingContext = {
+      platformId: route.platformId,
+      channelType: route.channelType,
+      threadId: route.threadId,
+      inReplyTo: route.inReplyTo,
+      taskRun: false,
+    };
+    const notify = (text: string) =>
+      writeMessageOut({
+        id: generateId(),
+        kind: 'chat',
+        platform_id: routing.platformId,
+        channel_type: routing.channelType,
+        thread_id: routing.threadId,
+        content: JSON.stringify({ text }),
+      });
+    const limited = checkRateLimits();
+    if (limited) {
+      log(`Session reset refused at execution: ${limited}`);
+      await notify(`Session reset refused: ${limited}`);
+      return null;
+    }
+    if (!continuation) {
+      log('Session reset not supported — provider keeps no continuation');
+      await notify('Session reset not supported: this provider keeps no resumable session.');
+      return null;
+    }
+    const previous = continuation;
+    try {
+      config.provider.archiveContinuation?.(previous);
+    } catch (err) {
+      log(`Archiving before reset failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    continuation = undefined;
+    clearContinuation(config.providerName);
+    recordReset({
+      at: new Date().toISOString(),
+      reason: pending.reason,
+      handover_path: pending.handover_path,
+      previous_session: previous,
+    });
+    log(
+      `Session reset (reason: ${pending.reason}) — previous session ${previous}, resuming from ${pending.handover_path}`,
+    );
+    await notify(
+      `Session reset (reason: ${pending.reason}). Previous session: ${previous}. Starting fresh from the handover.`,
+    );
+    return { prompt: formatResumePrompt(pending, previous), routing };
+  };
+
+  // A container that died between scheduling and executing a reset carries
+  // the request over: perform it before resuming the old session.
+  if (hasPendingReset()) {
+    log('Pending session reset found at startup — executing it before resuming');
+    pendingResume = await performSessionReset();
+  }
+
   let pollCount = 0;
   let isFirstPoll = true;
   while (true) {
     if (config.signal?.aborted) return;
+
+    // Resume turn of a just-performed session reset: runs before any
+    // inbound message; messages that arrived meanwhile follow in order
+    // (pushed into this fresh query, or picked up by the next poll).
+    if (pendingResume) {
+      const resume = pendingResume;
+      pendingResume = null;
+      log('Starting fresh session with resume prompt');
+      if (await runQuery(resume.prompt, resume.routing, [])) pendingResume = await performSessionReset();
+      continue;
+    }
     // Skip system messages — they're responses for MCP tools (e.g., ask_user_question)
     const messages = getPendingMessages(isFirstPoll).filter((m) => m.kind !== 'system');
     isFirstPoll = false;
@@ -239,74 +408,9 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
 
     log(`Processing ${keep.length} message(s), kinds: ${[...new Set(keep.map((m) => m.kind))].join(',')}`);
 
-    const query = config.provider.query({
-      prompt,
-      continuation,
-      cwd: config.cwd,
-      systemContext: config.systemContext,
-    });
-    // Process the query while concurrently polling for new messages
     const skippedSet = new Set(skipped.map((s) => s.id));
     const processingIds = ids.filter((id) => !commandIds.includes(id) && !skippedSet.has(id));
-    // Publish the batch's route so MCP tools (send_message, send_file) thread
-    // replies into the conversation being answered and stamp in_reply_to for
-    // a2a return-path routing. Re-published at every turn boundary inside
-    // processQuery as later messages are answered.
-    publishReplyRoute(routing);
-    // Forward a loop stop to the ACTIVE query. The stream deliberately stays
-    // open between turns, so the loop can be parked inside processQuery when
-    // config.signal fires; without this, the "stopped" loop's query — and its
-    // 500ms follow-up poller — outlives the stop and keeps polling (and
-    // claiming) messages from whatever inbound DB the process points at. In
-    // tests that leaked one immortal poller per loop-driven test, which could
-    // steal a later test's follow-up message into a dead query.
-    const abortActiveQuery = () => query.abort();
-    if (config.signal?.aborted) abortActiveQuery();
-    else config.signal?.addEventListener('abort', abortActiveQuery, { once: true });
-    try {
-      const result = await processQuery(
-        query,
-        routing,
-        processingIds,
-        config.providerName,
-        config.provider.onExchangeComplete?.bind(config.provider),
-        prompt,
-        continuation,
-        midTurnCompleteDelivery,
-        config.signal,
-      );
-      if (result.continuation && result.continuation !== continuation) {
-        continuation = result.continuation;
-        setContinuation(config.providerName, continuation);
-      }
-    } catch (err) {
-      log(`Query error: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
-
-      // Stale/corrupt continuation recovery: ask the provider whether
-      // this error means the stored continuation is unusable, and clear
-      // it so the next attempt starts fresh.
-      if (continuation && config.provider.isSessionInvalid(err)) {
-        log(`Stale session detected (${continuation}) — clearing for next retry`);
-        continuation = undefined;
-        clearContinuation(config.providerName);
-      }
-
-      // processQuery owns failure notices: it knows which active and queued
-      // turns the failure abandoned. The opening batch may already be done.
-
-      // The batch is still acked completed below (no redelivery). Without
-      // this line the only log trace of the errored turn is "Query error"
-      // followed by a "Completed" line that reads like success.
-      log(`Errored batch will be acked completed — ${processingIds.length} message(s), no redelivery`);
-    } finally {
-      clearCurrentReplyRoute();
-      config.signal?.removeEventListener('abort', abortActiveQuery);
-    }
-
-    // Ensure completed even if processQuery ended without a result event
-    // (e.g. stream closed unexpectedly).
-    markCompleted(processingIds);
-    log(`Completed ${ids.length} message(s)`);
+    if (await runQuery(prompt, routing, processingIds)) pendingResume = await performSessionReset();
   }
 }
 
@@ -350,6 +454,8 @@ function formatMessagesWithCommands(
 
 interface QueryResult {
   continuation?: string;
+  /** The query was ended for an agent-requested session reset (reset_session). */
+  resetRequested?: boolean;
 }
 
 export async function processQuery(
@@ -464,8 +570,29 @@ export async function processQuery(
   let pollInFlight = false;
   let endedForCommand = false;
   let mailboxFailureStreak = 0;
+  // Agent-requested session reset (reset_session): the tool only records the
+  // request. End the stream once nothing is answering, queued, or being
+  // pushed — never mid-turn. end(), not abort(): there is no in-flight turn
+  // left to cut off. The caller performs the reset and starts the resume turn.
+  // The SDK can absorb a follow-up pushed mid-turn into the running turn and
+  // emit a single result for both, leaving a phantom entry in queuedTurns
+  // (observed live 2026-10-21). So a quiet stream after a result also counts
+  // as idle. end() only closes input; a turn the SDK still has runs to
+  // completion before the stream closes, so a wrong guess never cuts a turn.
+  let lastEventAt = Date.now();
+  let lastWasResult = false;
+  let endedForReset = false;
+  const maybeEndForReset = (): void => {
+    if (done || endedForReset || endedForCommand || pollInFlight) return;
+    const quietAfterResult = lastWasResult && Date.now() - lastEventAt >= resetIdleMs();
+    if ((answering || queuedTurns.length > 0) && !quietAfterResult) return;
+    if (!hasPendingReset()) return;
+    log('Pending session reset — ending query after the last queued turn');
+    endedForReset = true;
+    query.end();
+  };
   const pollHandle = setInterval(() => {
-    if (done || pollInFlight || endedForCommand) return;
+    if (done || pollInFlight || endedForCommand || endedForReset) return;
     pollInFlight = true;
 
     void (async () => {
@@ -539,6 +666,8 @@ export async function processQuery(
         const prompt = formatMessages(keep);
         log(`Pushing ${keep.length} follow-up message(s) into active query`);
         query.push(prompt);
+        lastWasResult = false;
+        lastEventAt = Date.now();
         archivePrompts.push(prompt);
         const next: QueuedTurn = {
           routing: extractRouting(keep),
@@ -576,6 +705,9 @@ export async function processQuery(
         }
       } finally {
         pollInFlight = false;
+        // A reset requested while this poll ran was deferred; with nothing
+        // pushed and the query idle, it can go now.
+        maybeEndForReset();
       }
     })();
   }, ACTIVE_POLL_INTERVAL_MS);
@@ -584,6 +716,8 @@ export async function processQuery(
     for await (const event of query.events) {
       handleEvent(event, routing);
       touchHeartbeat();
+      lastEventAt = Date.now();
+      lastWasResult = event.type === 'result';
 
       if (event.type === 'init') {
         queryContinuation = event.continuation;
@@ -711,6 +845,7 @@ export async function processQuery(
         const next = queuedTurns.shift();
         if (next) adoptTurn(next);
         else answering = false;
+        maybeEndForReset();
       }
     }
   } catch (err) {
@@ -763,7 +898,7 @@ export async function processQuery(
     clearInterval(pollHandle);
   }
 
-  return { continuation: queryContinuation };
+  return { continuation: queryContinuation, resetRequested: endedForReset };
 }
 
 function notifyExchangeComplete(
