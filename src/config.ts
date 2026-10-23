@@ -19,7 +19,16 @@ const envConfig = readEnvFile([
   'NANOCLAW_EGRESS_LOCKDOWN',
   'NANOCLAW_EGRESS_NETWORK',
   'WEBHOOK_PORT',
+  'NANOCLAW_CONTAINER_CEILING_MIN',
 ]);
+
+// Idle ceiling (minutes) before a running container whose heartbeat went
+// stale is killed by the host sweep. Local setting, default 30 (upstream).
+export const CONTAINER_CEILING_MS = (() => {
+  const raw = process.env.NANOCLAW_CONTAINER_CEILING_MIN || envConfig.NANOCLAW_CONTAINER_CEILING_MIN || '30';
+  const min = Number(raw);
+  return (Number.isFinite(min) && min > 0 ? min : 30) * 60 * 1000;
+})();
 
 /**
  * @deprecated WhatsApp adapter copies now read the ASSISTANT_NAME .env key

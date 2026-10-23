@@ -13,7 +13,7 @@
  *   tries++. Existing retry machinery does the rest.
  *
  *   If the container IS running:
- *     1. Absolute ceiling: heartbeat age > max(30 min, current_bash_timeout)
+ *     1. Absolute ceiling: heartbeat age > max(NANOCLAW_CONTAINER_CEILING_MIN, current_bash_timeout)
  *        → kill. Covers the "alive but silent for 30 min" case. Extended
  *        only while Bash is declared as running longer, honouring the
  *        user's own timeout directive. Kill then resets processing rows.
@@ -37,6 +37,7 @@ import { getAgentGroup } from './db/agent-groups.js';
 import { log } from './log.js';
 import { heartbeatPath, withExistingMailboxSession } from './session-manager.js';
 import { getContainerStartedAtMs, isContainerRunning, killContainer } from './container-runner.js';
+import { CONTAINER_CEILING_MS } from './config.js';
 import { requestWake } from './request-wake.js';
 import type { Session } from './types.js';
 import type { ContainerState, InboundMailbox, OutboundMailbox } from './mailbox/index.js';
@@ -44,7 +45,8 @@ import type { ContainerState, InboundMailbox, OutboundMailbox } from './mailbox/
 // Absolute idle ceiling for a running container. If the heartbeat file hasn't
 // been touched in this long, the container is either stuck or doing genuinely
 // nothing — kill and restart on the next inbound.
-export const ABSOLUTE_CEILING_MS = 30 * 60 * 1000;
+// Configurable via NANOCLAW_CONTAINER_CEILING_MIN in .env (default 30).
+export const ABSOLUTE_CEILING_MS = CONTAINER_CEILING_MS;
 // Stuck tolerance window applied per 'processing' claim — "did we see any
 // signs of life since this message was claimed?"
 export const CLAIM_STUCK_MS = 60 * 1000;
