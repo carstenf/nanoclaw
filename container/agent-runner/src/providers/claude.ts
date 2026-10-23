@@ -271,10 +271,16 @@ export class ClaudeProvider implements AgentProvider {
     stream.push(input.prompt);
 
     const instructions = input.systemContext?.instructions;
+    // abort() must stop the Claude Code process itself: with background
+    // tasks (Monitor, run_in_background Bash) still alive, the SDK keeps the
+    // stream open after stream.end() and emits nothing, so a flag checked on
+    // the next SDK message alone would never fire.
+    const abortController = new AbortController();
 
     const sdkResult = sdkQuery({
       prompt: stream,
       options: {
+        abortController,
         cwd: input.cwd,
         additionalDirectories: this.additionalDirectories,
         resume: input.continuation,
@@ -318,7 +324,18 @@ export class ClaudeProvider implements AgentProvider {
 
     let aborted = false;
 
+    // An abort kills the SDK process, which surfaces as a rejected iterator;
+    // that is the requested outcome, not a query error.
     async function* translateEvents(): AsyncGenerator<ProviderEvent> {
+      try {
+        yield* translateSdkEvents();
+      } catch (err) {
+        if (!aborted) throw err;
+        log(`Query aborted (${err instanceof Error ? err.message : String(err)})`);
+      }
+    }
+
+    async function* translateSdkEvents(): AsyncGenerator<ProviderEvent> {
       let messageCount = 0;
       let lastStreamActivityAt = 0;
       for await (const message of sdkResult) {
@@ -439,6 +456,7 @@ export class ClaudeProvider implements AgentProvider {
       abort: () => {
         aborted = true;
         stream.end();
+        abortController.abort();
       },
     };
   }

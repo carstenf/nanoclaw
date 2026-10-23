@@ -51,6 +51,18 @@ function resetIdleMs(): number {
   return Number.isFinite(value) && value > 0 ? value : 10_000;
 }
 
+/**
+ * How long a query ended for a pending reset may stay open before it is
+ * aborted. end() only closes input: background tasks (Monitor, background
+ * Bash) keep the SDK stream alive and their notifications open new turns,
+ * which held a reset — and the user's next messages — for 22 min
+ * (2026-10-23). Abort kills the process and with it those tasks.
+ */
+function resetGraceMs(): number {
+  const value = Number(process.env.NANOCLAW_RESET_GRACE_MS);
+  return Number.isFinite(value) && value > 0 ? value : 30_000;
+}
+
 /** Consecutive driver-classified failures before a fresh runner is required. */
 const MAILBOX_FAILURE_STREAK_EXIT = 10;
 
@@ -582,6 +594,8 @@ export async function processQuery(
   let lastEventAt = Date.now();
   let lastWasResult = false;
   let endedForReset = false;
+  let abortedForReset = false;
+  let resetGraceTimer: ReturnType<typeof setTimeout> | undefined;
   const maybeEndForReset = (): void => {
     if (done || endedForReset || endedForCommand || pollInFlight) return;
     const quietAfterResult = lastWasResult && Date.now() - lastEventAt >= resetIdleMs();
@@ -590,6 +604,12 @@ export async function processQuery(
     log('Pending session reset — ending query after the last queued turn');
     endedForReset = true;
     query.end();
+    resetGraceTimer = setTimeout(() => {
+      if (done) return;
+      log(`Query still open ${resetGraceMs() / 1000}s after reset end (background tasks?) — aborting`);
+      abortedForReset = true;
+      query.abort();
+    }, resetGraceMs());
   };
   const pollHandle = setInterval(() => {
     if (done || pollInFlight || endedForCommand || endedForReset) return;
@@ -852,8 +872,13 @@ export async function processQuery(
     // Freeze the queue before awaiting notices. Follow-ups have already been
     // acknowledged, so an abandoned queued turn cannot rely on redelivery.
     done = true;
-    const cancelled = endedForCommand || signal?.aborted;
     const errMsg = err instanceof Error ? err.message : String(err);
+    // The abort was ours, to finish a pending reset: not a failure.
+    if (abortedForReset) {
+      log(`Query ended by reset abort (${errMsg})`);
+      return { continuation: queryContinuation, resetRequested: true };
+    }
+    const cancelled = endedForCommand || signal?.aborted;
     notifyExchangeComplete(onExchangeComplete, {
       prompt: archivePrompts[0] ?? initialPrompt,
       result: `Error: ${errMsg}`,
@@ -896,6 +921,7 @@ export async function processQuery(
   } finally {
     done = true;
     clearInterval(pollHandle);
+    if (resetGraceTimer) clearTimeout(resetGraceTimer);
   }
 
   return { continuation: queryContinuation, resetRequested: endedForReset };

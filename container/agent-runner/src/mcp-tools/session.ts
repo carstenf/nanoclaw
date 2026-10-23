@@ -75,7 +75,9 @@ export const resetSession: McpToolDefinition = {
     });
     log(`reset_session scheduled: ${reason}`);
     return ok(
-      'scheduled — the session resets after this turn ends. Finish your turn now with a short note to the user; ' +
+      'scheduled — the session resets after this turn ends. If any background task is still running ' +
+        '(Monitor, background Bash, subagent), stop it now with TaskStop; whatever is still running ~30 s after ' +
+        'your turn ends is killed. Then finish your turn with a short note to the user; ' +
         `the fresh session starts with: "${resumePrompt}"`,
     );
   },
