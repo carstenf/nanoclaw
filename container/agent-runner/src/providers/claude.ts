@@ -17,7 +17,7 @@ import {
 } from './claude-config.js';
 // Transcript archiving and rotation are this provider's own concern: both
 // read the SDK's on-disk .jsonl, which no other provider has.
-import { archiveClaudeTranscript, rotateClaudeContinuation } from './claude-history.js';
+import { archiveClaudeContinuation, archiveClaudeTranscript, rotateClaudeContinuation } from './claude-history.js';
 import { registerProvider } from './provider-registry.js';
 import type { AgentProvider, AgentQuery, ProviderEvent, ProviderOptions, QueryInput } from './types.js';
 
@@ -260,16 +260,27 @@ export class ClaudeProvider implements AgentProvider {
     return rotateClaudeContinuation({ continuation, assistantName: this.assistantName, log }, REAL_CLOCK);
   }
 
+  /** Agent-requested reset (reset_session): archive the old transcript into conversations/. */
+  archiveContinuation(continuation: string): void {
+    archiveClaudeContinuation({ continuation, assistantName: this.assistantName, log }, REAL_CLOCK);
+  }
+
   query(input: QueryInput): AgentQuery {
     if (!this.memorySessionHook) throw new Error('Claude memory session hook was not registered');
     const stream = new MessageStream();
     stream.push(input.prompt);
 
     const instructions = input.systemContext?.instructions;
+    // abort() must stop the Claude Code process itself: with background
+    // tasks (Monitor, run_in_background Bash) still alive, the SDK keeps the
+    // stream open after stream.end() and emits nothing, so a flag checked on
+    // the next SDK message alone would never fire.
+    const abortController = new AbortController();
 
     const sdkResult = sdkQuery({
       prompt: stream,
       options: {
+        abortController,
         cwd: input.cwd,
         additionalDirectories: this.additionalDirectories,
         resume: input.continuation,
@@ -313,7 +324,18 @@ export class ClaudeProvider implements AgentProvider {
 
     let aborted = false;
 
+    // An abort kills the SDK process, which surfaces as a rejected iterator;
+    // that is the requested outcome, not a query error.
     async function* translateEvents(): AsyncGenerator<ProviderEvent> {
+      try {
+        yield* translateSdkEvents();
+      } catch (err) {
+        if (!aborted) throw err;
+        log(`Query aborted (${err instanceof Error ? err.message : String(err)})`);
+      }
+    }
+
+    async function* translateSdkEvents(): AsyncGenerator<ProviderEvent> {
       let messageCount = 0;
       let lastStreamActivityAt = 0;
       for await (const message of sdkResult) {
@@ -434,6 +456,7 @@ export class ClaudeProvider implements AgentProvider {
       abort: () => {
         aborted = true;
         stream.end();
+        abortController.abort();
       },
     };
   }

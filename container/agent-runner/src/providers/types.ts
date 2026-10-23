@@ -55,6 +55,13 @@ export interface AgentProvider {
    * before it ever replies. Providers without an on-disk transcript omit this.
    */
   maybeRotateContinuation?(continuation: string, cwd: string): string | null;
+
+  /**
+   * Optional. Archive the transcript behind `continuation` before an
+   * agent-requested session reset (`reset_session`) drops it, so the history
+   * stays searchable. Providers without an on-disk transcript omit this.
+   */
+  archiveContinuation?(continuation: string): void;
 }
 
 /** One prompt/result round-trip, as reported to `onExchangeComplete`. */

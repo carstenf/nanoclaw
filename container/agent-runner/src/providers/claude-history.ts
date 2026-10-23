@@ -254,6 +254,26 @@ export function rotateClaudeContinuation(
   }
 }
 
+/**
+ * Archive the transcript behind a continuation for an agent-requested session
+ * reset (reset_session). Unlike rotation the `.jsonl` stays in place: the next
+ * query simply starts a new session file. Never throws.
+ */
+export function archiveClaudeContinuation(input: ClaudeContinuationRotationInput, fx: ClaudeHistoryClock): boolean {
+  const transcriptPath = findContinuationFile(
+    path.join(claudeConfigDirectory(), 'projects'),
+    `${input.continuation}.jsonl`,
+  );
+  if (!transcriptPath) {
+    input.log(`No transcript found for continuation ${input.continuation}`);
+    return false;
+  }
+  return archiveClaudeTranscript(
+    { transcriptPath, sessionId: input.continuation, assistantName: input.assistantName, log: input.log },
+    fx,
+  );
+}
+
 function decideContinuationRotation(
   input: { size: number; firstLine: string },
   fx: ClaudeHistoryClock,
