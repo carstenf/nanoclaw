@@ -36,7 +36,7 @@ Name document and page for every statement from a document ("Home contents polic
 
 ## Writing facts
 
-One fact = one `memory1:fact_retain` call: 1-2 self-contained sentences with names, dates and amounts - no pronouns, no "recently". There is no delete: record a change as the new state ("As of 2026-10, X is no longer … but …").
+One fact = one `memory1:fact_retain` call: 1-2 self-contained sentences with names, dates and amounts - no pronouns, no "recently". A changed situation is recorded as the new state ("As of 2026-10, X is no longer … but …"), not by deleting the old fact. Only a fact that is wrong or a duplicate is corrected with `memory1:fact_edit(fact_id, text)` or retired with `memory1:fact_forget(fact_id, reason)` (reversible with `undo=true`); the id comes from `fact_recall`, observations cannot be changed directly. Links and paths are kept verbatim: `fact_retain` reports them in `links_kept`, `fact_recall` appends any the extraction dropped as `[Links: …]`.
 
 ## Writing wiki pages
 
